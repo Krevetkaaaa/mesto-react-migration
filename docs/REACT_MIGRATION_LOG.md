@@ -8,8 +8,10 @@
 - Legacy remote `origin` недоступен: GitHub возвращает HTTP 403 и сообщает, что репозиторий отключён из-за trade-controls restriction.
 - Локальная исходная ветка до миграции: `codex/database-catalog`.
 - Последний локальный исходный commit до чистого baseline: `c03adf8`.
-- Baseline commit: будет записан после создания и проверки remote ref.
-- Baseline tag: будет записан после создания и проверки remote ref.
+- Canonical baseline commit: `ee8476473b64de946d81dc1adbcd7dc3871e4ac9`.
+- Canonical baseline tag: `pre-react-migration-20260805-1916`.
+- Remote verification: branch и dereferenced annotated tag указывают на `ee8476473b64de946d81dc1adbcd7dc3871e4ac9`.
+- Первый root checkpoint `46bf378f97c98eb8a53f663c0fa3ec26cc0314c3` и tag `pre-react-migration-20260805-1915` сохранены как superseded backup. PowerShell добавил BOM в начало subject. Опубликованная история не переписывалась; исправление выполнено новым commit с тем же tree `1f7e1ccefa183723b21e98e1ed6ecb0b5291b89e` и новым tag.
 
 Новый migration remote начинается с чистого root commit. Полная локальная object-база старого отключённого репозитория не публикуется: она занимает около 1 GiB и не нужна для отката миграции. Baseline содержит текущее проверенное дерево исходников, конфигурацию, схемы, документацию и архитектурные диаграммы. Локальные `work/` и `outputs/` исключены: это около 2,5 GiB исследовательских данных и сгенерированных артефактов.
 
@@ -27,7 +29,7 @@
 
 | Этап | Статус | Commit | Проверки | Ограничения и откат |
 | --- | --- | --- | --- | --- |
-| Baseline checkpoint | in progress | pending | server tests и syntax check прошли | После создания откат по annotated baseline tag |
+| Baseline checkpoint | complete | `ee8476473b64de946d81dc1adbcd7dc3871e4ac9` | server tests, syntax check, secret scan и remote ref verification прошли | Откат по `pre-react-migration-20260805-1916` |
 | 0. Требования и показатели | in progress | pending | аудит выполняется | Нагрузочный профиль пока является гипотезой из плана |
 | 1. Legacy safety net | pending | pending | pending | Legacy остаётся рабочим fallback |
 | 2. Framework foundation | pending | pending | pending | Не начат до подтверждённого baseline push |
