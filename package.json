@@ -1,0 +1,8 @@
+{
+  "name": "mesto-city-guide",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check app.js && node --check admin.js && node --check merchant.js && node --check lib/identity.js && node --check lib/merchant-permissions.js && node --check lib/oauth-flow.js && node --check lib/oauth-identity.js && node --check lib/oauth-providers.js && node --check lib/oauth-state.js && node --check lib/rate-limit.js && node --check lib/venue-access.js && node --check api/router.js && node --check handlers/venues.js && node --check handlers/venue-content.js && node --check handlers/submissions.js && node --check handlers/reviews.js && node --check handlers/uploads.js && node --check handlers/favorites.js && node --check handlers/admin/login.js && node --check handlers/admin/logout.js && node --check handlers/admin/session.js && node --check handlers/admin/dashboard.js && node --check handlers/admin/submissions.js && node --check handlers/admin/reviews.js && node --check handlers/admin/venues.js && node --check handlers/admin/merchants.js && node --check handlers/auth/login.js && node --check handlers/auth/register.js && node --check handlers/auth/session.js && node --check handlers/auth/logout.js && node --check handlers/auth/password.js && node --check handlers/auth/providers.js && node --check handlers/auth/oauth.js && node --check handlers/auth/oauth-session.js && node --check handlers/auth/oauth-vk-callback.js && node --check handlers/auth/yandex-callback.js && node --check handlers/merchant/dashboard.js && node --check handlers/merchant/venue.js && node --check handlers/merchant/menu.js && node --check handlers/merchant/promotions.js"
+  }
+}

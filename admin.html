@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Место — админ-панель</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="admin.css?v=admin-5" />
+  <link rel="stylesheet" href="admin-overrides.css?v=admin-5" />
+</head>
+<body>
+  <main class="admin-login" id="admin-login">
+    <section class="login-card">
+      <a class="admin-brand" href="/" aria-label="Место — на главную"><span>Место</span><i>✦</i></a>
+      <p class="admin-eyebrow">Закрытая зона редакции</p>
+      <h1>Управление каталогом</h1>
+      <p>Заявки пользователей, отзывы, карточки заведений и актуальная выдача по городам.</p>
+      <form id="admin-login-form">
+        <label>Логин<input name="login" type="text" autocomplete="username" required /></label>
+        <label>Пароль<input name="password" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">Войти в панель <span>→</span></button>
+      </form>
+      <div class="login-error" id="login-error" role="alert"></div>
+    </section>
+  </main>
+
+  <div class="admin-shell" id="admin-shell" hidden>
+    <aside class="admin-sidebar">
+      <a class="admin-brand admin-brand--light" href="/"><span>Место</span><i>✦</i></a>
+      <nav aria-label="Разделы админ-панели">
+        <button class="is-active" type="button" data-admin-view="overview"><span>⌂</span>Обзор</button>
+        <button type="button" data-admin-view="moderation"><span>◎</span>Модерация <b id="pending-badge">0</b></button>
+        <button type="button" data-admin-view="venues"><span>◇</span>Заведения</button>
+        <button type="button" data-admin-view="merchants"><span>♙</span>Рестораторы</button>
+        <button type="button" data-admin-view="reviews"><span>☆</span>Отзывы</button>
+      </nav>
+      <button class="sidebar-logout" type="button" data-admin-logout>Выйти</button>
+    </aside>
+
+    <section class="admin-workspace">
+      <header class="admin-topbar">
+        <div><p class="admin-eyebrow">Редакция «Места»</p><h1 id="admin-view-title">Добрый день</h1></div>
+        <div class="topbar-actions"><a href="/" target="_blank">Открыть сайт</a><button id="refresh-dashboard" type="button">Обновить</button><button class="primary" type="button" data-new-venue>+ Добавить заведение</button><button class="admin-mobile-logout" type="button" data-admin-logout>Выйти</button></div>
+      </header>
+
+      <div class="setup-alert" id="setup-alert" hidden><b>База данных ещё не подключена</b><span>Выполните <code>supabase/schema.sql</code> и добавьте переменные Supabase в Vercel. Интерфейс уже готов.</span></div>
+
+      <section class="admin-view is-active" data-view-panel="overview">
+        <div class="stat-grid">
+          <article><span>Опубликовано</span><b id="stat-venues">0</b><small>карточек «Места»</small></article>
+          <article><span>Новые заведения</span><b id="stat-submissions">0</b><small>ждут модерации</small></article>
+          <article><span>Новые отзывы</span><b id="stat-reviews">0</b><small>ждут проверки</small></article>
+          <article><span>Рестораторы</span><b id="stat-merchants">0</b><small>аккаунтов владельцев</small></article>
+          <article><span>Города</span><b id="stat-cities">0</b><small>в постоянном каталоге</small></article>
+        </div>
+        <div class="overview-grid">
+          <section class="admin-panel"><div class="panel-heading"><div><p class="admin-eyebrow">Очередь</p><h2>Последние заявки</h2></div><button type="button" data-admin-view="moderation">Смотреть все →</button></div><div id="overview-submissions" class="compact-list"></div></section>
+          <section class="admin-panel"><div class="panel-heading"><div><p class="admin-eyebrow">Каталог</p><h2>Недавно обновлены</h2></div><button type="button" data-admin-view="venues">Открыть каталог →</button></div><div id="overview-venues" class="compact-list"></div></section>
+        </div>
+      </section>
+
+      <section class="admin-view" data-view-panel="moderation" hidden>
+        <div class="view-heading"><div><p class="admin-eyebrow">Проверка редакции</p><h2>Заявки на добавление</h2><p>Одобрение автоматически создаёт опубликованную карточку. Отказ сохраняет причину для истории.</p></div></div>
+        <div class="moderation-grid" id="moderation-list"></div>
+      </section>
+
+      <section class="admin-view" data-view-panel="venues" hidden>
+        <div class="view-heading"><div><p class="admin-eyebrow">Постоянная база</p><h2>Заведения «Места»</h2><p>Редакционные, пользовательские и карточки владельцев хранятся в едином каталоге.</p></div><button class="primary" type="button" data-new-venue>+ Новое заведение</button></div>
+        <div class="table-wrap"><table><thead><tr><th>Заведение</th><th>Город</th><th>Категория</th><th>Статус</th><th></th></tr></thead><tbody id="venues-table"></tbody></table></div>
+      </section>
+
+      <section class="admin-view" data-view-panel="merchants" hidden>
+        <div class="view-heading"><div><p class="admin-eyebrow">Доступ владельцев</p><h2>Рестораторы</h2><p>Создавайте отдельные аккаунты и назначайте только те заведения, которыми владелец может управлять. Пароль показывается администратору один раз.</p></div><button class="primary" type="button" data-new-merchant>+ Добавить ресторатора</button></div>
+        <div class="merchant-summary" id="merchant-summary" aria-live="polite"></div>
+        <div class="table-wrap merchant-table-wrap"><table><thead><tr><th>Ресторатор</th><th>Доступ</th><th>Заведения</th><th>Статус</th><th>Последний вход</th><th></th></tr></thead><tbody id="merchants-table"><tr><td colspan="6"><div class="empty-state">Загружаем аккаунты…</div></td></tr></tbody></table></div>
+      </section>
+
+      <section class="admin-view" data-view-panel="reviews" hidden>
+        <div class="view-heading"><div><p class="admin-eyebrow">Обратная связь</p><h2>Отзывы на модерации</h2><p>Публикуйте только содержательные отзывы, основанные на реальном посещении.</p></div></div>
+        <div class="review-admin-list" id="reviews-list"></div>
+      </section>
+
+    </section>
+  </div>
+
+  <dialog class="venue-editor" id="venue-editor" aria-labelledby="venue-editor-title">
+    <button class="dialog-close" type="button" aria-label="Закрыть">×</button>
+    <form id="venue-editor-form">
+      <input name="id" type="hidden" />
+      <div class="editor-heading"><p class="admin-eyebrow">Карточка каталога</p><h2 id="venue-editor-title">Новое заведение</h2></div>
+      <div class="editor-grid">
+        <label>Название<input name="title" required /></label><label>Slug<input name="slug" placeholder="создастся автоматически" /></label>
+        <label>Город<select name="city" required><option>Симферополь</option><option>Ялта</option><option>Севастополь</option><option>Алушта</option><option>Евпатория</option><option>Феодосия</option></select></label>
+        <label>Категория<input name="category" placeholder="Ресторан" required /></label><label>Кухня<input name="cuisine" placeholder="Европейская" /></label><label>Средний чек<input name="averageCheck" placeholder="от 1 200 ₽" /></label>
+        <label class="wide">Адрес<input name="address" /></label><label>Телефон<input name="phone" /></label><label>Сайт<input name="website" type="url" /></label><label>Режим работы<input name="hours" /></label>
+        <label>Источник<select name="source"><option value="editorial">Редакция</option><option value="community">Пользователь</option><option value="merchant">Владелец</option></select></label><label>Статус<select name="status"><option value="published">Опубликовано</option><option value="draft">Черновик</option><option value="archived">Архив</option></select></label>
+        <label class="wide">Описание<textarea name="description" rows="5" required></textarea></label>
+        <label>Отметка редакции<select name="editorChoice"><option value="">Без отметки</option><option value="1">Выбор Места</option></select></label>
+        <label class="wide">Особенности через запятую<input name="features" placeholder="Wi-Fi, Парковка, Можно с питомцами" /></label>
+        <label class="wide">Ссылки на фотографии, по одной в строке<textarea name="photos" rows="4"></textarea></label>
+      </div>
+      <div class="editor-actions"><button type="button" data-editor-cancel>Отмена</button><button class="primary" type="submit">Сохранить карточку</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="venue-editor merchant-editor" id="merchant-editor" aria-labelledby="merchant-editor-title">
+    <button class="dialog-close" type="button" aria-label="Закрыть">×</button>
+    <form id="merchant-editor-form">
+      <input name="id" type="hidden" />
+      <div class="editor-heading"><p class="admin-eyebrow">Аккаунт владельца</p><h2 id="merchant-editor-title">Новый ресторатор</h2><p id="merchant-editor-note">Укажите данные для входа и выберите заведения, доступные владельцу.</p></div>
+      <div class="merchant-form-grid">
+        <label>Имя ресторатора<input name="name" autocomplete="name" placeholder="Например, Рики" required /></label>
+        <label>Логин<input name="login" autocomplete="off" placeholder="riki" pattern="[A-Za-z0-9._-]{3,48}" title="От 3 до 48 латинских букв, цифр, точек, дефисов или подчёркиваний" required /></label>
+        <label class="wide">E-mail <small>необязательно</small><input name="email" type="email" autocomplete="off" placeholder="owner@example.ru" /></label>
+        <label class="wide" data-password-field>Временный пароль<input name="password" type="password" autocomplete="new-password" minlength="10" placeholder="Оставьте пустым, чтобы создать автоматически" /><small>Не менее 10 символов. Если поле пустое, безопасный пароль создаст сервер.</small></label>
+        <label class="wide">Роль в кабинете<select name="membershipRole" required><option value="owner">Владелец — полный доступ</option><option value="manager">Управляющий — полный рабочий доступ</option><option value="content_editor">Редактор — карточка, меню и акции</option><option value="analyst">Аналитик — отзывы и статистика</option></select><small>Роль применяется ко всем выбранным заведениям.</small></label>
+        <fieldset class="venue-assignment wide">
+          <legend>Доступные заведения</legend>
+          <p>Ресторатор увидит в своём кабинете только выбранные карточки.</p>
+          <div class="venue-checkboxes" id="merchant-venue-options"></div>
+        </fieldset>
+      </div>
+      <div class="editor-actions"><button type="button" data-merchant-cancel>Отмена</button><button class="primary" id="merchant-submit" type="submit">Создать аккаунт</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="credentials-dialog" id="merchant-credentials" aria-labelledby="merchant-credentials-title">
+    <button class="dialog-close" type="button" aria-label="Закрыть">×</button>
+    <div class="credentials-content">
+      <div class="credentials-icon" aria-hidden="true">✓</div>
+      <p class="admin-eyebrow">Доступ создан</p>
+      <h2 id="merchant-credentials-title">Передайте данные ресторатору</h2>
+      <p>Пароль больше не будет показан в админ-панели. Скопируйте данные сейчас и передайте их владельцу безопасным способом.</p>
+      <dl class="credential-list">
+        <div><dt>Имя</dt><dd id="credential-name">—</dd></div>
+        <div><dt>Логин</dt><dd id="credential-login">—</dd></div>
+        <div><dt>E-mail</dt><dd id="credential-email">—</dd></div>
+        <div><dt>Временный пароль</dt><dd id="credential-password">—</dd></div>
+      </dl>
+      <div class="credentials-actions"><button type="button" data-copy-credentials>Скопировать данные</button><button class="primary" type="button" data-credentials-close>Готово</button></div>
+    </div>
+  </dialog>
+  <div class="admin-toast" id="admin-toast" role="status" aria-live="polite"></div>
+  <script src="admin.js?v=admin-6"></script>
+</body>
+</html>

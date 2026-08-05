@@ -1,0 +1,11 @@
+.git/
+.github/
+.codex/
+.vercel/
+node_modules/
+design-system/
+diagrams/
+outputs/
+work/
+*.pptx
+*.pdf

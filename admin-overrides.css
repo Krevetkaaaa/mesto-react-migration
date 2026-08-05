@@ -1,0 +1,24 @@
+[hidden] { display:none!important; }
+
+@media (max-width:760px) {
+  .admin-login { padding:16px; }
+  .login-card { padding:30px 22px; border-radius:18px; }
+  .login-card .admin-eyebrow { margin-top:30px; }
+  .login-card h1 { font-size:34px; }
+  .admin-sidebar nav { display:flex; gap:7px; padding-bottom:4px; overflow-x:auto; scrollbar-width:none; }
+  .admin-sidebar nav::-webkit-scrollbar { display:none; }
+  .admin-topbar h1 { font-size:32px; }
+  .admin-workspace { overflow:hidden; }
+  .topbar-actions a,.topbar-actions button { flex:0 0 auto; }
+  .stat-grid { gap:9px; }
+  .stat-grid article { min-width:0; padding:16px; }
+  .stat-grid b { font-size:31px; }
+  .compact-row { grid-template-columns:38px minmax(0,1fr); }
+  .compact-row i { width:36px; height:36px; }
+  .compact-row time { grid-column:2; }
+  .panel-heading,.view-heading { flex-direction:column; }
+  .venue-editor form { padding:28px 18px; }
+  .editor-heading h2 { padding-right:38px; font-size:31px; }
+  .moderation-actions,.review-actions { width:100%; }
+  .moderation-actions button,.review-actions button { flex:1; }
+}

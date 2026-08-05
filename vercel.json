@@ -1,0 +1,17 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/api/:route*",
+      "destination": "/api/router?route=:route*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/diagrams/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

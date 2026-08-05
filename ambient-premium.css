@@ -1,0 +1,465 @@
+/*
+ * Premium ambient layer for the public guide.
+ * Loaded after gastro-theme.css: no markup or JavaScript is required.
+ * Motion is deliberately limited to transform and opacity.
+ */
+
+:root {
+  --ambient-atlas-line:rgba(65,96,107,.14);
+  --ambient-atlas-line-strong:rgba(65,96,107,.23);
+  --ambient-atlas-gold:rgba(176,138,88,.3);
+  --ambient-hero-left:rgba(12,19,24,.84);
+  --ambient-hero-mid:rgba(13,29,39,.48);
+  --ambient-hero-edge:rgba(10,25,35,.13);
+  --ambient-coordinate:rgba(255,248,238,.78);
+}
+
+html[data-theme="graphite"] {
+  --ambient-atlas-line:rgba(215,185,143,.1);
+  --ambient-atlas-line-strong:rgba(215,185,143,.18);
+  --ambient-atlas-gold:rgba(215,185,143,.2);
+  --ambient-hero-left:rgba(10,11,12,.88);
+  --ambient-hero-mid:rgba(13,19,22,.58);
+  --ambient-hero-edge:rgba(9,14,17,.2);
+}
+
+html[data-theme="midnight"] {
+  --ambient-atlas-line:rgba(132,171,190,.12);
+  --ambient-atlas-line-strong:rgba(215,185,143,.18);
+  --ambient-atlas-gold:rgba(215,185,143,.2);
+  --ambient-hero-left:rgba(5,15,26,.9);
+  --ambient-hero-mid:rgba(8,29,44,.58);
+  --ambient-hero-edge:rgba(6,25,39,.2);
+}
+
+body > main {
+  position:relative;
+  isolation:isolate;
+}
+
+/* Quiet cartographic furniture that follows the reader down the page. */
+body > main::before,
+body > main::after {
+  content:"";
+  position:fixed;
+  z-index:-1;
+  pointer-events:none;
+  will-change:transform;
+}
+
+body > main::before {
+  top:18vh;
+  right:clamp(-390px,-22vw,-190px);
+  width:clamp(390px,43vw,690px);
+  aspect-ratio:1;
+  border:1px solid var(--ambient-atlas-line-strong);
+  border-radius:50%;
+  box-shadow:
+    0 0 0 clamp(34px,4vw,68px) var(--ambient-atlas-line),
+    0 0 0 clamp(92px,9vw,148px) color-mix(in srgb,var(--ambient-atlas-line) 58%,transparent);
+  opacity:.56;
+  animation:ambient-atlas-orbit 30s ease-in-out infinite alternate;
+}
+
+body > main::after {
+  top:72vh;
+  left:-14vw;
+  width:min(62vw,860px);
+  height:1px;
+  background:linear-gradient(90deg,transparent,var(--ambient-atlas-line-strong) 26% 76%,transparent);
+  box-shadow:0 12px 0 color-mix(in srgb,var(--ambient-atlas-gold) 62%,transparent);
+  opacity:.7;
+  transform:rotate(-8deg);
+  animation:ambient-coastline-drift 22s ease-in-out infinite alternate;
+}
+
+/* First screen: a real Crimean coastline with a restrained cinematic drift. */
+body.is-home-view .guide-screen {
+  isolation:isolate;
+  background:#10202a;
+}
+
+/* The home navigation shares the hero photograph in every color scheme. */
+body.is-home-view .site-header {
+  position:absolute;
+  z-index:80;
+  top:0;
+  left:50%;
+  width:min(1480px,calc(100% - 64px));
+  min-height:86px;
+  margin:0;
+  padding:0;
+  color:#f8fafb;
+  border:0;
+  border-bottom:1px solid rgba(255,255,255,.2);
+  border-radius:0;
+  background:linear-gradient(180deg,rgba(5,13,21,.64),rgba(5,13,21,.16));
+  box-shadow:none;
+  backdrop-filter:blur(7px) saturate(1.08);
+  transform:translateX(-50%);
+}
+
+body.is-home-view .site-header :is(.brand-mark,.brand-pin,.main-nav,.main-nav a) {
+  color:#f8fafb;
+}
+
+body.is-home-view .site-header .main-nav a:hover {
+  color:#fff;
+}
+
+body.is-home-view .site-header :is(.circle-button,.theme-toggle) {
+  color:#fff;
+  border:1px solid rgba(255,255,255,.3);
+  background:rgba(8,18,28,.28);
+  box-shadow:inset 0 1px rgba(255,255,255,.1);
+}
+
+body.is-home-view .site-header :is(.circle-button,.theme-toggle):hover {
+  color:#fff;
+  border-color:rgba(255,255,255,.66);
+  background:rgba(8,18,28,.5);
+}
+
+body.is-home-view .site-header .login-trigger {
+  color:#17202a;
+  border-color:rgba(255,255,255,.58);
+  background:rgba(255,255,255,.92);
+}
+
+body.is-home-view .site-header .register-trigger {
+  color:#f8fafb;
+  border-color:rgba(255,255,255,.24);
+  background:rgba(12,18,25,.88);
+}
+
+.mobile-nav-panel .mobile-nav-action {
+  width:100%;
+  padding:14px 12px;
+  color:var(--g-ink);
+  border:0;
+  border-bottom:1px solid var(--g-line);
+  background:transparent;
+  text-align:left;
+  font-size:15px;
+  font-weight:700;
+}
+
+.mobile-nav-panel .mobile-nav-action:hover,
+.mobile-nav-panel .mobile-nav-action:focus-visible {
+  color:var(--g-gold);
+  background:color-mix(in srgb,var(--g-gold) 8%,transparent);
+}
+
+body.is-home-view .hero-photo {
+  inset:-4%;
+  background-image:
+    linear-gradient(90deg,var(--ambient-hero-left) 0%,var(--ambient-hero-mid) 45%,var(--ambient-hero-edge) 82%),
+    linear-gradient(180deg,rgba(8,14,18,.02),rgba(8,17,23,.25)),
+    url("assets/crimea-coast-hero.jpg");
+  background-position:64% 61%;
+  background-size:cover;
+  transform-origin:68% 62%;
+  will-change:transform;
+  animation:ambient-hero-ken-burns 26s cubic-bezier(.42,0,.2,1) infinite alternate;
+}
+
+body.is-home-view .hero-photo::before {
+  content:"";
+  position:absolute;
+  inset:-11%;
+  opacity:.62;
+  background:
+    radial-gradient(circle at 73% 17%,rgba(255,224,174,.3),transparent 20%),
+    linear-gradient(118deg,transparent 48%,rgba(198,226,232,.12) 63%,transparent 76%);
+  mix-blend-mode:screen;
+  transform-origin:72% 20%;
+  animation:ambient-hero-light 19s ease-in-out infinite alternate;
+  pointer-events:none;
+}
+
+body.is-home-view .hero-photo::after {
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    linear-gradient(180deg,rgba(8,14,18,.12),transparent 28%,rgba(7,14,19,.3)),
+    radial-gradient(ellipse at 73% 58%,transparent 0 25%,rgba(7,13,17,.2) 83%);
+  pointer-events:none;
+  animation:none;
+}
+
+/* A small atlas coordinate and sounding line — editorial, not decorative UI chrome. */
+body.is-home-view .guide-screen::before {
+  content:"44°57′ N  ·  34°06′ E  /  КРЫМ";
+  position:absolute;
+  z-index:1;
+  top:142px;
+  right:max(34px,calc((100vw - 1420px)/2));
+  display:flex;
+  align-items:center;
+  min-height:28px;
+  padding:0 11px;
+  color:var(--ambient-coordinate);
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:999px;
+  background:rgba(10,22,29,.18);
+  font:700 9px/1 Manrope,Arial,sans-serif;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  pointer-events:none;
+  animation:ambient-coordinate-float 12s ease-in-out infinite alternate;
+}
+
+body.is-home-view .guide-screen::after {
+  content:"";
+  position:absolute;
+  z-index:1;
+  top:190px;
+  right:max(54px,calc((100vw - 1380px)/2));
+  width:1px;
+  height:clamp(145px,21vh,245px);
+  background:linear-gradient(180deg,rgba(255,255,255,.48),rgba(255,255,255,.08) 72%,transparent);
+  box-shadow:8px 0 0 rgba(215,185,143,.2);
+  pointer-events:none;
+  transform-origin:top;
+  animation:ambient-sounding-line 15s ease-in-out infinite alternate;
+}
+
+/* Background contours around the denser editorial sections. */
+.how-section,
+.cities-section {
+  isolation:isolate;
+}
+
+.how-section::before,
+.cities-section::before {
+  content:"";
+  position:absolute;
+  z-index:-1;
+  display:block!important;
+  width:clamp(250px,26vw,410px);
+  aspect-ratio:1;
+  inset:auto;
+  border:1px solid var(--ambient-atlas-line-strong);
+  border-radius:50%;
+  background:transparent;
+  box-shadow:
+    0 0 0 28px color-mix(in srgb,var(--ambient-atlas-line) 62%,transparent),
+    0 0 0 68px color-mix(in srgb,var(--ambient-atlas-line) 34%,transparent);
+  opacity:.56;
+  pointer-events:none;
+  will-change:transform;
+}
+
+.how-section::before {
+  top:32px;
+  left:clamp(-260px,-15vw,-120px);
+  animation:ambient-contour-left 25s ease-in-out infinite alternate;
+}
+
+.cities-section::before {
+  right:clamp(-270px,-16vw,-130px);
+  bottom:-35px;
+  animation:ambient-contour-right 28s ease-in-out infinite alternate;
+}
+
+/* Fine moving rules frame two long sections without becoming new cards. */
+.collections-section::after,
+.cities-section::after {
+  content:"";
+  position:absolute;
+  z-index:-1;
+  left:0;
+  right:0;
+  height:1px;
+  pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--ambient-atlas-gold) 18% 82%,transparent);
+  transform:scaleX(.76);
+  animation:ambient-editorial-rule 18s ease-in-out infinite alternate;
+}
+
+.collections-section::after { top:21px; transform-origin:left; }
+.cities-section::after { bottom:12px; transform-origin:right; animation-delay:-7s; }
+
+@keyframes ambient-hero-ken-burns {
+  from { transform:translate3d(-.5%,0,0) scale(1.035); }
+  to { transform:translate3d(1.35%,-.8%,0) scale(1.095); }
+}
+
+@keyframes ambient-hero-light {
+  from { opacity:.44; transform:translate3d(-1.6%,1%,0) scale(.98); }
+  to { opacity:.7; transform:translate3d(1.4%,-1.2%,0) scale(1.035); }
+}
+
+@keyframes ambient-atlas-orbit {
+  from { transform:translate3d(0,-9px,0) rotate(-3deg); }
+  to { transform:translate3d(-18px,16px,0) rotate(4deg); }
+}
+
+@keyframes ambient-coastline-drift {
+  from { transform:translate3d(-2%,0,0) rotate(-8deg); }
+  to { transform:translate3d(5%,18px,0) rotate(-6deg); }
+}
+
+@keyframes ambient-coordinate-float {
+  from { transform:translate3d(0,0,0); }
+  to { transform:translate3d(-8px,5px,0); }
+}
+
+@keyframes ambient-sounding-line {
+  from { opacity:.52; transform:translate3d(0,0,0) scaleY(.86); }
+  to { opacity:.82; transform:translate3d(0,8px,0) scaleY(1); }
+}
+
+@keyframes ambient-contour-left {
+  from { transform:translate3d(0,-8px,0) rotate(-4deg); }
+  to { transform:translate3d(17px,13px,0) rotate(3deg); }
+}
+
+@keyframes ambient-contour-right {
+  from { transform:translate3d(0,10px,0) rotate(3deg); }
+  to { transform:translate3d(-19px,-8px,0) rotate(-4deg); }
+}
+
+@keyframes ambient-editorial-rule {
+  from { opacity:.38; transform:scaleX(.68); }
+  to { opacity:.82; transform:scaleX(.96); }
+}
+
+@media (max-width:1100px) {
+  body.is-home-view .site-header {
+    width:calc(100% - 42px);
+  }
+
+  body.is-home-view .hero-photo { background-position:67% 60%; }
+  body.is-home-view .guide-screen::before { right:28px; }
+  body.is-home-view .guide-screen::after { right:48px; }
+  body > main::before { right:-310px; opacity:.42; }
+}
+
+@media (max-width:760px) {
+  body.is-home-view .site-header {
+    width:100%;
+    min-height:70px;
+    padding:0 14px;
+  }
+
+  body > main::before {
+    top:38vh;
+    right:-270px;
+    width:420px;
+    opacity:.34;
+  }
+
+  body > main::after { left:-34vw; width:95vw; opacity:.42; }
+
+  body.is-home-view .hero-photo {
+    inset:-3%;
+    background-position:69% 58%;
+    transform-origin:72% 58%;
+  }
+
+  body.is-home-view .guide-screen::before {
+    top:105px;
+    right:18px;
+    min-height:25px;
+    font-size:8px;
+  }
+
+  body.is-home-view .guide-screen::after { display:none; }
+
+  .how-section::before,
+  .cities-section::before {
+    width:270px;
+    opacity:.36;
+  }
+
+  .how-section::before { left:-205px; }
+  .cities-section::before { right:-215px; }
+}
+
+@media (max-width:520px) {
+  body.is-home-view .site-header {
+    gap:6px;
+    padding-inline:10px;
+  }
+
+  body.is-home-view .site-header .brand-mark {
+    gap:4px;
+  }
+
+  body.is-home-view .site-header .brand-word {
+    font-size:22px;
+  }
+
+  body.is-home-view .site-header .brand-pin {
+    width:14px;
+    height:14px;
+  }
+
+  body.is-home-view .site-header .brand-orb {
+    width:13px;
+    height:13px;
+    margin-left:-4px;
+  }
+
+  body.is-home-view .site-header .header-actions {
+    gap:3px;
+  }
+
+  body.is-home-view .site-header .mobile-menu-toggle,
+  body.is-home-view .site-header :is(.circle-button,.theme-toggle) {
+    width:34px;
+    height:34px;
+    min-height:34px;
+    flex-basis:34px;
+  }
+
+  body.is-home-view .site-header .login-trigger {
+    display:none;
+  }
+
+  body.is-home-view .site-header .favorites-button {
+    display:none;
+  }
+
+  body > main::after { display:none; }
+  body.is-home-view .hero-photo { background-position:72% 57%; }
+  body.is-home-view .guide-screen::before { display:none; }
+  .collections-section::after,
+  .cities-section::after { opacity:.46; }
+}
+
+@media (min-width:1440px) {
+  body.is-home-view .hero-photo { background-position:62% 62%; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  body > main::before,
+  body > main::after,
+  body.is-home-view .hero-photo,
+  body.is-home-view .hero-photo::before,
+  body.is-home-view .guide-screen::before,
+  body.is-home-view .guide-screen::after,
+  .how-section::before,
+  .cities-section::before,
+  .collections-section::after,
+  .cities-section::after {
+    animation:none!important;
+    transform:none!important;
+    will-change:auto;
+  }
+}
+
+@media print {
+  body > main::before,
+  body > main::after,
+  body.is-home-view .guide-screen::before,
+  body.is-home-view .guide-screen::after,
+  .how-section::before,
+  .cities-section::before,
+  .collections-section::after,
+  .cities-section::after { display:none!important; }
+
+  body.is-home-view .hero-photo { animation:none; transform:none; }
+}

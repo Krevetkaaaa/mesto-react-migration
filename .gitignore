@@ -1,0 +1,19 @@
+.env
+.env.*
+!.env.example
+.vercel
+node_modules
+coverage
+*.log
+
+# Local research, exports, and generated data are not source artifacts.
+/work/
+/outputs/
+/genericagent/
+
+# Frontend test and build artifacts.
+/test-results/
+/playwright-report/
+/.react-router/
+/build/
+/dist/
