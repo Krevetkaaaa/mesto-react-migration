@@ -31,7 +31,7 @@
 | --- | --- | --- | --- | --- |
 | Baseline checkpoint | complete | `ee8476473b64de946d81dc1adbcd7dc3871e4ac9` | server tests, syntax check, secret scan и remote ref verification прошли | Откат по `pre-react-migration-20260805-1916` |
 | 0. Требования и показатели | complete | `327832905fccb8daae55ab040324eecff24fae26` | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
-| 1. Legacy safety net | complete | SHA будет записан follow-up journal commit после push | server/contract, syntax, functional, axe smoke и visual regression прошли | Fixture auth/OAuth не заменяет preview E2E; Playwright CDN 403, baseline снят Chrome `151.0.7922.72`; откат через revert Phase 1 commit |
+| 1. Legacy safety net | complete | `63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b` | server/contract, syntax, functional, axe smoke и visual regression прошли | Fixture auth/OAuth не заменяет preview E2E; Playwright CDN 403, baseline снят Chrome `151.0.7922.72`; откат через revert Phase 1 commit |
 | 2. Framework foundation | pending | pending | pending | Не начат до подтверждённого baseline push |
 | 3. Core modules | pending | pending | pending | Не начат |
 | 4-8. Route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
@@ -55,7 +55,7 @@
 - Начало: `2026-08-05T19:24:46+03:00`.
 - Завершение: `2026-08-05T21:39:01+03:00`.
 - Branch: `codex/react-migration`.
-- Commit: будет записан следующим journal commit после push, без amend опубликованной истории.
+- Commit: `63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b`; remote ref проверен после push.
 - Server/contract tests: `npm.cmd test`, 26/26 passed.
 - Syntax: `npm.cmd run check`, exit 0.
 - Browser suite: два последовательных `npm.cmd run test:e2e`, каждый exit 0, `188 passed / 115 skipped / 303 total`; skips являются viewport-gated копиями state specs.
@@ -66,7 +66,7 @@
 - Characterized legacy defect: HTML pattern `[A-Za-z0-9._-]{3,48}` выдаёт Chrome Unicode-v console error. Ошибка allowlisted только по точному сообщению; public registration и admin merchant creation при этом проверены до HTTP 201 и итогового UI/session state.
 - Ограничения: fixture login упрощён и проверяет UI/session flow, не реальную password verification; OAuth не вызывает внешнего provider; production-like preview suite требует отдельного test Supabase project и test credentials.
 - Database migrations: отсутствуют.
-- Откат: `git revert <phase-1-commit>` удаляет только тестовый harness, зависимости и snapshots; legacy runtime не изменён.
+- Откат: `git revert 63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b` удаляет только тестовый harness, зависимости и snapshots; legacy runtime не изменён.
 
 ## GenericAgent
 
