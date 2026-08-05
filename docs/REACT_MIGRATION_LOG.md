@@ -30,7 +30,7 @@
 | Этап | Статус | Commit | Проверки | Ограничения и откат |
 | --- | --- | --- | --- | --- |
 | Baseline checkpoint | complete | `ee8476473b64de946d81dc1adbcd7dc3871e4ac9` | server tests, syntax check, secret scan и remote ref verification прошли | Откат по `pre-react-migration-20260805-1916` |
-| 0. Требования и показатели | complete | SHA будет записан follow-up journal commit после push | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
+| 0. Требования и показатели | complete | `327832905fccb8daae55ab040324eecff24fae26` | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
 | 1. Legacy safety net | pending | pending | pending | Legacy остаётся рабочим fallback |
 | 2. Framework foundation | pending | pending | pending | Не начат до подтверждённого baseline push |
 | 3. Core modules | pending | pending | pending | Не начат |
@@ -43,7 +43,7 @@
 - Начало: `2026-08-05T19:17:04+03:00`.
 - Завершение локальной части: `2026-08-05T19:50:30+03:00`.
 - Branch: `codex/react-migration`.
-- Commit: будет записан следующим journal commit после push, без amend опубликованной истории.
+- Commit: `327832905fccb8daae55ab040324eecff24fae26`; remote ref проверен после push.
 - Проверки: route/state audit, HTTP contract audit, Visual Freeze contract, browser/toolchain decision, tracked-file size и compression audit, локальные `/` и `/help` HTTP checks, Chrome PerformanceResourceTiming baseline.
 - Visual regression: не применимо к Phase 0; создание baseline выполняется в Phase 1.
 - Database migrations: отсутствуют.
