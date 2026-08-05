@@ -33,7 +33,7 @@
 | 0. Требования и показатели | complete | `327832905fccb8daae55ab040324eecff24fae26` | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
 | 1. Legacy safety net | complete | `63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b` | server/contract, syntax, functional, axe smoke и visual regression прошли | Fixture auth/OAuth не заменяет preview E2E; Playwright CDN 403, baseline снят Chrome `151.0.7922.72`; откат через revert Phase 1 commit |
 | 2. Framework foundation | complete | `88ca959b01a3d2b2710644e1648ef65dd44120f9` | React/TS/RR build, strict typecheck, ESLint, 26 server + 4 unit tests, local smoke и Vercel Preview route matrix прошли | Local `vercel build` блокируется Windows symlink `EPERM`; RR7 audit содержит RSC-only high advisory, upgrade требует совместимого Vercel preset; откат через revert Phase 2 commit |
-| 3. Core modules | complete | pending (SHA записывается после push) | 26 server + 42 unit tests, strict typecheck, ESLint, production build и coexistence smoke прошли | `getBySlug` ждёт published-only backend endpoint; upload workflow не может удалить orphaned object; откат через revert Phase 3 commit |
+| 3. Core modules | complete | `6cdc34c13153584f41699df1162ceec4402ab1b6` | 26 server + 42 unit tests, strict typecheck, ESLint, production build и coexistence smoke прошли | `getBySlug` ждёт published-only backend endpoint; upload workflow не может удалить orphaned object; откат через revert Phase 3 commit |
 | 4-8. Route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
@@ -92,7 +92,7 @@
 - Начало: `2026-08-05T22:54:37+03:00`.
 - Завершение: `2026-08-06T00:06:00+03:00`.
 - Branch: `codex/react-migration`.
-- Commit: pending; полный SHA будет записан следующим journal commit после push и remote verification.
+- Commit: `6cdc34c13153584f41699df1162ceec4402ab1b6`; remote ref проверен после push.
 - Architecture: один typed HTTP seam; точные endpoints и wire DTO локализованы в adapters; Session, VenueCatalog, Favorites, Submissions, MerchantWorkspace и AdminConsole имеют intent interfaces, production adapters и stateful controllable fakes.
 - Transport security: browser `credentials: same-origin`; SSR origin выводится только из входящего `Request`; forward allowlist ограничен `Cookie`, `Accept-Language`, UUID `X-Request-ID`; response sink принимает только все значения `Set-Cookie`.
 - Runtime boundary: восемь `ApplicationError` kinds, Zod validation критических DTO, strict UUID/status/role/coordinates contracts и backend-compatible input normalization.
