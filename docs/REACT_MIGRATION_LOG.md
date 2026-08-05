@@ -30,13 +30,25 @@
 | Этап | Статус | Commit | Проверки | Ограничения и откат |
 | --- | --- | --- | --- | --- |
 | Baseline checkpoint | complete | `ee8476473b64de946d81dc1adbcd7dc3871e4ac9` | server tests, syntax check, secret scan и remote ref verification прошли | Откат по `pre-react-migration-20260805-1916` |
-| 0. Требования и показатели | in progress | pending | аудит выполняется | Нагрузочный профиль пока является гипотезой из плана |
+| 0. Требования и показатели | complete | SHA будет записан follow-up journal commit после push | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
 | 1. Legacy safety net | pending | pending | pending | Legacy остаётся рабочим fallback |
 | 2. Framework foundation | pending | pending | pending | Не начат до подтверждённого baseline push |
 | 3. Core modules | pending | pending | pending | Не начат |
 | 4-8. Route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
+
+### Этап 0. Требования и показатели
+
+- Начало: `2026-08-05T19:17:04+03:00`.
+- Завершение локальной части: `2026-08-05T19:50:30+03:00`.
+- Branch: `codex/react-migration`.
+- Commit: будет записан следующим journal commit после push, без amend опубликованной истории.
+- Проверки: route/state audit, HTTP contract audit, Visual Freeze contract, browser/toolchain decision, tracked-file size и compression audit, локальные `/` и `/help` HTTP checks, Chrome PerformanceResourceTiming baseline.
+- Visual regression: не применимо к Phase 0; создание baseline выполняется в Phase 1.
+- Database migrations: отсутствуют.
+- Ограничения: production analytics, Supabase query timings, Vercel/CDN metrics и provider credentials недоступны; Lighthouse `13.4.1` не создал отчёт из-за Windows `EPERM` при очистке временного Chrome profile.
+- Откат: `git revert <phase-0-commit>`; baseline остаётся `pre-react-migration-20260805-1916`.
 
 ## GenericAgent
 
