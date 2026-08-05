@@ -1,17 +1,69 @@
 {
-  "cleanUrls": true,
-  "rewrites": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "builds": [
     {
-      "source": "/api/:route*",
-      "destination": "/api/router?route=:route*"
+      "src": "package.json",
+      "use": "@vercel/remix-builder@5.9.2",
+      "config": {
+        "framework": "react-router",
+        "zeroConfig": true
+      }
+    },
+    {
+      "src": "api/router.js",
+      "use": "@vercel/node@5.9.5",
+      "config": {
+        "zeroConfig": true
+      }
     }
   ],
-  "headers": [
+  "routes": [
     {
-      "source": "/diagrams/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
-      ]
+      "src": "^/index\\.html/?$",
+      "headers": {
+        "Location": "/"
+      },
+      "status": 308
+    },
+    {
+      "src": "^/(help|merchant|admin)\\.html/?$",
+      "headers": {
+        "Location": "/$1"
+      },
+      "status": 308
+    },
+    {
+      "src": "^/(help|merchant|admin)/$",
+      "headers": {
+        "Location": "/$1"
+      },
+      "status": 308
+    },
+    {
+      "src": "^/diagrams/(.*)$",
+      "headers": {
+        "X-Content-Type-Options": "nosniff"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "^/(help|merchant|admin)$",
+      "dest": "/$1.html"
+    },
+    {
+      "src": "^/api(?:/(.*))?/?$",
+      "dest": "/api/router?route=$1"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": ".*",
+      "status": 404
     }
   ]
 }

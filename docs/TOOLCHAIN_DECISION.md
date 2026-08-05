@@ -43,7 +43,11 @@ Development dependencies:
 | `@testing-library/dom` | `10.4.1` |
 | `@testing-library/jest-dom` | `7.0.0` |
 | `@testing-library/user-event` | `14.6.3` |
+| `@eslint/js` | `10.0.1` |
 | `@playwright/test` | `1.62.1` |
+| `eslint` | `10.8.0` |
+| `eslint-plugin-react-hooks` | `7.1.1` |
+| `typescript-eslint` | `8.66.0` |
 
 `@vitest/coverage-v8` добавляется только при включении coverage и должен иметь exact `4.1.10`, совпадающий с Vitest.
 
@@ -53,14 +57,21 @@ TypeScript 7.0.2 не выбран, хотя он stable: Router 7 dev package �
 
 ## Framework Mode foundation
 
-- `package.json` получает `type: module`, но legacy CommonJS server files сначала должны быть изолированы через package boundary или переведены совместимо, чтобы не сломать handlers.
-- `vite.config.ts` использует только `reactRouter()` plugin. Tailwind и второй React plugin не добавляются.
+- Корневой `package.json` остаётся CommonJS: `type: module` не добавляется, потому что `api/`, `handlers/`, `lib/`, Playwright config и legacy Node tests используют `require`. SSR bundle явно собирается как CommonJS через `serverModuleFormat: "cjs"`.
+- `vite.config.mts` использует `reactRouter()` и узкий serve-only middleware для legacy HTML-маршрутов в development. Расширение `.mts` сохраняет ESM config без перевода CommonJS backend в module mode; Tailwind и второй React transform plugin не добавляются.
 - `react-router.config.ts` использует `ssr: true` и `vercelPreset()` на совместимой RR7-линии.
 - `tsconfig.json` включает strict, noUncheckedIndexedAccess, DOM libs, Bundler resolution и `.react-router/types` через `rootDirs`.
+- Flat-config ESLint проверяет React/TypeScript код правилами ESLint, typescript-eslint и React Hooks; legacy/server JavaScript до его типизации продолжает проходить полный `node --check` gate.
 - `app/root.tsx` владеет document shell, Meta, Links, Outlet, ScrollRestoration, Scripts и ErrorBoundary.
 - `app/routes.ts` описывает RouteConfig.
 - Первый React route появляется под отдельным migration path, пока legacy root остаётся доступным.
 - `/api/*`, OAuth callbacks, `/assets/*` и legacy fallback имеют более высокий/явный routing priority.
+
+## Vercel coexistence decision
+
+Zero-config Vercel несовместим с переходным состоянием проекта: preset `Other` собирает CommonJS API, но не React Router SSR; preset `React Router` активирует framework builder, но его detector исключает отдельный `@vercel/node` API runtime. Поэтому Phase 2 закрепляет два explicit builder в `vercel.json`: `@vercel/remix-builder@5.9.2` с `framework: react-router` и `@vercel/node@5.9.5` для `api/router.js`.
+
+Low-level `routes` используются намеренно и в фиксированном порядке: canonical legacy redirects, legacy `/` и clean routes, `/api/*`, filesystem React/static outputs, затем 404. Это не даёт Vercel SSR `index.func` перехватить legacy `index.html`. `builds` является deprecated Vercel API, поэтому отказ от него допустим только после появления официального multi-runtime zero-config пути и повторного Preview smoke.
 
 ## Rendering decision
 

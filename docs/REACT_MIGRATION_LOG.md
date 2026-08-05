@@ -32,7 +32,7 @@
 | Baseline checkpoint | complete | `ee8476473b64de946d81dc1adbcd7dc3871e4ac9` | server tests, syntax check, secret scan и remote ref verification прошли | Откат по `pre-react-migration-20260805-1916` |
 | 0. Требования и показатели | complete | `327832905fccb8daae55ab040324eecff24fae26` | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
 | 1. Legacy safety net | complete | `63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b` | server/contract, syntax, functional, axe smoke и visual regression прошли | Fixture auth/OAuth не заменяет preview E2E; Playwright CDN 403, baseline снят Chrome `151.0.7922.72`; откат через revert Phase 1 commit |
-| 2. Framework foundation | pending | pending | pending | Не начат до подтверждённого baseline push |
+| 2. Framework foundation | complete | SHA будет записан follow-up journal commit после push | React/TS/RR build, strict typecheck, ESLint, 26 server + 4 unit tests, local smoke и Vercel Preview route matrix прошли | Local `vercel build` блокируется Windows symlink `EPERM`; RR7 audit содержит RSC-only high advisory, upgrade требует совместимого Vercel preset; откат через revert Phase 2 commit |
 | 3. Core modules | pending | pending | pending | Не начат |
 | 4-8. Route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
@@ -67,6 +67,25 @@
 - Ограничения: fixture login упрощён и проверяет UI/session flow, не реальную password verification; OAuth не вызывает внешнего provider; production-like preview suite требует отдельного test Supabase project и test credentials.
 - Database migrations: отсутствуют.
 - Откат: `git revert 63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b` удаляет только тестовый harness, зависимости и snapshots; legacy runtime не изменён.
+
+### Этап 2. Framework foundation
+
+- Начало: `2026-08-05T21:44:03+03:00`.
+- Завершение: `2026-08-05T22:49:40+03:00`.
+- Branch: `codex/react-migration`.
+- Commit: будет записан следующим journal commit после push, без amend опубликованной истории.
+- Foundation: React `19.2.8`, React Router Framework Mode `7.18.2`, Vite `8.2.0`, TypeScript `6.0.3`, Vitest `4.1.10`, Vercel preset `1.3.2`; корневой CommonJS backend сохранён, SSR bundle собирается как CJS.
+- Изоляция маршрутов: единственный React route `/__react/health`; legacy `/`, `/help`, `/merchant`, `/admin`, assets, `/api/*` и OAuth callbacks не перехватываются React catch-all.
+- Static staging: 43 whitelisted legacy-файла копируются атомарно в generated `.legacy-public/` и проверяются SHA-256 manifest; legacy HTML/CSS/JS не изменялись.
+- Reproducibility: `npm.cmd ci` установил 419 packages из lockfile; install script `esbuild@0.28.1` разрешён exact allowlist.
+- Tests: `npm.cmd test` — 26/26 server tests и 4/4 React unit tests; `npm.cmd run check` — legacy syntax, React Router type generation, strict TypeScript и flat-config ESLint прошли; `npm.cmd run smoke` — production build/serve и legacy/React isolation прошли; отдельный development smoke подтвердил `/`, `/help` и `/__react/health` на одном Vite dev server.
+- Vercel: два exact builder (`@vercel/remix-builder@5.9.2` и `@vercel/node@5.9.5`) плюс явный route order нужны, потому что zero-config не собирает одновременно React Router SSR и legacy CommonJS API. Первый Preview обнаружил реальный конфликт `index.func`/`index.html`; исправленный final Preview `dpl_GspxSWrXyeP8oQtJh4ZFbUx8CwHi` имеет статус Ready.
+- Preview matrix: `/` legacy 200; `/index.html` → `/` 308; `/help`, `/merchant`, `/admin` legacy 200; `/__react/health` SSR 200 с `no-store`/`noindex`; unknown React path 404; unknown API JSON 404; `/api/venues` JSON 200; Yandex callback остаётся JSON backend route; PNG asset совпал по SHA-256. Deployment protection проверен через authenticated `vercel curl`.
+- Visual regression: не обновлялся и не требовался — Phase 2 не переносит legacy UI; SHA staging и Preview markers подтверждают сохранение legacy документов. Vercel Preview дописывает только свой feedback-toolbar script после исходного `index.html`, production не изменён.
+- Dependency audit: 5 high и 3 moderate. High — advisory React Router RSC Mode CSRF для `7.12.0–8.2.0`; RSC в проекте не включён, но production cutover с красным audit запрещён без повторного решения в Phase 10. Исправление требует Router `8.3.0`, пока несовместимого с official Vercel preset peer range. Moderate — AJV через `@vercel/static-config`, доступного fix нет.
+- Ограничения: local `vercel build` 56.3.1 и 58.7.0 на Windows доходит до React/API function outputs, затем получает `EPERM` на служебном symlink; Linux Preview build проходит. `builds` deprecated, но остаётся минимальным source-controlled coexistence seam до официальной multi-runtime поддержки. Vercel preset также печатает собственное `envFile` deprecation warning.
+- Database migrations: отсутствуют.
+- Откат: `git revert <phase-2-commit>` возвращает pre-framework static/API topology; Preview deployment удаляется отдельно при необходимости. Production deployment и aliases не менялись.
 
 ## GenericAgent
 
