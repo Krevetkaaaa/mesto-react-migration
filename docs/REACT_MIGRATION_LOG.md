@@ -33,7 +33,7 @@
 | 0. Требования и показатели | complete | `327832905fccb8daae55ab040324eecff24fae26` | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
 | 1. Legacy safety net | complete | `63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b` | server/contract, syntax, functional, axe smoke и visual regression прошли | Fixture auth/OAuth не заменяет preview E2E; Playwright CDN 403, baseline снят Chrome `151.0.7922.72`; откат через revert Phase 1 commit |
 | 2. Framework foundation | complete | `88ca959b01a3d2b2710644e1648ef65dd44120f9` | React/TS/RR build, strict typecheck, ESLint, 26 server + 4 unit tests, local smoke и Vercel Preview route matrix прошли | Local `vercel build` блокируется Windows symlink `EPERM`; RR7 audit содержит RSC-only high advisory, upgrade требует совместимого Vercel preset; откат через revert Phase 2 commit |
-| 3. Core modules | pending | pending | pending | Не начат |
+| 3. Core modules | complete | pending (SHA записывается после push) | 26 server + 42 unit tests, strict typecheck, ESLint, production build и coexistence smoke прошли | `getBySlug` ждёт published-only backend endpoint; upload workflow не может удалить orphaned object; откат через revert Phase 3 commit |
 | 4-8. Route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
@@ -86,6 +86,22 @@
 - Ограничения: local `vercel build` 56.3.1 и 58.7.0 на Windows доходит до React/API function outputs, затем получает `EPERM` на служебном symlink; Linux Preview build проходит. `builds` deprecated, но остаётся минимальным source-controlled coexistence seam до официальной multi-runtime поддержки. Vercel preset также печатает собственное `envFile` deprecation warning.
 - Database migrations: отсутствуют.
 - Откат: `git revert 88ca959b01a3d2b2710644e1648ef65dd44120f9` возвращает pre-framework static/API topology; Preview deployment удаляется отдельно при необходимости. Production deployment и aliases не менялись.
+
+### Этап 3. Core modules
+
+- Начало: `2026-08-05T22:54:37+03:00`.
+- Завершение: `2026-08-06T00:06:00+03:00`.
+- Branch: `codex/react-migration`.
+- Commit: pending; полный SHA будет записан следующим journal commit после push и remote verification.
+- Architecture: один typed HTTP seam; точные endpoints и wire DTO локализованы в adapters; Session, VenueCatalog, Favorites, Submissions, MerchantWorkspace и AdminConsole имеют intent interfaces, production adapters и stateful controllable fakes.
+- Transport security: browser `credentials: same-origin`; SSR origin выводится только из входящего `Request`; forward allowlist ограничен `Cookie`, `Accept-Language`, UUID `X-Request-ID`; response sink принимает только все значения `Set-Cookie`.
+- Runtime boundary: восемь `ApplicationError` kinds, Zod validation критических DTO, strict UUID/status/role/coordinates contracts и backend-compatible input normalization.
+- Tests: `npm.cmd test` — 26/26 server и 42/42 unit/contract tests; `npm.cmd run check` — legacy syntax, React Router typegen, strict TypeScript и ESLint; `npm.cmd run smoke` — production client/SSR build и Phase 2 coexistence matrix. Independent contract review: P0/P1 отсутствуют.
+- Visual regression: не применимо — routes, HTML, CSS, assets и Vercel mapping не менялись.
+- Database migrations: отсутствуют.
+- Ограничения: `getBySlug` намеренно отсутствует до published-only backend endpoint; последовательность upload → submission может оставить orphaned Storage object, поскольку delete/transaction API отсутствует. Backend scale/security gaps остаются Phases 9–10.
+- Подробный контракт: `docs/PHASE3_CORE_MODULES.md`.
+- Откат: `git revert <phase-3-commit>` удаляет только TypeScript modules/adapters/fakes/tests/docs; legacy runtime, API, database и Vercel coexistence не меняются.
 
 ## GenericAgent
 
