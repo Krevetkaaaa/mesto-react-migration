@@ -31,7 +31,7 @@
 | --- | --- | --- | --- | --- |
 | Baseline checkpoint | complete | `ee8476473b64de946d81dc1adbcd7dc3871e4ac9` | server tests, syntax check, secret scan и remote ref verification прошли | Откат по `pre-react-migration-20260805-1916` |
 | 0. Требования и показатели | complete | `327832905fccb8daae55ab040324eecff24fae26` | local audit, API/visual contracts, asset sizes, HTTP baseline и browser request baseline | Production analytics/Supabase/Vercel metrics недоступны; Lighthouse lab-run заблокирован Windows `EPERM`; откат через revert Phase 0 commit |
-| 1. Legacy safety net | pending | pending | pending | Legacy остаётся рабочим fallback |
+| 1. Legacy safety net | complete | SHA будет записан follow-up journal commit после push | server/contract, syntax, functional, axe smoke и visual regression прошли | Fixture auth/OAuth не заменяет preview E2E; Playwright CDN 403, baseline снят Chrome `151.0.7922.72`; откат через revert Phase 1 commit |
 | 2. Framework foundation | pending | pending | pending | Не начат до подтверждённого baseline push |
 | 3. Core modules | pending | pending | pending | Не начат |
 | 4-8. Route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
@@ -49,6 +49,24 @@
 - Database migrations: отсутствуют.
 - Ограничения: production analytics, Supabase query timings, Vercel/CDN metrics и provider credentials недоступны; Lighthouse `13.4.1` не создал отчёт из-за Windows `EPERM` при очистке временного Chrome profile.
 - Откат: `git revert <phase-0-commit>`; baseline остаётся `pre-react-migration-20260805-1916`.
+
+### Этап 1. Legacy safety net
+
+- Начало: `2026-08-05T19:24:46+03:00`.
+- Завершение: `2026-08-05T21:39:01+03:00`.
+- Branch: `codex/react-migration`.
+- Commit: будет записан следующим journal commit после push, без amend опубликованной истории.
+- Server/contract tests: `npm.cmd test`, 26/26 passed.
+- Syntax: `npm.cmd run check`, exit 0.
+- Browser suite: два последовательных `npm.cmd run test:e2e`, каждый exit 0, `188 passed / 115 skipped / 303 total`; skips являются viewport-gated копиями state specs.
+- Functional browser coverage: public catalog/pagination/error fallback, login/register/session/logout, OAuth success/error seam, favorites success/rollback, review, submission/upload и size preflight; merchant navigation, venue/menu/promotion operations, role gates, session expiry, multi-venue persistence, forced password и delete confirmation; admin navigation, moderation, venue/merchant flows, native confirmation и one-time credential DOM scrub.
+- Visual regression: 150 PNG, из них 90 canonical full-page (`18` экранов × `5` viewport) и 60 dialog/loading/error/role/empty/editor/mobile/theme states; `88 204 904` bytes total, largest file `6 203 162` bytes. Два полных прогона выполнены без snapshot update.
+- Browser provenance: Playwright `1.62.1`; regional CDN download Playwright Chromium `151.0.7922.34` вернул HTTP 403, поэтому baseline снят проверенным Google Chrome `151.0.7922.72`. Exact environment/commands находятся в `e2e/README.md`.
+- Accessibility: axe critical smoke для home, catalog, auth dialog, help, merchant login и admin login; serious/moderate, authenticated workspaces и полный keyboard/focus gate остаются Phase 10.
+- Characterized legacy defect: HTML pattern `[A-Za-z0-9._-]{3,48}` выдаёт Chrome Unicode-v console error. Ошибка allowlisted только по точному сообщению; public registration и admin merchant creation при этом проверены до HTTP 201 и итогового UI/session state.
+- Ограничения: fixture login упрощён и проверяет UI/session flow, не реальную password verification; OAuth не вызывает внешнего provider; production-like preview suite требует отдельного test Supabase project и test credentials.
+- Database migrations: отсутствуют.
+- Откат: `git revert <phase-1-commit>` удаляет только тестовый harness, зависимости и snapshots; legacy runtime не изменён.
 
 ## GenericAgent
 
