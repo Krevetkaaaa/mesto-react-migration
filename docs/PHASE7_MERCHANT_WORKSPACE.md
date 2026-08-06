@@ -1,6 +1,6 @@
 # Этап 7. Кабинет ресторатора
 
-Дата локального завершения: 7 августа 2026 года.
+Дата локального и Preview-завершения: 7 августа 2026 года.
 
 ## Владение маршрутами
 
@@ -66,6 +66,16 @@ React использует существующие `merchant.css`, assets, SVG 
 
 Axe проверяет anonymous login, пять merchant routes и основные dialogs и блокирует неожиданные serious/critical нарушения. Унаследованный frozen `color-contrast` debt не маскируется скрытой сменой palette и остаётся отдельной задачей этапа 10.
 
+## Preview
+
+- Финальный защищённый deployment: `dpl_CqP7CTaBfvpF44hgDc8izBMyjZyE`, URL `https://mesto-city-guide-6ddtl0n8n-krevetkaaaas-projects.vercel.app`, статус `READY`, target `preview`, exact runtime commit `e1e173772fc71ded709ee808a9a76c4dee3e6b49`.
+- `/merchant` возвращает `302` на `/merchant/overview` с `private, no-store, max-age=0`, `Vary: Cookie`, `nosniff` и `noindex`.
+- Пять merchant documents возвращают `200` и тот же private cache contract; `/merchant/menu.data` возвращает `200`/`text/x-script` и private headers; неизвестный merchant view возвращает контролируемый `404`.
+- Anonymous `/api/merchant/dashboard` возвращает JSON `401` с private headers. `/admin` остаётся legacy `200`; общий неизвестный route остаётся `404`.
+- SSR body содержит React Router context и login action, но не содержит legacy `merchant.js` или legacy form marker.
+- Первый Preview `dpl_oUyum4nuu8jH2AEsjh6NoRAoUpV1` выявил, что `filesystem` отдаёт сохранённый `merchant.html` для exact `/merchant`. Второй `dpl_5vRkfhraTUgqmZaPy2Xi5eqXgX9D` доказал, что guessed builder destination `merchant` отсутствует. Финальное исправление использует явный source-controlled private `302` до `filesystem` и защищено smoke-инвариантом.
+- Production deployment, production alias и merge не выполнялись.
+
 ## Ограничения и эксплуатация
 
 - Post-commit audit/cleanup пока best-effort без безопасной observability и request-id correlation; это задача этапа 9.
@@ -77,4 +87,4 @@ Axe проверяет anonymous login, пять merchant routes и основн
 
 ## Откат
 
-До production cutover legacy `merchant.html` и `merchant.js` сохранены. После публикации implementation commit кодовый откат выполняется через `git revert` указанного в migration log Phase 7 commit; внешний Preview удаляется отдельно. Git не восстанавливает внешние cookies, environment variables или данные Supabase.
+До production cutover legacy `merchant.html` и `merchant.js` сохранены. Кодовый откат выполняется последовательно: `git revert e1e173772fc71ded709ee808a9a76c4dee3e6b49`, `git revert 35abda67f17b55ec259b75e03e7df49f98b27b3b`, затем `git revert 2c79e24db2930c20d57b9f09f39bd4174f06aac7`. Внешний Preview удаляется отдельно. Git не восстанавливает внешние cookies, environment variables или данные Supabase.

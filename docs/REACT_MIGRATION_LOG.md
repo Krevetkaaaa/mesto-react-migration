@@ -37,7 +37,8 @@
 | 4. Public shell and static pages | complete | `590339d174bec83b694d8397d8b72f6e003a2f74` | SSR/DOM parity, 26 server + 57 unit, strict check, production smoke, five-viewport visual regression and Preview route matrix passed | Home client behavior remains exclusively in legacy `app.js` until Phases 5-6; rollback through revert of the Phase 4 commit |
 | 5. Venue catalog | complete | `688e63f1a3f9267e892709c3338558c0a6089cad`, routing fix `5089a340fa61857b32952c69ef1436d478278f15` | 39 server + 82 unit, strict check, production smoke, Phase 4 regression, Phase 5 functional/accessibility and 19-snapshot visual matrix, Preview route matrix passed | Protected Preview cannot authenticate SSR self-fetch for a non-editorial venue; covered by controlled E2E/contracts and must be rechecked before production cutover |
 | 6. Customer auth and profile | complete | `88940e6194a0bb70dfac34b0ad6754f6a8784c19`, Preview fixes `57b0c82c9526ff9470a1a8a558dc407df654c7e8`, `be6c265e93bf821289273e0358e6d922ba413c0d` | 51 server + 92 unit, strict check, production smoke, Phase 4/5 regression, Phase 6 functional/accessibility, 11-snapshot visual matrix and protected Preview route/cache matrix passed | Known frozen-palette contrast debt is deferred to an approved accessibility task; production deploy remains forbidden |
-| 7-8. Remaining interactive route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
+| 7. Merchant workspace | complete | `2c79e24db2930c20d57b9f09f39bd4174f06aac7`, Preview routing fixes `35abda67f17b55ec259b75e03e7df49f98b27b3b`, `e1e173772fc71ded709ee808a9a76c4dee3e6b49` | 60 server + 98 unit, strict check, production smoke, fixture contracts, Phase 4-6 regressions, Phase 7 functional/accessibility и 48-snapshot visual matrix, protected Preview route/cache matrix | Post-commit observability/idempotency deferred; production deploy remains forbidden |
+| 8. Admin console | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
@@ -160,6 +161,24 @@
 - Database migrations, production deployment и aliases отсутствуют.
 - Подробный контракт: `docs/PHASE6_PUBLIC_ACCOUNT.md`.
 - Откат: последовательно `git revert be6c265e93bf821289273e0358e6d922ba413c0d`, `git revert 57b0c82c9526ff9470a1a8a558dc407df654c7e8`, `git revert 88940e6194a0bb70dfac34b0ad6754f6a8784c19`; внешние secrets/cookies и Supabase data Git не восстанавливает.
+
+### Этап 7. Кабинет ресторатора
+
+- Локальные и Preview-ворота завершены: `2026-08-07`.
+- Branch: `codex/react-migration`; implementation commit `2c79e24db2930c20d57b9f09f39bd4174f06aac7`, Preview routing fixes `35abda67f17b55ec259b75e03e7df49f98b27b3b` и `e1e173772fc71ded709ee808a9a76c4dee3e6b49`; remote ref проверен после каждого push.
+- Route ownership: React SSR/hydration обслуживает `/merchant/overview`, `/merchant/venue`, `/merchant/menu`, `/merchant/promotions` и `/merchant/reviews`; exact `/merchant` даёт private `302`. `merchant.js` больше не подключается runtime, но legacy HTML/JS сохранены для rollback и Visual Freeze. Admin остаётся legacy.
+- Security: deny-by-default membership roles; permission-scoped dashboard slices; server session/venue/permission checks для каждой mutation; forced-password write guard; private/no-store/noindex headers; controlled upstream errors без утечки Supabase/Auth details.
+- State integrity: один parent snapshot, отдельные drafts, navigation/beforeunload guard, single-flight mutations, pending forms `inert`, functional controlled setters, browser timezone → ISO, SSR clock и ближайший promotion boundary timer.
+- Commit boundary: подтверждённая DB mutation не превращается в ошибку из-за последующего legacy metadata cleanup/audit; authoritative metadata fallback и pre-commit failures остаются строгими.
+- Local tests: `npm.cmd run check`; `npm.cmd test` — 60/60 server и 98/98 unit/contract/component; `npm.cmd run smoke`; fixture contracts 17/17; Phase 7 Chromium 10 passed; Visual Freeze 48 passed; Phase 6 regression 19 passed; Phase 5 — 28; Phase 4 — 16. Все viewport skips ожидаемые, snapshots не обновлялись.
+- Independent review: первоначально найдены stale post-submit drafts, server-timezone parsing и cold-start clock; все три исправлены, повторный review не нашёл P0–P2, targeted orchestration 6/6.
+- Preview: финальный deployment `dpl_CqP7CTaBfvpF44hgDc8izBMyjZyE`, `READY`, target `preview`, URL `https://mesto-city-guide-6ddtl0n8n-krevetkaaaas-projects.vercel.app`, exact runtime commit `e1e173772fc71ded709ee808a9a76c4dee3e6b49`.
+- Preview matrix: exact redirect 302/private; пять documents 200/private; generated `/merchant/menu.data` 200/private; unknown merchant 404/private; anonymous merchant API JSON 401/private; React SSR/login markers присутствуют, legacy `merchant.js` отсутствует; admin legacy 200 и общий unknown 404 сохранены.
+- Preview defects caught: первый deployment отдавал `merchant.html` из `filesystem`; второй guessed destination `merchant` вернул 404. Финальный source-controlled private redirect перед `filesystem` прошёл фактическую проверку и защищён smoke route-order invariant.
+- Ограничения: post-commit observability/request-id, idempotency keys, optimistic concurrency и удаление dual-storage fallback остаются этапами 9–10. Реальный Supabase browser suite не изменяет.
+- Database migrations, merge, production deployment и production aliases отсутствуют.
+- Подробный контракт: `docs/PHASE7_MERCHANT_WORKSPACE.md`.
+- Откат: `git revert e1e173772fc71ded709ee808a9a76c4dee3e6b49`, затем `git revert 35abda67f17b55ec259b75e03e7df49f98b27b3b`, затем `git revert 2c79e24db2930c20d57b9f09f39bd4174f06aac7`; внешние deployments удаляются отдельно.
 
 ## GenericAgent
 
