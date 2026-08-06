@@ -69,5 +69,8 @@ These are deterministic local/lab checks. They are not a claim about production 
 
 - No database migration is introduced.
 - No production deployment or alias change is part of Phase 5.
-- Revert the Phase 5 implementation commit to restore the Phase 4 catalog ownership. Legacy markup remains present for rollback until the later cutover phases.
+- Vercel's low-level coexistence routes explicitly restore the React Router builder's dynamic document and `.data` rewrites for city and venue routes before the terminal 404. The production smoke test locks their ordering after filesystem handling and before the catch-all.
+- Final Preview `dpl_AgrQuLWgHCrAQG8vo6HbXYYCLF8A` is `READY` at `https://mesto-city-guide-cpos0lk65-krevetkaaaas-projects.vercel.app`. Catalog, city, city data, editorial venue, venue data, malformed/unknown routes, legacy shells, and API routing were verified through authenticated `vercel curl`.
+- Deployment protection rejects an SSR function's unauthenticated self-fetch for a non-editorial venue in Preview. Database-backed detail behavior is therefore proven by local controlled E2E plus handler/adapter contracts, not claimed as a protected-Preview database validation. This restriction is absent from an unprotected production request path but must be rechecked before cutover.
+- Revert the Vercel routing fix and then the Phase 5 implementation commit to restore the Phase 4 catalog ownership. Legacy markup remains present for rollback until the later cutover phases.
 - GenericAgent is installed at `C:\Users\kir21\GenericAgent`, but it cannot execute a real LLM task until the owner configures a supported provider locally with `C:\Users\kir21\GenericAgent\ga.cmd configure`. Secrets must not be pasted into chat or committed.

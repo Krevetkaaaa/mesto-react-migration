@@ -35,7 +35,8 @@
 | 2. Framework foundation | complete | `88ca959b01a3d2b2710644e1648ef65dd44120f9` | React/TS/RR build, strict typecheck, ESLint, 26 server + 4 unit tests, local smoke и Vercel Preview route matrix прошли | Local `vercel build` блокируется Windows symlink `EPERM`; RR7 audit содержит RSC-only high advisory, upgrade требует совместимого Vercel preset; откат через revert Phase 2 commit |
 | 3. Core modules | complete | `6cdc34c13153584f41699df1162ceec4402ab1b6` | 26 server + 42 unit tests, strict typecheck, ESLint, production build и coexistence smoke прошли | `getBySlug` ждёт published-only backend endpoint; upload workflow не может удалить orphaned object; откат через revert Phase 3 commit |
 | 4. Public shell and static pages | complete | `590339d174bec83b694d8397d8b72f6e003a2f74` | SSR/DOM parity, 26 server + 57 unit, strict check, production smoke, five-viewport visual regression and Preview route matrix passed | Home client behavior remains exclusively in legacy `app.js` until Phases 5-6; rollback through revert of the Phase 4 commit |
-| 5-8. Interactive route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
+| 5. Venue catalog | complete | `688e63f1a3f9267e892709c3338558c0a6089cad`, routing fix `5089a340fa61857b32952c69ef1436d478278f15` | 39 server + 82 unit, strict check, production smoke, Phase 4 regression, Phase 5 functional/accessibility and 19-snapshot visual matrix, Preview route matrix passed | Protected Preview cannot authenticate SSR self-fetch for a non-editorial venue; covered by controlled E2E/contracts and must be rechecked before production cutover |
+| 6-8. Remaining interactive route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
@@ -123,6 +124,25 @@
 - Database migrations: отсутствуют.
 - Подробный контракт: `docs/PHASE4_PUBLIC_SHELL.md`.
 - Откат: `git revert 590339d174bec83b694d8397d8b72f6e003a2f74` возвращает legacy destinations `/` и `/help`, staged HTML documents и удаляет React public routes. Данные и production deployment не меняются.
+
+### Этап 5. Каталог и карточка заведения
+
+- Завершение локальных и Preview-ворот: `2026-08-06T23:24:01+03:00`.
+- Branch: `codex/react-migration`.
+- Implementation commit: `688e63f1a3f9267e892709c3338558c0a6089cad`; Vercel dynamic-route fix: `5089a340fa61857b32952c69ef1436d478278f15`. Оба commit опубликованы в `migration-origin/codex/react-migration`.
+- Route ownership: React SSR/hydration обслуживает `/catalog`, `/city/:citySlug` и `/venue/:venueSlug`. Главная остаётся под client ownership `app.js`, но её catalog/card действия ведут на стабильные React URL. `/help`, merchant/admin и API ownership не изменены.
+- Данные: настроенная база является единственным источником каталога, включая корректный empty result. Фиксированная редакционная подборка из семи записей используется только при недоступной/ошибочной базе и не смешивается с production rows. Максимум 20 страниц по 50 записей ограничивает SSR request amplification.
+- URL и SEO: поиск, city/category/cuisine, sort, pet, parking и page нормализуются в compact search params; reload и back/forward восстанавливают состояние. City и venue возвращают индексируемый SSR HTML, canonical/Open Graph и реальные 400/404 статусы.
+- Backend: добавлен published-only `GET /api/venues/:slug`; list endpoint возвращает только сохранённый canonical slug и не генерирует его из title. Invalid slug отсекается до базы; unpublished/absent rows скрыты как 404; 429/500/503 имеют стабильные контракты без утечки upstream деталей.
+- Interaction: loading, empty, error/fallback/retry, cumulative pagination, stale navigation, guest auth prompt, authenticated optimistic favorite и rollback реализованы для списка и полной карточки. List image использует lazy loading, intrinsic size и responsive `sizes`; hero карточки загружается с высоким приоритетом.
+- Local tests: `npm.cmd run check` прошёл; `npm.cmd test` — 39/39 server и 82/82 unit/contract/component; `npm.cmd run smoke` — production build/coexistence passed. Полный Phase 5 Playwright: 28 passed, 52 ожидаемо skipped по viewport gating, 0 failed. Phase 4 regression: 16 passed, 24 ожидаемо skipped, 0 failed.
+- Visual/accessibility: 19 новых PNG (`17 558 643` bytes) для catalog/city/venue на `360x800`, `390x844`, `768x1024`, `1440x900`, `1920x1080` и graphite/midnight catalog/venue на desktop. Meaningful updates просмотрены вручную, затем полный run выполнен без update. Light/graphite/midnight проходят serious+critical axe gate; mobile menu проверен на 390 px.
+- Preview: финальный deployment `dpl_AgrQuLWgHCrAQG8vo6HbXYYCLF8A`, `READY`, URL `https://mesto-city-guide-cpos0lk65-krevetkaaaas-projects.vercel.app`. Проверены catalog 200, city document/data 200, editorial venue document/data 200, unknown city 404, malformed venue 400, unknown web/API 404, API catalog 200, home/help/merchant/admin 200 и canonical SSR content.
+- Deployment defect caught by Preview: первый clean Preview показал, что custom terminal 404 подавлял generated dynamic document/data routes Vercel builder. Исправление явно восстанавливает четыре route mapping и блокируется smoke-инвариантами по порядку. Production deployment и aliases не менялись.
+- Preview limitation: Vercel deployment protection возвращает 401 на внутренний SSR self-fetch неизвестного editorial slug. Поэтому protected Preview не доказывает database-backed venue detail; этот путь покрыт controlled Playwright fixture и backend/adapter contracts и должен быть повторно проверен на unprotected pre-production/cutover окружении. Production Core Web Vitals и реальная latency базы не заявляются.
+- Database migrations: отсутствуют.
+- Подробный контракт: `docs/PHASE5_PUBLIC_CATALOG.md`.
+- Откат: `git revert 5089a340fa61857b32952c69ef1436d478278f15`, затем `git revert 688e63f1a3f9267e892709c3338558c0a6089cad`. External deployments удаляются отдельно; Supabase data не изменялись.
 
 ## GenericAgent
 
