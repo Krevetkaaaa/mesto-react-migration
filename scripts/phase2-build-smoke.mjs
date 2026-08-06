@@ -19,6 +19,16 @@ async function assertFile(path) {
   invariant(metadata.isFile(), `Expected file: ${path}`);
 }
 
+async function assertMissingFile(path) {
+  try {
+    await stat(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`Migrated legacy document must not shadow React SSR: ${path}`);
+}
+
 async function findNamedFiles(directory, filename) {
   const matches = [];
   const entries = await readdir(directory, { withFileTypes: true });
@@ -103,6 +113,7 @@ if (process.argv.includes("--serve")) {
 async function runSmoke() {
   const manifest = JSON.parse(await readFile(stagedManifestPath, "utf8"));
   invariant(manifest.algorithm === "sha256", "Legacy manifest must use SHA-256");
+  invariant(manifest.files.length === 43, "The Phase 2 legacy staging set must remain at 43 files");
 
   const vercelConfig = JSON.parse(await readFile(vercelConfigPath, "utf8"));
   invariant(
@@ -122,8 +133,23 @@ async function runSmoke() {
     "Vercel must build both React Router SSR and the legacy CommonJS API",
   );
 
-  const rootRouteIndex = vercelConfig.routes.findIndex(
-    (route) => route.src === "^/$" && route.dest === "/index.html",
+  const publicLegacyDestinations = vercelConfig.routes.filter(
+    (route) => route.dest === "/index.html" || route.dest === "/help.html",
+  );
+  const indexAliasIndex = vercelConfig.routes.findIndex(
+    (route) => route.src === "^/index\\.html/?$" && route.status === 308,
+  );
+  const legacyHtmlAliasIndex = vercelConfig.routes.findIndex(
+    (route) => route.src === "^/(help|merchant|admin)\\.html/?$" && route.status === 308,
+  );
+  const trailingSlashAliasIndex = vercelConfig.routes.findIndex(
+    (route) => route.src === "^/(help|merchant|admin)/$" && route.status === 308,
+  );
+  const diagramsIndex = vercelConfig.routes.findIndex(
+    (route) => route.src === "^/diagrams/(.*)$" && route.continue === true,
+  );
+  const legacyShellRouteIndex = vercelConfig.routes.findIndex(
+    (route) => route.src === "^/(merchant|admin)$" && route.dest === "/$1.html",
   );
   const apiRouteIndex = vercelConfig.routes.findIndex(
     (route) => route.src === "^/api(?:/(.*))?/?$" && route.dest === "/api/router?route=$1",
@@ -134,15 +160,22 @@ async function runSmoke() {
   const terminal404Index = vercelConfig.routes.findIndex(
     (route) => route.src === ".*" && route.status === 404,
   );
-  invariant(rootRouteIndex >= 0, "Vercel legacy root route is missing");
+  invariant(
+    publicLegacyDestinations.length === 0,
+    "Vercel must leave / and /help to the React Router SSR function",
+  );
+  invariant(indexAliasIndex >= 0, "Vercel /index.html canonical redirect is missing");
+  invariant(legacyHtmlAliasIndex >= 0, "Vercel legacy .html canonical redirects are missing");
+  invariant(trailingSlashAliasIndex >= 0, "Vercel trailing-slash canonical redirects are missing");
+  invariant(diagramsIndex >= 0, "Vercel diagrams headers route is missing");
+  invariant(legacyShellRouteIndex >= 0, "Vercel merchant/admin legacy route is missing");
   invariant(apiRouteIndex >= 0, "Vercel API rewrite is missing");
-  invariant(filesystemIndex > rootRouteIndex, "Vercel SSR function must not intercept legacy /");
+  invariant(filesystemIndex > legacyShellRouteIndex, "Vercel SSR must not intercept legacy shells");
   invariant(filesystemIndex > apiRouteIndex, "Vercel filesystem must not intercept /api/*");
+  invariant(filesystemIndex > diagramsIndex, "Vercel diagrams headers must run before filesystem handling");
   invariant(terminal404Index > filesystemIndex, "Vercel unknown routes must terminate with 404");
 
   for (const legacyPath of [
-    "index.html",
-    "help.html",
     "merchant.html",
     "admin.html",
     "app.js",
@@ -151,6 +184,8 @@ async function runSmoke() {
   ]) {
     await assertFile(resolve(clientRoot, legacyPath));
   }
+  await assertMissingFile(resolve(clientRoot, "index.html"));
+  await assertMissingFile(resolve(clientRoot, "help.html"));
 
   const port = await availablePort();
   const origin = `http://127.0.0.1:${port}`;
@@ -171,20 +206,48 @@ async function runSmoke() {
   try {
     const healthResponse = await waitForServer(origin, () => output);
     const healthHtml = await healthResponse.text();
+    invariant(healthResponse.status === 200, "Health route must return exactly 200");
+    invariant(
+      healthResponse.headers.get("content-type")?.startsWith("text/html"),
+      "Health route must return HTML",
+    );
     invariant(healthResponse.headers.get("cache-control")?.includes("no-store"), "Health route must be no-store");
     invariant(healthResponse.headers.get("x-robots-tag")?.includes("noindex"), "Health route must send X-Robots-Tag");
     invariant(healthHtml.includes('data-react-health="ok"'), "Health response is missing its React marker");
     invariant(healthHtml.includes('name="robots" content="noindex,nofollow"'), "Health HTML is missing robots noindex");
 
+    for (const [path, routeMarker, contentMarker, expectsLegacyApp] of [
+      ["/", 'data-react-route="home"', "Лучшие места", true],
+      ["/help", 'data-react-route="help"', "Всё важное", false],
+    ]) {
+      const response = await fetch(`${origin}${path}`);
+      const body = await response.text();
+      invariant(response.status === 200, `React ${path} returned ${response.status}`);
+      invariant(
+        response.headers.get("content-type")?.startsWith("text/html"),
+        `React ${path} must return HTML`,
+      );
+      invariant(body.includes(routeMarker), `React ${path} is missing its SSR route marker`);
+      invariant(body.includes(contentMarker), `React ${path} is missing its main content`);
+      invariant(body.includes('src="/theme.js?v=theme-1"'), `React ${path} is missing the synchronous theme bootstrap`);
+      invariant(
+        body.includes('src="app.js?v=ui-motion-2"') === expectsLegacyApp,
+        `React ${path} has the wrong legacy app.js ownership`,
+      );
+      invariant(!body.includes('type="module"'), `React ${path} unexpectedly enabled hydration`);
+    }
+
     for (const [path, marker] of [
-      ["/", "<!doctype html>"],
-      ["/help.html", "help.css"],
       ["/merchant.html", "merchant.css"],
       ["/admin.html", "admin.css"],
     ]) {
       const response = await fetch(`${origin}${path}`);
       const body = await response.text();
       invariant(response.status === 200, `Legacy ${path} returned ${response.status}`);
+      invariant(
+        response.headers.get("content-type")?.startsWith("text/html"),
+        `Legacy ${path} must return HTML`,
+      );
       invariant(body.toLocaleLowerCase("en-US").includes(marker), `Legacy ${path} lost its expected marker`);
       invariant(!body.includes('data-react-health="ok"'), `React route intercepted legacy ${path}`);
     }
@@ -193,13 +256,24 @@ async function runSmoke() {
       const response = await fetch(`${origin}${path}`, { redirect: "manual" });
       const body = await response.text();
       invariant(response.status === 404, `${path} must remain outside the React route table`);
+      invariant(
+        response.headers.get("content-type")?.startsWith("text/html"),
+        `${path} must return an HTML 404 document`,
+      );
       invariant(!body.includes('data-react-health="ok"'), `React health route intercepted ${path}`);
+      if (path === "/__react/not-found") {
+        invariant(body.includes('data-react-error="404"'), "Unknown React URL is missing its 404 marker");
+        invariant(
+          body.includes('name="robots" content="noindex,nofollow"'),
+          "Unknown React URL is missing robots noindex",
+        );
+      }
     }
   } finally {
     await stop(child);
   }
 
   process.stdout.write(
-    `Phase 2 smoke passed: ${manifest.files.length} staged legacy files, explicit Vercel coexistence, and isolated /__react/health SSR route.\n`,
+    `Phase 4 smoke passed: ${manifest.files.length} staged legacy files unchanged, React SSR owns / and /help without shared hydration, merchant/admin remain legacy, and unknown routes return 404.\n`,
   );
 }

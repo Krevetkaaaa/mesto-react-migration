@@ -47,11 +47,7 @@
       "continue": true
     },
     {
-      "src": "^/$",
-      "dest": "/index.html"
-    },
-    {
-      "src": "^/(help|merchant|admin)$",
+      "src": "^/(merchant|admin)$",
       "dest": "/$1.html"
     },
     {
