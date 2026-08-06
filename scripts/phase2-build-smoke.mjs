@@ -149,7 +149,7 @@ async function runSmoke() {
     (route) => route.src === "^/diagrams/(.*)$" && route.continue === true,
   );
   const legacyShellRouteIndex = vercelConfig.routes.findIndex(
-    (route) => route.src === "^/(merchant|admin)$" && route.dest === "/$1.html",
+    (route) => route.src === "^/admin$" && route.dest === "/admin.html",
   );
   const apiRouteIndex = vercelConfig.routes.findIndex(
     (route) => route.src === "^/api(?:/(.*))?/?$" && route.dest === "/api/router?route=$1",
@@ -162,6 +162,8 @@ async function runSmoke() {
     ["^/city(?:/([^/#?]+?))[/#?]?$", "city/:citySlug"],
     ["^/venue(?:/([^/#?]+?))\\.data[/#?]?$", "venue/:venueSlug.data"],
     ["^/venue(?:/([^/#?]+?))[/#?]?$", "venue/:venueSlug"],
+    ["^/merchant(?:/([^/#?]+?))\\.data[/#?]?$", "merchant/:view.data"],
+    ["^/merchant(?:/([^/#?]+?))[/#?]?$", "merchant/:view"],
   ].map(([src, dest]) => vercelConfig.routes.findIndex(
     (route) => route.src === src && route.dest === dest,
   ));
@@ -176,9 +178,9 @@ async function runSmoke() {
   invariant(legacyHtmlAliasIndex >= 0, "Vercel legacy .html canonical redirects are missing");
   invariant(trailingSlashAliasIndex >= 0, "Vercel trailing-slash canonical redirects are missing");
   invariant(diagramsIndex >= 0, "Vercel diagrams headers route is missing");
-  invariant(legacyShellRouteIndex >= 0, "Vercel merchant/admin legacy route is missing");
+  invariant(legacyShellRouteIndex >= 0, "Vercel admin legacy route is missing");
   invariant(apiRouteIndex >= 0, "Vercel API rewrite is missing");
-  invariant(filesystemIndex > legacyShellRouteIndex, "Vercel SSR must not intercept legacy shells");
+  invariant(filesystemIndex > legacyShellRouteIndex, "Vercel SSR must not intercept the legacy admin shell");
   invariant(filesystemIndex > apiRouteIndex, "Vercel filesystem must not intercept /api/*");
   invariant(filesystemIndex > diagramsIndex, "Vercel diagrams headers must run before filesystem handling");
   invariant(
@@ -268,6 +270,17 @@ async function runSmoke() {
       invariant(!body.includes('data-react-health="ok"'), `React route intercepted legacy ${path}`);
     }
 
+    const merchantRedirect = await fetch(`${origin}/merchant`, { redirect: "manual" });
+    invariant(merchantRedirect.status === 302, `/merchant must redirect, got ${merchantRedirect.status}`);
+    invariant(
+      merchantRedirect.headers.get("location") === "/merchant/overview",
+      "/merchant must redirect to /merchant/overview",
+    );
+    invariant(
+      merchantRedirect.headers.get("cache-control") === "private, no-store, max-age=0",
+      "Merchant redirect must remain private and no-store",
+    );
+
     for (const path of ["/__react/not-found", "/api/phase2-unknown", "/api/auth/yandex/callback"]) {
       const response = await fetch(`${origin}${path}`, { redirect: "manual" });
       const body = await response.text();
@@ -290,6 +303,6 @@ async function runSmoke() {
   }
 
   process.stdout.write(
-    `Phase 5 smoke passed: ${manifest.files.length} staged legacy files unchanged, React SSR owns public catalog routes, merchant/admin remain legacy, and unknown routes return 404.\n`,
+    `Phase 7 smoke passed: ${manifest.files.length} staged legacy files unchanged, React SSR owns public/catalog/account/merchant routes, admin remains legacy, and unknown routes return 404.\n`,
   );
 }

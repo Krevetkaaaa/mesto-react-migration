@@ -275,6 +275,16 @@ function initialFixtureState() {
       remove: 0,
       save: 0
     },
+    merchantRequestCounters: {
+      dashboard: 0,
+      menuCreate: 0,
+      menuDelete: 0,
+      menuUpdate: 0,
+      promotionCreate: 0,
+      promotionDelete: 0,
+      promotionUpdate: 0,
+      venueUpdate: 0
+    },
     merchantDashboard: structuredClone(merchantDashboard),
     publicVenueDetails: structuredClone(publicVenueDetails),
     requestCounters: {
@@ -305,9 +315,14 @@ function initialFixtureState() {
       favoritesError: false,
       favoritesFailNext: false,
       merchantDelayMs: 0,
+      merchantDashboardError: false,
+      merchantDashboardFailNext: false,
       merchantEmptyWorkspace: false,
       merchantMultiVenue: false,
       merchantMustChangePassword: false,
+      merchantMutationDelayMs: 0,
+      merchantMutationError: false,
+      merchantMutationFailNext: false,
       merchantRole: 'owner',
       merchantSessionMode: 'active',
       oauthMode: 'success',
@@ -345,9 +360,14 @@ function applyFixturePatch(patch = {}) {
     'favoritesError',
     'favoritesFailNext',
     'merchantDelayMs',
+    'merchantDashboardError',
+    'merchantDashboardFailNext',
     'merchantEmptyWorkspace',
     'merchantMultiVenue',
     'merchantMustChangePassword',
+    'merchantMutationDelayMs',
+    'merchantMutationError',
+    'merchantMutationFailNext',
     'merchantRole',
     'merchantSessionMode',
     'oauthMode',
@@ -406,6 +426,8 @@ function fixtureSummary() {
     favorites: fixtureState.favorites.length,
     favoritesRequestCounters: structuredClone(fixtureState.favoritesRequestCounters),
     menu: fixtureState.merchantDashboard.menu.length,
+    merchantPromotions: structuredClone(fixtureState.merchantDashboard.promotions),
+    merchantRequestCounters: structuredClone(fixtureState.merchantRequestCounters),
     oauthSessions: fixtureState.oauthSessions,
     promotions: fixtureState.merchantDashboard.promotions.length,
     publicVenueDetails: structuredClone(fixtureState.publicVenueDetails),
@@ -451,6 +473,64 @@ function fixtureUserSession(requestCookies) {
     };
   }
   return {};
+}
+
+const fixtureMerchantPermissions = Object.freeze({
+  owner: Object.freeze(['venue', 'menu', 'promotions', 'reviews', 'analytics']),
+  manager: Object.freeze(['venue', 'menu', 'promotions', 'reviews', 'analytics']),
+  content_editor: Object.freeze(['venue', 'menu', 'promotions']),
+  analyst: Object.freeze(['reviews', 'analytics'])
+});
+
+function authorizeFixtureMerchant(response, requestCookies) {
+  const session = fixtureUserSession(requestCookies);
+  if (!session.user) {
+    json(response, 401, {
+      message: 'Войдите в кабинет ресторатора.',
+      ...(session.code ? { code: session.code } : {})
+    });
+    return null;
+  }
+  if (session.user.role !== 'merchant' || session.user.status !== 'active') {
+    json(response, 403, { message: 'Этот аккаунт не имеет доступа к кабинету ресторатора.' });
+    return null;
+  }
+  return session.user;
+}
+
+function fixtureMembershipAllows(venueId, permission) {
+  const membership = fixtureState.merchantDashboard.memberships.find((item) => item.venue_id === venueId);
+  return Boolean(membership && fixtureMerchantPermissions[membership.membership_role]?.includes(permission));
+}
+
+function authorizeFixtureMerchantVenue(response, venueId, permission) {
+  if (fixtureMembershipAllows(venueId, permission)) return true;
+  json(response, 403, { message: 'Недостаточно прав для этого действия.' });
+  return false;
+}
+
+function fixtureMerchantDashboardPayload() {
+  const dashboard = structuredClone(fixtureState.merchantDashboard);
+  dashboard.user = fixtureMerchantUser();
+  dashboard.menu = dashboard.menu.filter((item) => fixtureMembershipAllows(item.venue_id, 'menu'));
+  dashboard.promotions = dashboard.promotions.filter((item) => fixtureMembershipAllows(item.venue_id, 'promotions'));
+  dashboard.reviews = dashboard.reviews.filter((item) => fixtureMembershipAllows(item.venue_id, 'reviews'));
+  dashboard.stats = {
+    venues: dashboard.venues.length,
+    menuItems: dashboard.menu.length,
+    activePromotions: dashboard.promotions.filter((item) => item.status === 'active').length,
+    reviews: dashboard.reviews.length
+  };
+  return dashboard;
+}
+
+async function fixtureMerchantMutationFailure(response) {
+  await wait(fixtureState.scenario.merchantMutationDelayMs);
+  const fail = fixtureState.scenario.merchantMutationError || fixtureState.scenario.merchantMutationFailNext;
+  fixtureState.scenario.merchantMutationFailNext = false;
+  if (!fail) return false;
+  json(response, 503, { message: 'Изменения кабинета временно недоступны.' });
+  return true;
 }
 
 const authCounterByPath = new Map([
@@ -744,17 +824,22 @@ async function handleApi(request, response, url) {
     return json(response, 201, { submission: structuredClone(submission) });
   }
   if (path === '/api/merchant/dashboard' && request.method === 'GET') {
+    fixtureState.merchantRequestCounters.dashboard += 1;
+    if (!authorizeFixtureMerchant(response, requestCookies)) return;
     await wait(fixtureState.scenario.merchantDelayMs);
-    const dashboard = structuredClone(fixtureState.merchantDashboard);
-    dashboard.user = fixtureMerchantUser();
-    return requestCookies['e2e-session'] === 'merchant'
-      ? json(response, 200, dashboard)
-      : json(response, 401, { message: 'Войдите в кабинет ресторатора.' });
+    const fail = fixtureState.scenario.merchantDashboardError || fixtureState.scenario.merchantDashboardFailNext;
+    fixtureState.scenario.merchantDashboardFailNext = false;
+    if (fail) return json(response, 503, { message: 'Кабинет ресторатора временно недоступен.' });
+    return json(response, 200, fixtureMerchantDashboardPayload());
   }
   if (path === '/api/merchant/venue' && request.method === 'PATCH') {
+    fixtureState.merchantRequestCounters.venueUpdate += 1;
+    if (!authorizeFixtureMerchant(response, requestCookies)) return;
     const body = await readJson(request);
     const venue = fixtureState.merchantDashboard.venues.find((item) => item.id === body.id);
     if (!venue) return json(response, 404, { message: 'Заведение не найдено.' });
+    if (!authorizeFixtureMerchantVenue(response, venue.id, 'venue')) return;
+    if (await fixtureMerchantMutationFailure(response)) return;
     Object.assign(venue, {
       title: body.title ?? venue.title,
       cuisine: body.cuisine ?? venue.cuisine,
@@ -770,16 +855,23 @@ async function handleApi(request, response, url) {
     return json(response, 200, { venue: structuredClone(venue) });
   }
   if (path === '/api/merchant/menu' && ['POST', 'PATCH', 'DELETE'].includes(request.method)) {
+    const counter = request.method === 'POST' ? 'menuCreate' : request.method === 'PATCH' ? 'menuUpdate' : 'menuDelete';
+    fixtureState.merchantRequestCounters[counter] += 1;
+    if (!authorizeFixtureMerchant(response, requestCookies)) return;
     const body = await readJson(request);
     const items = fixtureState.merchantDashboard.menu;
     const index = items.findIndex((item) => item.id === body.id);
+    if (request.method !== 'POST' && index === -1) return json(response, 404, { message: 'Позиция меню не найдена.' });
+    const venueId = request.method === 'POST' ? body.venueId : items[index]?.venue_id;
+    if (!authorizeFixtureMerchantVenue(response, venueId, 'menu')) return;
+    if (await fixtureMerchantMutationFailure(response)) return;
     if (request.method === 'DELETE') {
-      if (index !== -1) items.splice(index, 1);
+      items.splice(index, 1);
       return json(response, 200, { ok: true });
     }
     const item = {
       id: body.id || `50000000-0000-4000-8000-${String(fixtureState.nextMenuItem++).padStart(12, '0')}`,
-      venue_id: body.venueId || merchantVenue.id,
+      venue_id: venueId,
       section: body.section || 'Основное меню',
       title: body.title || '',
       description: body.description || '',
@@ -793,30 +885,40 @@ async function handleApi(request, response, url) {
     return json(response, request.method === 'POST' ? 201 : 200, { item: structuredClone(item) });
   }
   if (path === '/api/merchant/promotions' && ['POST', 'PATCH', 'DELETE'].includes(request.method)) {
+    const counter = request.method === 'POST' ? 'promotionCreate' : request.method === 'PATCH' ? 'promotionUpdate' : 'promotionDelete';
+    fixtureState.merchantRequestCounters[counter] += 1;
+    if (!authorizeFixtureMerchant(response, requestCookies)) return;
     const body = await readJson(request);
     const items = fixtureState.merchantDashboard.promotions;
     const index = items.findIndex((item) => item.id === body.id);
+    if (request.method !== 'POST' && index === -1) return json(response, 404, { message: 'Акция не найдена.' });
+    const venueId = request.method === 'POST' ? body.venueId : items[index]?.venue_id;
+    if (!authorizeFixtureMerchantVenue(response, venueId, 'promotions')) return;
+    if (await fixtureMerchantMutationFailure(response)) return;
     if (request.method === 'DELETE') {
-      if (index !== -1) items.splice(index, 1);
+      items.splice(index, 1);
       return json(response, 200, { ok: true });
     }
-    const item = {
+    const promotion = {
       id: body.id || `60000000-0000-4000-8000-${String(fixtureState.nextPromotion++).padStart(12, '0')}`,
-      venue_id: body.venueId || merchantVenue.id,
+      venue_id: venueId,
       title: body.title || '',
       description: body.description || '',
       starts_at: body.startsAt || null,
       ends_at: body.endsAt || null,
       status: body.status || 'draft'
     };
-    if (index === -1) items.push(item); else items[index] = { ...items[index], ...item };
-    return json(response, request.method === 'POST' ? 201 : 200, { item: structuredClone(item) });
+    if (index === -1) items.push(promotion); else items[index] = { ...items[index], ...promotion };
+    return json(response, request.method === 'POST' ? 201 : 200, { promotion: structuredClone(promotion) });
   }
   if (path === '/api/auth/password' && request.method === 'POST') {
     const session = fixtureUserSession(requestCookies);
-    return session.user
-      ? json(response, 200, { user: session.user })
-      : json(response, 401, { message: 'Войдите или зарегистрируйтесь, чтобы продолжить.', ...(session.code ? { code: session.code } : {}) });
+    if (!session.user) {
+      return json(response, 401, { message: 'Войдите или зарегистрируйтесь, чтобы продолжить.', ...(session.code ? { code: session.code } : {}) });
+    }
+    if (session.user.role === 'merchant') fixtureState.scenario.merchantMustChangePassword = false;
+    const user = session.user.role === 'merchant' ? fixtureMerchantUser() : session.user;
+    return json(response, 200, { user });
   }
   if (path === '/api/admin/session' && request.method === 'GET') {
     return requestCookies['e2e-admin'] === 'active'

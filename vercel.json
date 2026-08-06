@@ -47,8 +47,8 @@
       "continue": true
     },
     {
-      "src": "^/(merchant|admin)$",
-      "dest": "/$1.html"
+      "src": "^/admin$",
+      "dest": "/admin.html"
     },
     {
       "src": "^/api(?:/(.*))?/?$",
@@ -72,6 +72,14 @@
     {
       "src": "^/venue(?:/([^/#?]+?))[/#?]?$",
       "dest": "venue/:venueSlug"
+    },
+    {
+      "src": "^/merchant(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "merchant/:view.data"
+    },
+    {
+      "src": "^/merchant(?:/([^/#?]+?))[/#?]?$",
+      "dest": "merchant/:view"
     },
     {
       "src": ".*",

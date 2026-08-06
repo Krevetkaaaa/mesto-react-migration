@@ -1,7 +1,9 @@
 const { json, methodNotAllowed, readJson, text } = require('../../lib/http');
+const { attemptPostCommit, merchantHandlerError, setMerchantResponseHeaders } = require('../../lib/merchant-operations');
 const { merchantWorkspace, requireVenue } = require('../../lib/venue-access');
 
 module.exports = async function handler(req, res) {
+  setMerchantResponseHeaders(res);
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['PATCH']);
   try {
     const workspace = await merchantWorkspace(req, res);
@@ -30,9 +32,9 @@ module.exports = async function handler(req, res) {
     }
     if (!Object.keys(patch).length) return json(res, 200, { venue });
     const updated = await workspace.store.saveVenue(patch, venue.id);
-    await workspace.store.audit({ actor_id: workspace.profile.id, actor_label: workspace.profile.display_name, actor_role: 'merchant', action: 'venue.updated', entity_type: 'venue', entity_id: venue.id });
+    await attemptPostCommit(() => workspace.store.audit({ actor_id: workspace.profile.id, actor_label: workspace.profile.display_name, actor_role: 'merchant', action: 'venue.updated', entity_type: 'venue', entity_id: venue.id }));
     return json(res, 200, { venue: updated });
   } catch (error) {
-    return json(res, error.statusCode || 500, { message: error.message || 'Не удалось сохранить заведение.' });
+    return merchantHandlerError(res, error, 'Не удалось сохранить заведение.');
   }
 };

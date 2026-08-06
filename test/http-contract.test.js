@@ -60,16 +60,14 @@ test('methodNotAllowed preserves the Allow contract', () => {
   assert.equal(res.headers['cache-control'], 'no-store, max-age=0');
 });
 
-test('json currently overwrites an explicit public Cache-Control policy', () => {
+test('json preserves an explicit Cache-Control policy', () => {
   const res = responseRecorder();
 
   json(res, 200, { ok: true }, {
     'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120'
   });
 
-  // Characterization of the known phase 9 defect. The assertion must change
-  // together with the helper fix and public/private cache contract tests.
-  assert.equal(res.headers['cache-control'], 'no-store, max-age=0');
+  assert.equal(res.headers['cache-control'], 'public, s-maxage=60, stale-while-revalidate=120');
 });
 
 test('readJson parses a streamed JSON request and rejects invalid JSON', async () => {

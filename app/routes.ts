@@ -10,5 +10,9 @@ export default [
   route("register", "routes/public-register.tsx"),
   route("profile", "routes/public-profile.tsx"),
   route("favorites", "routes/public-favorites.tsx"),
+  route("merchant", "routes/merchant-layout.tsx", [
+    index("routes/merchant-index.tsx"),
+    route(":view", "routes/merchant-view.tsx"),
+  ]),
   route("__react/health", "routes/react-health.tsx"),
 ] satisfies RouteConfig;

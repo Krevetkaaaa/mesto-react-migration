@@ -160,6 +160,12 @@ export class FakeMerchantWorkspace extends ControllableFake implements MerchantW
 
   async execute(command: MerchantCommand): Promise<MerchantCommandResult> {
     await this.throwPlannedFailure();
+    if (this.state.user.mustChangePassword) {
+      throw new ApplicationError("forbidden", "Password change is required", {
+        status: 403,
+        code: "PASSWORD_CHANGE_REQUIRED",
+      });
+    }
     switch (command.type) {
       case "venue.update":
         return { type: "venue.updated", venue: this.updateVenue(command.venueId, command.patch) };

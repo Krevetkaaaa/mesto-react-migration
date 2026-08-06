@@ -19,6 +19,10 @@ function isInteractivePublicPath(pathname: string) {
     || ["/login", "/register", "/profile", "/favorites"].includes(pathname);
 }
 
+function isMerchantPath(pathname: string) {
+  return pathname === "/merchant" || pathname.startsWith("/merchant/");
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const isHome = pathname === "/";
@@ -27,6 +31,7 @@ export function Layout({ children }: { children: ReactNode }) {
     || pathname.startsWith("/city/")
     || pathname.startsWith("/venue/");
   const hydratesPublicRoute = isInteractivePublicPath(pathname);
+  const hydratesRoute = hydratesPublicRoute || isMerchantPath(pathname);
   const loadsPublicTheme = isHome || pathname === "/help" || hydratesPublicRoute;
   const bodyClassName = isHome || isAccountOverlay
     ? "is-home-view"
@@ -45,7 +50,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </head>
       <body className={bodyClassName}>
         {children}
-        {hydratesPublicRoute ? (
+        {hydratesRoute ? (
           <>
             <ScrollRestoration />
             <Scripts />
@@ -57,6 +62,8 @@ export function Layout({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  const { pathname } = useLocation();
+  if (isMerchantPath(pathname)) return <Outlet />;
   return (
     <PublicAccountProvider>
       <Outlet />

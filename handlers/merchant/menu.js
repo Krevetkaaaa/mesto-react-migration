@@ -1,7 +1,9 @@
 const { boolean, json, methodNotAllowed, readJson, text, uuid } = require('../../lib/http');
+const { merchantHandlerError, setMerchantResponseHeaders } = require('../../lib/merchant-operations');
 const { merchantWorkspace, requireVenue } = require('../../lib/venue-access');
 
 module.exports = async function handler(req, res) {
+  setMerchantResponseHeaders(res);
   if (!['POST', 'PATCH', 'DELETE'].includes(req.method)) return methodNotAllowed(res, ['POST', 'PATCH', 'DELETE']);
   try {
     const workspace = await merchantWorkspace(req, res);
@@ -36,6 +38,6 @@ module.exports = async function handler(req, res) {
     if (!payload.title) return json(res, 400, { message: 'Укажите название позиции.' });
     return json(res, id ? 200 : 201, { item: await workspace.store.saveMenuItem(payload, id, workspace.profile.id) });
   } catch (error) {
-    return json(res, error.statusCode || 500, { message: error.message || 'Не удалось сохранить меню.' });
+    return merchantHandlerError(res, error, 'Не удалось сохранить меню.');
   }
 };

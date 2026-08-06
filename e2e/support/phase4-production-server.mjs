@@ -93,8 +93,7 @@ const gateway = createServer(async (request, response) => {
     return;
   }
 
-  const useLegacy = pathname === "/merchant"
-    || pathname === "/admin"
+  const useLegacy = pathname === "/admin"
     || pathname.startsWith("/api/")
     || pathname.startsWith("/__e2e/")
     || pathname.startsWith("/__e2e-fonts/");
