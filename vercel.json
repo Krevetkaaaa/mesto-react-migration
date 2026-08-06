@@ -58,6 +58,22 @@
       "handle": "filesystem"
     },
     {
+      "src": "^/city(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "city/:citySlug.data"
+    },
+    {
+      "src": "^/city(?:/([^/#?]+?))[/#?]?$",
+      "dest": "city/:citySlug"
+    },
+    {
+      "src": "^/venue(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "venue/:venueSlug.data"
+    },
+    {
+      "src": "^/venue(?:/([^/#?]+?))[/#?]?$",
+      "dest": "venue/:venueSlug"
+    },
+    {
       "src": ".*",
       "status": 404
     }

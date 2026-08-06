@@ -157,6 +157,14 @@ async function runSmoke() {
   const filesystemIndex = vercelConfig.routes.findIndex(
     (route) => route.handle === "filesystem",
   );
+  const dynamicReactRoutes = [
+    ["^/city(?:/([^/#?]+?))\\.data[/#?]?$", "city/:citySlug.data"],
+    ["^/city(?:/([^/#?]+?))[/#?]?$", "city/:citySlug"],
+    ["^/venue(?:/([^/#?]+?))\\.data[/#?]?$", "venue/:venueSlug.data"],
+    ["^/venue(?:/([^/#?]+?))[/#?]?$", "venue/:venueSlug"],
+  ].map(([src, dest]) => vercelConfig.routes.findIndex(
+    (route) => route.src === src && route.dest === dest,
+  ));
   const terminal404Index = vercelConfig.routes.findIndex(
     (route) => route.src === ".*" && route.status === 404,
   );
@@ -173,6 +181,14 @@ async function runSmoke() {
   invariant(filesystemIndex > legacyShellRouteIndex, "Vercel SSR must not intercept legacy shells");
   invariant(filesystemIndex > apiRouteIndex, "Vercel filesystem must not intercept /api/*");
   invariant(filesystemIndex > diagramsIndex, "Vercel diagrams headers must run before filesystem handling");
+  invariant(
+    dynamicReactRoutes.every((routeIndex) => routeIndex > filesystemIndex),
+    "Vercel dynamic React document/data routes must follow filesystem handling",
+  );
+  invariant(
+    dynamicReactRoutes.every((routeIndex) => routeIndex < terminal404Index),
+    "Vercel dynamic React document/data routes must precede the terminal 404",
+  );
   invariant(terminal404Index > filesystemIndex, "Vercel unknown routes must terminate with 404");
 
   for (const legacyPath of [
@@ -274,6 +290,6 @@ async function runSmoke() {
   }
 
   process.stdout.write(
-    `Phase 4 smoke passed: ${manifest.files.length} staged legacy files unchanged, React SSR owns / and /help without shared hydration, merchant/admin remain legacy, and unknown routes return 404.\n`,
+    `Phase 5 smoke passed: ${manifest.files.length} staged legacy files unchanged, React SSR owns public catalog routes, merchant/admin remain legacy, and unknown routes return 404.\n`,
   );
 }
