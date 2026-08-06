@@ -81,7 +81,7 @@ export async function loadAuthRoute(request: Request) {
     api.session.current(),
     api.session.providers(),
   ]);
-  if (session.status === "authenticated") return redirect("/profile");
+  if (session.status === "authenticated") return redirect("/profile", { headers: PRIVATE_HEADERS });
   return {
     user: null,
     favorites: [],
@@ -94,7 +94,7 @@ export async function loadAuthRoute(request: Request) {
 export async function loadProtectedAccountRoute(request: Request) {
   const api = clients(request);
   const session = await api.session.current();
-  if (session.status === "anonymous") return redirect(loginTarget(request));
+  if (session.status === "anonymous") return redirect(loginTarget(request), { headers: PRIVATE_HEADERS });
   const [favorites, providers] = await Promise.all([
     api.favorites.list(),
     api.session.providers(),
@@ -171,7 +171,7 @@ export async function performFavoriteAction(request: Request) {
   const responseHeaders = new Headers(PRIVATE_HEADERS);
   const api = clients(request, responseHeaders);
   const session = await api.session.current();
-  if (session.status === "anonymous") return redirect(loginTarget(request));
+  if (session.status === "anonymous") return redirect(loginTarget(request), { headers: PRIVATE_HEADERS });
   const venueKey = formText(form, "venueKey");
   try {
     await api.favorites.remove(venueKey);

@@ -107,6 +107,8 @@ describe("public account server orchestration", () => {
     assertResponse(response);
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/login?returnTo=%2Ffavorites%3Fsource%3Dheader");
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.get("vary")).toBe("Cookie");
     expect(paths).toEqual(["/api/auth/session"]);
   });
 });
