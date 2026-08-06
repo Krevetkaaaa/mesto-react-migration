@@ -154,6 +154,9 @@ async function runSmoke() {
   const apiRouteIndex = vercelConfig.routes.findIndex(
     (route) => route.src === "^/api(?:/(.*))?/?$" && route.dest === "/api/router?route=$1",
   );
+  const merchantIndexRouteIndex = vercelConfig.routes.findIndex(
+    (route) => route.src === "^/merchant$" && route.dest === "merchant",
+  );
   const filesystemIndex = vercelConfig.routes.findIndex(
     (route) => route.handle === "filesystem",
   );
@@ -180,8 +183,13 @@ async function runSmoke() {
   invariant(diagramsIndex >= 0, "Vercel diagrams headers route is missing");
   invariant(legacyShellRouteIndex >= 0, "Vercel admin legacy route is missing");
   invariant(apiRouteIndex >= 0, "Vercel API rewrite is missing");
+  invariant(merchantIndexRouteIndex >= 0, "Vercel exact /merchant React route is missing");
   invariant(filesystemIndex > legacyShellRouteIndex, "Vercel SSR must not intercept the legacy admin shell");
   invariant(filesystemIndex > apiRouteIndex, "Vercel filesystem must not intercept /api/*");
+  invariant(
+    filesystemIndex > merchantIndexRouteIndex,
+    "Vercel exact /merchant route must precede filesystem to avoid merchant.html shadowing",
+  );
   invariant(filesystemIndex > diagramsIndex, "Vercel diagrams headers must run before filesystem handling");
   invariant(
     dynamicReactRoutes.every((routeIndex) => routeIndex > filesystemIndex),
