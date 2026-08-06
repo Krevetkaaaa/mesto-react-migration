@@ -65,6 +65,7 @@ describe("typed HTTP adapter", () => {
           "Accept-Language": "ru-RU",
           Origin: "https://mesto.example",
           "Sec-Fetch-Site": "same-origin",
+          "X-Vercel-Protection-Bypass": "preview-automation-secret",
           "X-Request-ID": validRequestId,
           Authorization: "Bearer must-not-leak",
           "X-Arbitrary": "must-not-leak",
@@ -79,6 +80,7 @@ describe("typed HTTP adapter", () => {
     expect(captured[0]?.get("accept-language")).toBe("ru-RU");
     expect(captured[0]?.get("origin")).toBe("https://mesto.example");
     expect(captured[0]?.get("sec-fetch-site")).toBe("same-origin");
+    expect(captured[0]?.get("x-vercel-protection-bypass")).toBe("preview-automation-secret");
     expect(captured[0]?.get("x-request-id")).toBe(validRequestId);
     expect(captured[0]?.get("authorization")).toBeNull();
     expect(captured[0]?.get("x-arbitrary")).toBeNull();
@@ -86,7 +88,10 @@ describe("typed HTTP adapter", () => {
     const invalidIdHeaders: Headers[] = [];
     const invalidClient = createServerHttpClient({
       request: new Request("https://mesto.example/catalog", {
-        headers: { "X-Request-ID": "trace-but-not-a-uuid" },
+        headers: {
+          "X-Request-ID": "trace-but-not-a-uuid",
+          "X-Vercel-Protection-Bypass": "x".repeat(2_049),
+        },
       }),
       fetch: vi.fn<typeof fetch>().mockImplementation((_input, init) => {
         invalidIdHeaders.push(new Headers(init?.headers));
@@ -95,6 +100,7 @@ describe("typed HTTP adapter", () => {
     });
     await invalidClient.request({ path: "/api/example", schema: z.object({ ok: z.literal(true) }) });
     expect(invalidIdHeaders[0]?.get("x-request-id")).toBeNull();
+    expect(invalidIdHeaders[0]?.get("x-vercel-protection-bypass")).toBeNull();
   });
 
   it("derives the SSR target origin from the authoritative request", async () => {

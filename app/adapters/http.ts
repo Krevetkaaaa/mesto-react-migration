@@ -236,12 +236,16 @@ function serverForwardedHeaders(incomingHeaders: HeadersInit) {
   const cookie = incoming.get("cookie");
   const language = incoming.get("accept-language");
   const origin = incoming.get("origin");
+  const protectionBypass = incoming.get("x-vercel-protection-bypass");
   const requestId = incoming.get("x-request-id");
   const fetchSite = incoming.get("sec-fetch-site");
   if (cookie) forwarded.set("Cookie", cookie);
   if (language) forwarded.set("Accept-Language", language);
   if (origin && origin.length <= 2_048) forwarded.set("Origin", origin);
   if (fetchSite && fetchSite.length <= 32) forwarded.set("Sec-Fetch-Site", fetchSite);
+  if (protectionBypass && protectionBypass.length <= 2_048) {
+    forwarded.set("X-Vercel-Protection-Bypass", protectionBypass);
+  }
   if (requestId && isUuid(requestId)) {
     forwarded.set("X-Request-ID", requestId);
   }
