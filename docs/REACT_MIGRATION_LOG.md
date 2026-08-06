@@ -34,7 +34,8 @@
 | 1. Legacy safety net | complete | `63d7d8fea1d00f1a45948b6ff4e46f42ffcded7b` | server/contract, syntax, functional, axe smoke и visual regression прошли | Fixture auth/OAuth не заменяет preview E2E; Playwright CDN 403, baseline снят Chrome `151.0.7922.72`; откат через revert Phase 1 commit |
 | 2. Framework foundation | complete | `88ca959b01a3d2b2710644e1648ef65dd44120f9` | React/TS/RR build, strict typecheck, ESLint, 26 server + 4 unit tests, local smoke и Vercel Preview route matrix прошли | Local `vercel build` блокируется Windows symlink `EPERM`; RR7 audit содержит RSC-only high advisory, upgrade требует совместимого Vercel preset; откат через revert Phase 2 commit |
 | 3. Core modules | complete | `6cdc34c13153584f41699df1162ceec4402ab1b6` | 26 server + 42 unit tests, strict typecheck, ESLint, production build и coexistence smoke прошли | `getBySlug` ждёт published-only backend endpoint; upload workflow не может удалить orphaned object; откат через revert Phase 3 commit |
-| 4-8. Route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
+| 4. Public shell and static pages | complete | `590339d174bec83b694d8397d8b72f6e003a2f74` | SSR/DOM parity, 26 server + 57 unit, strict check, production smoke, five-viewport visual regression and Preview route matrix passed | Home client behavior remains exclusively in legacy `app.js` until Phases 5-6; rollback through revert of the Phase 4 commit |
+| 5-8. Interactive route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
@@ -102,6 +103,26 @@
 - Ограничения: `getBySlug` намеренно отсутствует до published-only backend endpoint; последовательность upload → submission может оставить orphaned Storage object, поскольку delete/transaction API отсутствует. Backend scale/security gaps остаются Phases 9–10.
 - Подробный контракт: `docs/PHASE3_CORE_MODULES.md`.
 - Откат: `git revert <phase-3-commit>` удаляет только TypeScript modules/adapters/fakes/tests/docs; legacy runtime, API, database и Vercel coexistence не меняются.
+
+### Этап 4. Public shell and static pages
+
+- Начало: `2026-08-06T00:17:00+03:00`.
+- Завершение локального и Preview gate: `2026-08-06T09:26:00+03:00`.
+- Branch: `codex/react-migration`.
+- Commit: `590339d174bec83b694d8397d8b72f6e003a2f74`; remote ref `migration-origin/codex/react-migration` проверен после push.
+- Route ownership: React Router SSR теперь обслуживает `/` и `/help`; `/merchant`, `/admin` и `/api/*` остаются legacy. `index.html` и `help.html` сохраняются как rollback/test fixtures, но удаляются из `build/client`, поэтому не затеняют SSR function.
+- Client ownership: React hydration намеренно не подключена. На `/` единственным клиентским владельцем frozen DOM остаётся `app.js?v=ui-motion-2` до Phases 5-6; `/help` не загружает `app.js` и использует только синхронный theme bootstrap. Общего React/legacy mutation ownership и `dangerouslySetInnerHTML` нет.
+- SEO/cache: обе страницы возвращают индексируемый SSR HTML, title, description, canonical и Open Graph до JavaScript. Public origin берётся из валидного `MESTO_PUBLIC_ORIGIN` либо из уже разобранного `Request.url`; forwarded headers не доверяются. Route policy: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` и `nosniff`.
+- Tests: `npm.cmd test` — 26/26 server и 57/57 unit/contract tests; `npm.cmd run check` — legacy/Phase 4 syntax, React Router typegen, strict TypeScript и ESLint; `npm.cmd run smoke` — production build и coexistence route matrix.
+- Structural parity: React route views совпадают с legacy body по упорядоченным element/attribute/direct-text/landmark inventories; home содержит 1746, help — 170 элементов. Unsafe raw HTML injection запрещён тестом.
+- Visual regression: `npm.cmd run test:e2e:phase4` запланировал 40 project-tests; 16 passed, 24 ожидаемо skipped по viewport gating, 0 failed. Frozen snapshots не обновлялись. Проверены `360x800`, `390x844`, `768x1024`, `1440x900`, `1920x1080`, mobile menu на `390x844`, graphite/midnight на `1440x900`.
+- Browser verification: production gateway вручную проверен во встроенном браузере; home/help SSR markers, exact CSS order, theme cycle, отсутствие module hydration и console warnings/errors подтверждены. Proxy harness исправлен так, чтобы сохранять внешний `Host`; canonical после исправления указывает на пользовательский origin.
+- Preview: deployment `dpl_2MqxsDNaZ1JGdK7zogFQD8eeE6Pz`, URL `https://mesto-city-guide-f2ti5t8q4-krevetkaaaas-projects.vercel.app`, статус Ready, build 14 s. Защищённая matrix проверена через authenticated `vercel curl`: `/` и `/help` SSR 200 с correct markers/canonical/OG и без hydration; merchant/admin legacy 200; `/api/venues` JSON 200; неизвестный API JSON 404; canonical aliases 308; health 200 no-store/noindex; неизвестный web route — платформенный 404 с `X-Robots-Tag: noindex`; hero PNG совпал по SHA-256.
+- CDN observation: Vercel потребляет `s-maxage` и отдаёт клиенту нормализованный `Cache-Control: public, max-age=0`; `Age` и `X-Vercel-Cache: STALE` подтвердили edge caching. Это ожидаемое поведение платформы, а не потеря route policy.
+- Deployment tooling: два запуска из исходного рабочего каталога зависли на Windows CLI до нормального вывода и оставили `UNKNOWN` Preview records. Clean detached worktree загрузил exact commit и дал Ready deployment; production alias не менялся.
+- Database migrations: отсутствуют.
+- Подробный контракт: `docs/PHASE4_PUBLIC_SHELL.md`.
+- Откат: `git revert 590339d174bec83b694d8397d8b72f6e003a2f74` возвращает legacy destinations `/` и `/help`, staged HTML documents и удаляет React public routes. Данные и production deployment не меняются.
 
 ## GenericAgent
 
