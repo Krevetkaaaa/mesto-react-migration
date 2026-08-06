@@ -248,7 +248,7 @@ describe("HTTP module contracts", () => {
       venue_key: "quiet-garden",
       venue_id: venueId,
       external_venue_id: null,
-      snapshot: { title: "Тихий сад", type: "Ресторан", rating: "5", image: "", text: "Текст" },
+      snapshot: { slug: "quiet-garden", title: "Тихий сад", type: "Ресторан", rating: "5", image: "", text: "Текст" },
       created_at: "2026-08-01T00:00:00.000Z",
     };
     const http = new RecordingHttpClient([
@@ -263,10 +263,11 @@ describe("HTTP module contracts", () => {
       venueKey: "  quiet<>garden  ",
       venueId: "not-a-uuid",
       snapshot: {
+        slug: " QUIET-GARDEN ",
         title: " Тихий   сад ",
         type: "Ресторан",
         rating: "5",
-        image: "/assets/not-accepted.jpg",
+        image: "/assets/accepted-root-relative.jpg",
         text: "Текст",
       },
     });
@@ -275,7 +276,7 @@ describe("HTTP module contracts", () => {
     expect(http.requests[1]?.body).toMatchObject({
       venueKey: "quiet garden",
       venueId: null,
-      snapshot: { title: "Тихий сад", image: "" },
+      snapshot: { slug: "quiet-garden", title: "Тихий сад", image: "/assets/accepted-root-relative.jpg" },
     });
     expect(http.requests[2]).toMatchObject({
       method: "DELETE",

@@ -15,7 +15,7 @@ module.exports = async function handler(req, res) {
   } catch {
     return json(res, 503, { message: 'Публичный адрес сервиса настроен некорректно.' });
   }
-  const target = `${config.url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(`${origin}/`)}`;
+  const target = `${config.url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(`${origin}/login`)}`;
   res.statusCode = 302;
   res.setHeader('Location', target);
   return res.end();

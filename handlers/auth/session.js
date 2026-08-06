@@ -10,6 +10,10 @@ module.exports = async function handler(req, res) {
     const favorites = await createStore().listFavorites(profile.id);
     return json(res, 200, { authenticated: true, user: publicUser(profile), favorites });
   } catch {
-    return json(res, 401, { authenticated: false });
+    return json(res, 503, {
+      authenticated: false,
+      message: 'Сервис профиля и избранного временно недоступен.',
+      code: 'SESSION_SERVICE_UNAVAILABLE'
+    });
   }
 };

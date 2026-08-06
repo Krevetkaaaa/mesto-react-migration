@@ -63,6 +63,8 @@ describe("typed HTTP adapter", () => {
         headers: {
           Cookie: "mesto_session=signed",
           "Accept-Language": "ru-RU",
+          Origin: "https://mesto.example",
+          "Sec-Fetch-Site": "same-origin",
           "X-Request-ID": validRequestId,
           Authorization: "Bearer must-not-leak",
           "X-Arbitrary": "must-not-leak",
@@ -75,6 +77,8 @@ describe("typed HTTP adapter", () => {
 
     expect(captured[0]?.get("cookie")).toBe("mesto_session=signed");
     expect(captured[0]?.get("accept-language")).toBe("ru-RU");
+    expect(captured[0]?.get("origin")).toBe("https://mesto.example");
+    expect(captured[0]?.get("sec-fetch-site")).toBe("same-origin");
     expect(captured[0]?.get("x-request-id")).toBe(validRequestId);
     expect(captured[0]?.get("authorization")).toBeNull();
     expect(captured[0]?.get("x-arbitrary")).toBeNull();

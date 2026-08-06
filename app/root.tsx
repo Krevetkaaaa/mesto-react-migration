@@ -10,21 +10,27 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { PublicAccountProvider } from "./components/public/account/PublicAccountProvider";
 
 function isInteractivePublicPath(pathname: string) {
   return pathname === "/catalog"
     || pathname.startsWith("/city/")
-    || pathname.startsWith("/venue/");
+    || pathname.startsWith("/venue/")
+    || ["/login", "/register", "/profile", "/favorites"].includes(pathname);
 }
 
 export function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const isHome = pathname === "/";
+  const isAccountOverlay = ["/login", "/register", "/favorites"].includes(pathname);
+  const isCatalog = pathname === "/catalog"
+    || pathname.startsWith("/city/")
+    || pathname.startsWith("/venue/");
   const hydratesPublicRoute = isInteractivePublicPath(pathname);
   const loadsPublicTheme = isHome || pathname === "/help" || hydratesPublicRoute;
-  const bodyClassName = isHome
+  const bodyClassName = isHome || isAccountOverlay
     ? "is-home-view"
-    : hydratesPublicRoute
+    : isCatalog
       ? "is-catalog-view"
       : undefined;
 
@@ -51,7 +57,11 @@ export function Layout({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  return (
+    <PublicAccountProvider>
+      <Outlet />
+    </PublicAccountProvider>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

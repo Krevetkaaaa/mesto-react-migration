@@ -36,6 +36,10 @@ describe("public routing root", () => {
     ["/catalog", true, "is-catalog-view", true],
     ["/city/simferopol", true, "is-catalog-view", true],
     ["/venue/tihiy-sad", true, "is-catalog-view", true],
+    ["/login", true, "is-home-view", true],
+    ["/register", true, "is-home-view", true],
+    ["/favorites", true, "is-home-view", true],
+    ["/profile", true, "", true],
     ["/__react/health", false, "", false],
   ])("renders the transitional document contract for %s", (pathname, hasTheme, bodyClass, hydrates) => {
     routeState.pathname = pathname;

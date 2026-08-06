@@ -6,5 +6,9 @@ export default [
   route("catalog", "routes/public-catalog.tsx"),
   route("city/:citySlug", "routes/public-city.tsx"),
   route("venue/:venueSlug", "routes/public-venue.tsx"),
+  route("login", "routes/public-login.tsx"),
+  route("register", "routes/public-register.tsx"),
+  route("profile", "routes/public-profile.tsx"),
+  route("favorites", "routes/public-favorites.tsx"),
   route("__react/health", "routes/react-health.tsx"),
 ] satisfies RouteConfig;

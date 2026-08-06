@@ -304,6 +304,7 @@ describe("stateful module fakes", () => {
       venueId: mixedCaseUuid,
       externalVenueId: " ext<> id\u0001 ",
       snapshot: {
+        slug: " QUIET-GARDEN ",
         title: " Quiet   Garden ",
         type: "Restaurant",
         rating: "5",
@@ -318,9 +319,30 @@ describe("stateful module fakes", () => {
       venueKey: "quiet garden",
       venueId: mixedCaseUuid.toLowerCase(),
       externalVenueId: "ext id",
-      snapshot: { title: "Quiet Garden", image: "https://img.test/a b" },
+      snapshot: { slug: "quiet-garden", title: "Quiet Garden", image: "https://img.test/a b" },
       createdAt: "2026-08-05T00:00:00.000Z",
     }]);
+  });
+
+  it("keeps legacy favorite snapshots and validates optional stable slugs", async () => {
+    const favorites = new FakeFavorites();
+    const legacySnapshot = {
+      title: "Legacy place",
+      type: "Cafe",
+      rating: "",
+      image: "assets/legacy-place.jpg",
+      text: "Saved before stable slugs",
+    };
+
+    await favorites.save({ venueKey: "legacy-place", snapshot: legacySnapshot });
+    await expect(favorites.list()).resolves.toMatchObject([{
+      venueKey: "legacy-place",
+      snapshot: legacySnapshot,
+    }]);
+    await expect(favorites.save({
+      venueKey: "unsafe-place",
+      snapshot: { ...legacySnapshot, slug: "bad--slug" },
+    })).rejects.toMatchObject({ kind: "validation" });
   });
 
   it("prevalidates Submissions and records only successful normalized drafts", async () => {

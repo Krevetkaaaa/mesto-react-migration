@@ -36,7 +36,8 @@
 | 3. Core modules | complete | `6cdc34c13153584f41699df1162ceec4402ab1b6` | 26 server + 42 unit tests, strict typecheck, ESLint, production build и coexistence smoke прошли | `getBySlug` ждёт published-only backend endpoint; upload workflow не может удалить orphaned object; откат через revert Phase 3 commit |
 | 4. Public shell and static pages | complete | `590339d174bec83b694d8397d8b72f6e003a2f74` | SSR/DOM parity, 26 server + 57 unit, strict check, production smoke, five-viewport visual regression and Preview route matrix passed | Home client behavior remains exclusively in legacy `app.js` until Phases 5-6; rollback through revert of the Phase 4 commit |
 | 5. Venue catalog | complete | `688e63f1a3f9267e892709c3338558c0a6089cad`, routing fix `5089a340fa61857b32952c69ef1436d478278f15` | 39 server + 82 unit, strict check, production smoke, Phase 4 regression, Phase 5 functional/accessibility and 19-snapshot visual matrix, Preview route matrix passed | Protected Preview cannot authenticate SSR self-fetch for a non-editorial venue; covered by controlled E2E/contracts and must be rechecked before production cutover |
-| 6-8. Remaining interactive route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
+| 6. Customer auth and profile | local complete, Preview pending | implementation commit pending | 51 server + 92 unit, strict check, production smoke, Phase 4/5 regression, Phase 6 functional/accessibility and 11-snapshot visual matrix passed | Known frozen-palette contrast debt is deferred to an approved accessibility task; production deploy remains forbidden |
+| 7-8. Remaining interactive route migration | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
@@ -143,6 +144,20 @@
 - Database migrations: отсутствуют.
 - Подробный контракт: `docs/PHASE5_PUBLIC_CATALOG.md`.
 - Откат: `git revert 5089a340fa61857b32952c69ef1436d478278f15`, затем `git revert 688e63f1a3f9267e892709c3338558c0a6089cad`. External deployments удаляются отдельно; Supabase data не изменялись.
+
+### Этап 6. Пользовательская авторизация и профиль
+
+- Локальные ворота завершены: `2026-08-07T00:24:33+03:00`; Preview ещё не создавался.
+- Branch: `codex/react-migration`; implementation commit будет записан после checkpoint.
+- Route ownership: React SSR/hydration обслуживает `/login`, `/register`, `/profile` и `/favorites`; серверные API повторно проверяют customer session. Merchant/admin остаются legacy.
+- Security: dedicated strong user-session secret, typed audience/version claims, строгая legacy-cookie совместимость, fail-closed same-origin guard для unsafe cookie mutations, controlled 401/503 separation и private/no-store персональные responses.
+- OAuth: Google fragment token очищается до exchange; Google/Yandex/VK browser flows, safe return target и callback errors покрыты deterministic fixture seam.
+- Favorites: optional canonical snapshot slug сохраняет обратную совместимость; профиль, каталог, venue dialog и favorites route используют один account context и стабильный production venue key contract.
+- Local tests: `npm.cmd run check`, `npm.cmd test` (51/51 server, 92/92 unit), `npm.cmd run smoke`, fixture contracts 11/11, Phase 6 Chromium 10 passed, visual matrix 9 passed, Phase 5 regression 28 passed и Phase 4 regression 16 passed.
+- Visual/accessibility: 11 PNG (`3 305 586` bytes) проверены вручную и затем без update на пяти baseline viewport. Неожиданные serious/critical axe violations блокируются; известный inherited `color-contrast` debt не исправляется скрытой сменой frozen palette.
+- Database migrations, production deployment и aliases отсутствуют.
+- Подробный контракт: `docs/PHASE6_PUBLIC_ACCOUNT.md`.
+- Откат: `git revert <phase-6-implementation-commit>` после публикации checkpoint; внешние secrets/cookies и Supabase data Git не восстанавливает.
 
 ## GenericAgent
 

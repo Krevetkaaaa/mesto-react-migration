@@ -44,9 +44,24 @@ const merchant = {
   mustChangePassword: false
 };
 
+const fixtureAccounts = [
+  {
+    aliases: [customer.email, customer.username],
+    password: 'fixture-password',
+    session: 'customer',
+    user: customer
+  },
+  {
+    aliases: [merchant.email, merchant.username],
+    password: 'fixture-password',
+    session: 'merchant',
+    user: merchant
+  }
+];
+
 const catalogItems = [
   {
-    id: 'mesto-fixture-1',
+    id: 'mesto-30000000-0000-4000-8000-000000000001',
     databaseId: '30000000-0000-4000-8000-000000000001',
     slug: 'tihiy-sad',
     name: 'Тихий сад',
@@ -69,7 +84,7 @@ const catalogItems = [
     reviewCount: 128
   },
   {
-    id: 'mesto-fixture-2',
+    id: 'mesto-30000000-0000-4000-8000-000000000002',
     databaseId: '30000000-0000-4000-8000-000000000002',
     slug: 'morskoy-svet',
     name: 'Морской свет',
@@ -92,7 +107,7 @@ const catalogItems = [
     reviewCount: 94
   },
   {
-    id: 'mesto-fixture-3',
+    id: 'mesto-30000000-0000-4000-8000-000000000003',
     databaseId: '30000000-0000-4000-8000-000000000003',
     slug: 'kofe-vo-dvore',
     name: 'Кофе во дворе',
@@ -244,7 +259,22 @@ function initialFixtureState() {
   return {
     adminDashboard: structuredClone(adminDashboard),
     adminMerchants: structuredClone(adminMerchants),
+    customerUser: structuredClone(customer),
     favorites: [],
+    authRequestCounters: {
+      login: 0,
+      logout: 0,
+      oauthSession: 0,
+      password: 0,
+      providers: 0,
+      register: 0,
+      session: 0
+    },
+    favoritesRequestCounters: {
+      list: 0,
+      remove: 0,
+      save: 0
+    },
     merchantDashboard: structuredClone(merchantDashboard),
     publicVenueDetails: structuredClone(publicVenueDetails),
     requestCounters: {
@@ -265,9 +295,14 @@ function initialFixtureState() {
       adminEmpty: false,
       adminMerchantsDelayMs: 0,
       adminMerchantsError: false,
+      authDelayMs: 0,
+      authError: false,
       catalogDelayMs: 0,
       catalogError: false,
       catalogPageSize: null,
+      customerSessionMode: 'active',
+      favoritesDelayMs: 0,
+      favoritesError: false,
       favoritesFailNext: false,
       merchantDelayMs: 0,
       merchantEmptyWorkspace: false,
@@ -275,6 +310,12 @@ function initialFixtureState() {
       merchantMustChangePassword: false,
       merchantRole: 'owner',
       merchantSessionMode: 'active',
+      oauthMode: 'success',
+      oauthProviders: {
+        google: false,
+        yandex: false,
+        vk: false
+      },
       venueDelayMs: 0,
       venueError: false
     }
@@ -294,9 +335,14 @@ function applyFixturePatch(patch = {}) {
     'adminEmpty',
     'adminMerchantsDelayMs',
     'adminMerchantsError',
+    'authDelayMs',
+    'authError',
     'catalogDelayMs',
     'catalogError',
     'catalogPageSize',
+    'customerSessionMode',
+    'favoritesDelayMs',
+    'favoritesError',
     'favoritesFailNext',
     'merchantDelayMs',
     'merchantEmptyWorkspace',
@@ -304,10 +350,18 @@ function applyFixturePatch(patch = {}) {
     'merchantMustChangePassword',
     'merchantRole',
     'merchantSessionMode',
+    'oauthMode',
     'venueDelayMs',
     'venueError'
   ]) {
     if (Object.hasOwn(patch, key)) fixtureState.scenario[key] = patch[key];
+  }
+  if (patch.oauthProviders && typeof patch.oauthProviders === 'object') {
+    for (const provider of ['google', 'yandex', 'vk']) {
+      if (Object.hasOwn(patch.oauthProviders, provider)) {
+        fixtureState.scenario.oauthProviders[provider] = Boolean(patch.oauthProviders[provider]);
+      }
+    }
   }
   if (Array.isArray(patch.favorites)) fixtureState.favorites = structuredClone(patch.favorites);
   if (Array.isArray(patch.publicVenueDetails)) fixtureState.publicVenueDetails = structuredClone(patch.publicVenueDetails);
@@ -348,7 +402,9 @@ function fixtureSummary() {
   return {
     adminMerchants: fixtureState.adminMerchants.length,
     adminVenues: fixtureState.adminDashboard.venues.length,
+    authRequestCounters: structuredClone(fixtureState.authRequestCounters),
     favorites: fixtureState.favorites.length,
+    favoritesRequestCounters: structuredClone(fixtureState.favoritesRequestCounters),
     menu: fixtureState.merchantDashboard.menu.length,
     oauthSessions: fixtureState.oauthSessions,
     promotions: fixtureState.merchantDashboard.promotions.length,
@@ -369,6 +425,44 @@ function fixtureMerchantUser() {
   return { ...merchant, mustChangePassword: Boolean(fixtureState.scenario.merchantMustChangePassword) };
 }
 
+function fixtureAccount(login, password) {
+  const normalizedLogin = String(login || '').trim().toLowerCase();
+  return fixtureAccounts.find((account) => (
+    account.password === String(password || '')
+    && account.aliases.some((alias) => alias.toLowerCase() === normalizedLogin)
+  ));
+}
+
+function fixtureUserSession(requestCookies) {
+  const session = requestCookies['e2e-session'];
+  if (session === 'customer') {
+    const mode = fixtureState.scenario.customerSessionMode;
+    if (mode === 'active') return { user: fixtureState.customerUser };
+    if (mode === 'expired') return { code: 'SESSION_EXPIRED' };
+    if (mode === 'revoked') return { code: 'SESSION_REVOKED' };
+    return {};
+  }
+  if (session === 'merchant') {
+    if (fixtureState.scenario.merchantSessionMode === 'expired') return { code: 'SESSION_EXPIRED' };
+    return {
+      user: fixtureState.scenario.merchantSessionMode === 'wrong-role'
+        ? customer
+        : fixtureMerchantUser()
+    };
+  }
+  return {};
+}
+
+const authCounterByPath = new Map([
+  ['/api/auth/login', 'login'],
+  ['/api/auth/logout', 'logout'],
+  ['/api/auth/oauth-session', 'oauthSession'],
+  ['/api/auth/password', 'password'],
+  ['/api/auth/providers', 'providers'],
+  ['/api/auth/register', 'register'],
+  ['/api/auth/session', 'session']
+]);
+
 function json(response, statusCode, body, headers = {}) {
   response.writeHead(statusCode, {
     'Cache-Control': 'no-store',
@@ -377,6 +471,36 @@ function json(response, statusCode, body, headers = {}) {
     ...headers
   });
   response.end(JSON.stringify(body));
+}
+
+function redirect(response, location, headers = {}) {
+  response.writeHead(302, {
+    'Cache-Control': 'no-store',
+    Location: location,
+    'X-E2E-Fixture': 'legacy-safety-net',
+    ...headers
+  });
+  response.end();
+}
+
+function safeOAuthReturnTo(value, origin, fallback = '/profile') {
+  const candidate = String(value || '').trim() || fallback;
+  const unsafe = (text) => text.startsWith('//')
+    || text.includes('\\')
+    || [...text].some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 0x1f || code === 0x7f;
+    });
+  if ((!candidate.startsWith('/') && !candidate.startsWith(origin)) || unsafe(candidate)) return fallback;
+  try {
+    const decoded = decodeURIComponent(candidate);
+    if ((!decoded.startsWith('/') && !decoded.startsWith(origin)) || unsafe(decoded)) return fallback;
+    const parsed = new URL(candidate, origin);
+    if (parsed.origin !== origin) return fallback;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}` || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function cookies(request) {
@@ -433,6 +557,15 @@ function catalogPayload(url) {
 async function handleApi(request, response, url) {
   const path = url.pathname;
   const requestCookies = cookies(request);
+  const authCounter = authCounterByPath.get(path);
+
+  if (authCounter) {
+    fixtureState.authRequestCounters[authCounter] += 1;
+    await wait(fixtureState.scenario.authDelayMs);
+    if (fixtureState.scenario.authError) {
+      return json(response, 503, { message: 'Авторизация временно недоступна.' });
+    }
+  }
 
   if (path === '/api/venues' && request.method === 'GET') {
     fixtureState.requestCounters.venueList += 1;
@@ -453,26 +586,64 @@ async function handleApi(request, response, url) {
       : json(response, 404, { code: 'VENUE_NOT_FOUND', message: 'Заведение не найдено.' });
   }
   if (path === '/api/venue-content' && request.method === 'GET') return json(response, 200, { menu: [], promotions: [] });
-  if (path === '/api/auth/providers' && request.method === 'GET') return json(response, 200, { google: false, yandex: false, vk: false });
+  if (path === '/api/auth/oauth' && request.method === 'GET') {
+    const provider = String(url.searchParams.get('provider') || '').trim().toLowerCase();
+    if (!['google', 'yandex', 'vk'].includes(provider) || !fixtureState.scenario.oauthProviders[provider]) {
+      return json(response, 503, {
+        code: 'OAUTH_PROVIDER_NOT_CONFIGURED',
+        message: 'This OAuth fixture provider is not enabled.'
+      });
+    }
+    const returnTo = safeOAuthReturnTo(url.searchParams.get('returnTo'), url.origin);
+    const mode = fixtureState.scenario.oauthMode;
+    if (mode !== 'success') {
+      const oauthError = mode === 'expired' ? 'OAUTH_EXPIRED' : 'OAUTH_DENIED';
+      const target = new URL('/login', url.origin);
+      target.searchParams.set('oauthError', oauthError);
+      target.searchParams.set('provider', provider);
+      return redirect(response, `${target.pathname}${target.search}`);
+    }
+    if (provider === 'google') {
+      const target = new URL('/login', url.origin);
+      target.searchParams.set('returnTo', returnTo);
+      target.hash = 'access_token=fixture-oauth-token';
+      return redirect(response, `${target.pathname}${target.search}${target.hash}`);
+    }
+    fixtureState.customerUser = structuredClone(customer);
+    fixtureState.scenario.customerSessionMode = 'active';
+    return redirect(response, returnTo, {
+      'Set-Cookie': 'e2e-session=customer; Path=/; HttpOnly; SameSite=Lax'
+    });
+  }
+  if (path === '/api/auth/providers' && request.method === 'GET') return json(response, 200, {
+    email: true,
+    ...structuredClone(fixtureState.scenario.oauthProviders)
+  });
   if (path === '/api/auth/session' && request.method === 'GET') {
-    if (requestCookies['e2e-session'] === 'merchant' && fixtureState.scenario.merchantSessionMode === 'expired') return json(response, 401, { authenticated: false });
-    const user = requestCookies['e2e-session'] === 'merchant'
-      ? fixtureState.scenario.merchantSessionMode === 'wrong-role' ? customer : fixtureMerchantUser()
-      : requestCookies['e2e-session'] === 'customer' ? customer : null;
-    return user ? json(response, 200, { authenticated: true, user, favorites: structuredClone(fixtureState.favorites) }) : json(response, 401, { authenticated: false });
+    const session = fixtureUserSession(requestCookies);
+    return session.user
+      ? json(response, 200, { authenticated: true, user: session.user, favorites: structuredClone(fixtureState.favorites) })
+      : json(response, 401, { authenticated: false, ...(session.code ? { code: session.code } : {}) });
   }
   if (path === '/api/auth/login' && request.method === 'POST') {
     const body = await readJson(request);
-    const isMerchant = String(body.login || '').toLowerCase().includes('merchant');
-    const user = isMerchant ? merchant : customer;
+    const account = fixtureAccount(body.login, body.password);
+    if (!account) return json(response, 401, { code: 'INVALID_CREDENTIALS', message: 'Неверный логин или пароль.' });
+    if (account.session === 'customer') {
+      fixtureState.customerUser = structuredClone(account.user);
+      fixtureState.scenario.customerSessionMode = 'active';
+    }
+    const user = account.session === 'customer' ? fixtureState.customerUser : account.user;
     return json(response, 200, { authenticated: true, user }, {
-      'Set-Cookie': `e2e-session=${isMerchant ? 'merchant' : 'customer'}; Path=/; HttpOnly; SameSite=Lax`
+      'Set-Cookie': `e2e-session=${account.session}; Path=/; HttpOnly; SameSite=Lax`
     });
   }
   if (path === '/api/auth/register' && request.method === 'POST') {
     const body = await readJson(request);
     const user = { ...customer, name: String(body.name || customer.name), username: String(body.username || customer.username), email: String(body.email || customer.email) };
-    return json(response, 201, { authenticated: true, user }, {
+    fixtureState.customerUser = structuredClone(user);
+    fixtureState.scenario.customerSessionMode = 'active';
+    return json(response, 201, { authenticated: true, user: fixtureState.customerUser }, {
       'Set-Cookie': 'e2e-session=customer; Path=/; HttpOnly; SameSite=Lax'
     });
   }
@@ -480,15 +651,25 @@ async function handleApi(request, response, url) {
     const body = await readJson(request);
     if (body.accessToken !== 'fixture-oauth-token') return json(response, 401, { message: 'OAuth fixture token is invalid.' });
     fixtureState.oauthSessions += 1;
-    return json(response, 200, { authenticated: true, user: customer }, {
+    fixtureState.customerUser = structuredClone(customer);
+    fixtureState.scenario.customerSessionMode = 'active';
+    return json(response, 200, { authenticated: true, user: fixtureState.customerUser }, {
       'Set-Cookie': 'e2e-session=customer; Path=/; HttpOnly; SameSite=Lax'
     });
   }
   if (path === '/api/auth/logout' && request.method === 'POST') {
-    return json(response, 200, { authenticated: false }, { 'Set-Cookie': 'e2e-session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax' });
+    return json(response, 200, { ok: true }, { 'Set-Cookie': 'e2e-session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax' });
   }
   if (path === '/api/favorites') {
-    if (!requestCookies['e2e-session']) return json(response, 401, { message: 'Войдите или зарегистрируйтесь, чтобы продолжить.' });
+    const counter = request.method === 'GET' ? 'list' : request.method === 'POST' ? 'save' : request.method === 'DELETE' ? 'remove' : null;
+    if (counter) fixtureState.favoritesRequestCounters[counter] += 1;
+    const session = fixtureUserSession(requestCookies);
+    if (!session.user) return json(response, 401, {
+      message: 'Войдите или зарегистрируйтесь, чтобы продолжить.',
+      ...(session.code ? { code: session.code } : {})
+    });
+    await wait(fixtureState.scenario.favoritesDelayMs);
+    if (fixtureState.scenario.favoritesError) return json(response, 503, { message: 'Избранное временно недоступно.' });
     if (request.method === 'GET') return json(response, 200, { favorites: structuredClone(fixtureState.favorites) });
     const body = await readJson(request);
     if (fixtureState.scenario.favoritesFailNext) {
@@ -631,7 +812,12 @@ async function handleApi(request, response, url) {
     if (index === -1) items.push(item); else items[index] = { ...items[index], ...item };
     return json(response, request.method === 'POST' ? 201 : 200, { item: structuredClone(item) });
   }
-  if (path === '/api/auth/password' && request.method === 'POST') return json(response, 200, { ok: true, user: merchant });
+  if (path === '/api/auth/password' && request.method === 'POST') {
+    const session = fixtureUserSession(requestCookies);
+    return session.user
+      ? json(response, 200, { user: session.user })
+      : json(response, 401, { message: 'Войдите или зарегистрируйтесь, чтобы продолжить.', ...(session.code ? { code: session.code } : {}) });
+  }
   if (path === '/api/admin/session' && request.method === 'GET') {
     return requestCookies['e2e-admin'] === 'active'
       ? json(response, 200, { authenticated: true, user: { login: 'editor', role: 'admin' } })

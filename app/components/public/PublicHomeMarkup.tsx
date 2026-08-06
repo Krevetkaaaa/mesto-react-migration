@@ -1,8 +1,17 @@
 import { useState, type ReactNode } from "react";
 
+import type { User } from "../../lib/domain";
+import { useOptionalPublicAccount } from "./account/PublicAccountProvider";
+
 export interface PublicHomeMarkupProps {
+  accountDialogContent?: ReactNode;
+  accountUser?: User | null;
   catalogContent?: ReactNode;
   catalogVisible?: boolean;
+  homeBackdrop?: boolean;
+  favoriteCount?: number;
+  profileContent?: ReactNode;
+  routeKind?: "catalog" | "favorites" | "login" | "profile" | "register";
   standalone?: boolean;
   venueDialogContent?: ReactNode;
 }
@@ -13,16 +22,33 @@ export interface PublicHomeMarkupProps {
  * without raw HTML injection so the legacy DOM contract remains reviewable.
  */
 export function PublicHomeMarkup({
+  accountDialogContent,
+  accountUser = null,
   catalogContent,
   catalogVisible = false,
+  homeBackdrop = false,
+  favoriteCount = 0,
+  profileContent,
+  routeKind = "catalog",
   standalone = false,
   venueDialogContent,
 }: PublicHomeMarkupProps = {}) {
+  const account = useOptionalPublicAccount();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const bridgeToHome = (action: "favorites" | "profile" | "register") => {
+  const resolvedUser = account?.status === "authenticated" ? account.user : accountUser;
+  const resolvedFavoriteCount = account?.status === "authenticated"
+    ? account.favoriteKeys.size
+    : favoriteCount;
+  const accountInitials = (resolvedUser?.name || resolvedUser?.username || "М")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toLocaleUpperCase("ru-RU") || "М";
+  const bridgeToAccount = (action: "favorites" | "login" | "profile" | "register") => {
     if (!standalone || typeof window === "undefined") return;
-    const target = action === "register" ? "/?open=profile#guide" : `/?open=${action}#guide`;
-    window.location.assign(target);
+    window.location.assign(`/${action}`);
   };
   return (
     <>
@@ -69,14 +95,14 @@ export function PublicHomeMarkup({
           <span className="theme-toggle-glyph" aria-hidden="true"><i className="theme-sun"></i><i className="theme-moon"></i><i className="theme-star">✦</i></span>
           <span className="sr-only" data-theme-status="" aria-live="polite" suppressHydrationWarning>Включена светлая тема</span>
         </button>
-        <button className="circle-button favorites-button" type="button" aria-label="Избранные" data-open-favorites="" onClick={() => bridgeToHome("favorites")}><svg><use href="#heart" /></svg><span className="favorites-count" hidden>0</span></button>
-        <button className="login-trigger" type="button" aria-label="Войти или зарегистрироваться" data-open-auth="" onClick={() => bridgeToHome("profile")}>Войти</button>
-        <button className="register-trigger" type="button" data-open-register="" onClick={() => bridgeToHome("register")}>Регистрация</button>
+        <button className="circle-button favorites-button" type="button" aria-label="Избранные" data-open-favorites="" onClick={() => bridgeToAccount("favorites")}><svg><use href="#heart" /></svg><span className="favorites-count" hidden={resolvedFavoriteCount === 0}>{resolvedFavoriteCount}</span></button>
+        <button className={`login-trigger${resolvedUser ? " profile-button" : ""}`} type="button" aria-label={resolvedUser ? "Открыть личный кабинет" : "Войти или зарегистрироваться"} data-open-auth="" onClick={() => bridgeToAccount(resolvedUser ? "profile" : "login")}>{resolvedUser ? accountInitials : "Войти"}</button>
+        <button className="register-trigger" type="button" data-open-register="" hidden={Boolean(resolvedUser)} onClick={() => bridgeToAccount("register")}>Регистрация</button>
       </div>
     </header>
 
-    <main data-react-route={standalone ? "catalog" : "home"}>
-      {!standalone ? (<>
+    <main data-react-route={standalone ? routeKind : "home"}>
+      {!standalone || homeBackdrop ? (<>
       <section className="guide-screen" id="guide" aria-labelledby="guide-title">
         <div className="hero-photo" role="img" aria-label="Побережье Крыма с горами и Чёрным морем"></div>
         <div className="hero-content">
@@ -429,11 +455,12 @@ export function PublicHomeMarkup({
         <div className="profile-inner"><button className="back-link" type="button" data-home-link="">← Вернуться на главную</button><div className="profile-heading"><span className="profile-large-avatar" data-profile-avatar="">М</span><div><p className="eyebrow">Личный кабинет</p><h1 id="profile-title" data-profile-name="">Ваш профиль</h1><p><span data-profile-email=""></span><br />Избранные места, отзывы и заявки — в одном кабинете.</p></div><div className="profile-actions"><a className="profile-action merchant-profile-link" href="/merchant" hidden>Кабинет ресторатора</a><button className="profile-action" type="button" data-open-submission=""><svg><use href="#plus" /></svg>Добавить заведение</button><button className="profile-action secondary" type="button" data-logout="">Выйти</button></div></div><div className="profile-grid"><section className="profile-card"><div><p className="eyebrow">Избранное</p><h2>Места, к которым хочется вернуться</h2></div><div className="saved-list" id="profile-saved-list"></div></section><section className="profile-card profile-review"><p className="eyebrow">Ваш голос</p><h2>Отзывы помогают выбирать лучше</h2><p>Откройте карточку заведения и поделитесь впечатлением — отзыв появится после модерации.</p><button className="black-action" type="button" data-home-link="">Найти место <svg><use href="#arrow" /></svg></button></section></div></div>
       </section>
       </>) : null}
+      {profileContent}
     </main>
 
-    <footer className="site-footer" id="site-footer"><div className="footer-main"><div className="footer-brand"><a className="brand brand-mark" href={standalone ? "/" : "#guide"} data-home-link="" aria-label="Место — на главную"><svg className="brand-pin"><use href="#pin" /></svg><span className="brand-word">Место</span><span className="brand-orb" aria-hidden="true"><svg><use href="#logo-star" /></svg></span></a><p>Ваш гид по любимым ресторанам<br />и новым впечатлениям.</p></div><div className="footer-column"><h4>Навигация</h4><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#cities" : "#cities"} data-home-link="">Города</a></div><div className="footer-column"><h4>Помощь</h4><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">Как это работает</a><a href="/help#faq">Вопросы и ответы</a><a href="/help#partners">Партнёрам</a><a href="/help#rules">Правила сервиса</a></div><div className="footer-column footer-contacts"><h4>Для вас</h4><a href="/?open=favorites#guide">Избранное</a><a href="/?open=submission#guide">Добавить заведение</a><a href="/?open=profile#guide">Личный кабинет</a><span>Республика Крым</span></div></div><div className="footer-bottom"><small>© 2026 Место. Все права защищены.</small><span><a href="/help#privacy">Политика конфиденциальности</a><a href="/help#terms">Пользовательское соглашение</a></span></div></footer>
+    <footer className="site-footer" id="site-footer"><div className="footer-main"><div className="footer-brand"><a className="brand brand-mark" href={standalone ? "/" : "#guide"} data-home-link="" aria-label="Место — на главную"><svg className="brand-pin"><use href="#pin" /></svg><span className="brand-word">Место</span><span className="brand-orb" aria-hidden="true"><svg><use href="#logo-star" /></svg></span></a><p>Ваш гид по любимым ресторанам<br />и новым впечатлениям.</p></div><div className="footer-column"><h4>Навигация</h4><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#cities" : "#cities"} data-home-link="">Города</a></div><div className="footer-column"><h4>Помощь</h4><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">Как это работает</a><a href="/help#faq">Вопросы и ответы</a><a href="/help#partners">Партнёрам</a><a href="/help#rules">Правила сервиса</a></div><div className="footer-column footer-contacts"><h4>Для вас</h4><a href={standalone ? "/favorites" : "/?open=favorites#guide"}>Избранное</a><a href="/?open=submission#guide">Добавить заведение</a><a href={standalone ? "/profile" : "/?open=profile#guide"}>Личный кабинет</a><span>Республика Крым</span></div></div><div className="footer-bottom"><small>© 2026 Место. Все права защищены.</small><span><a href="/help#privacy">Политика конфиденциальности</a><a href="/help#terms">Пользовательское соглашение</a></span></div></footer>
 
-    <div className="mobile-nav" role="dialog" aria-modal="true" aria-label="Навигация" hidden={!standalone || !mobileOpen}><div className="mobile-nav-panel"><button type="button" className="mobile-nav-close" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)}>×</button><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">О проекте</a><a href="/help#faq">Помощь</a><button type="button" className="mobile-nav-action" data-open-favorites="" onClick={() => bridgeToHome("favorites")}>Избранное</button><button type="button" className="mobile-nav-action" data-open-auth="" onClick={() => bridgeToHome("profile")}>Личный кабинет</button></div></div>
+    <div className="mobile-nav" role="dialog" aria-modal="true" aria-label="Навигация" hidden={!standalone || !mobileOpen}><div className="mobile-nav-panel"><button type="button" className="mobile-nav-close" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)}>×</button><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">О проекте</a><a href="/help#faq">Помощь</a><button type="button" className="mobile-nav-action" data-open-favorites="" onClick={() => bridgeToAccount("favorites")}>Избранное</button><button type="button" className="mobile-nav-action" data-open-auth="" onClick={() => bridgeToAccount("profile")}>Личный кабинет</button></div></div>
 
     {venueDialogContent ?? (!standalone ? (
     <dialog id="venue-dialog" aria-labelledby="venue-dialog-title">
@@ -511,6 +538,7 @@ export function PublicHomeMarkup({
     </dialog>
     <dialog id="favorites-dialog" className="favorites-dialog" aria-labelledby="favorites-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="favorites-inner"><p className="eyebrow">Личный список</p><h2 id="favorites-title">Избранные места</h2><p className="form-lead">Сохраняйте места — они останутся здесь для следующего выбора.</p><div className="favorites-list" id="favorites-list"></div><button className="black-action" type="button" data-home-link="">Найти ещё место <svg><use href="#arrow" /></svg></button></div></dialog>
     </>) : null}
+    {accountDialogContent}
     <div className="toast" role="status" aria-live="polite"></div>
     </>
   );

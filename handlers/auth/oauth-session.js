@@ -1,9 +1,11 @@
 const { json, methodNotAllowed, readJson } = require('../../lib/http');
 const { normalizeUsername, publicUser, sessionCookie } = require('../../lib/identity');
 const { authRequest, createStore } = require('../../lib/supabase');
+const { requireSameOrigin } = require('../../lib/same-origin');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
+  if (!requireSameOrigin(req, res)) return;
   try {
     const body = await readJson(req, 100_000);
     const accessToken = String(body.accessToken || '');

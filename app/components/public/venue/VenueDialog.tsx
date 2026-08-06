@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { createHttpFavorites } from "../../../adapters/favorites-http";
-import { createBrowserHttpClient } from "../../../adapters/http";
-import { createHttpSession } from "../../../adapters/session-http";
 import type { PublicVenueDetail } from "../../../modules/public-catalog.server";
+import { usePublicAccount } from "../account/PublicAccountProvider";
 
 function safeReturnPath(value: string | null) {
   if (!value) return "/catalog";
@@ -24,24 +22,14 @@ export function VenueDialog({ detail, returnTo }: {
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const navigate = useNavigate();
+  const account = usePublicAccount();
   const { venue, menuItems, promotions } = detail;
-  const [sessionStatus, setSessionStatus] = useState<"loading" | "anonymous" | "authenticated">("loading");
-  const [isSaved, setIsSaved] = useState(false);
   const [favoriteMessage, setFavoriteMessage] = useState("");
   const photos = venue.photos.length ? venue.photos : ["/assets/venue-restaurant-unsplash.jpg"];
   const heroPhoto = photos[0] ?? "/assets/venue-restaurant-unsplash.jpg";
   const returnPath = safeReturnPath(returnTo);
 
-  useEffect(() => {
-    void createHttpSession(createBrowserHttpClient()).current().then((session) => {
-      if (session.status === "anonymous") {
-        setSessionStatus("anonymous");
-        return;
-      }
-      setIsSaved(session.favoriteKeys.includes(detail.venueKey));
-      setSessionStatus("authenticated");
-    }).catch(() => setSessionStatus("anonymous"));
-  }, [detail.venueKey]);
+  const isSaved = account.favoriteKeys.has(detail.venueKey);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -53,34 +41,30 @@ export function VenueDialog({ detail, returnTo }: {
   }, [navigate, returnPath]);
 
   const toggleFavorite = async () => {
-    if (sessionStatus !== "authenticated") {
-      setFavoriteMessage(sessionStatus === "loading"
+    if (account.status !== "authenticated") {
+      setFavoriteMessage(account.status === "restoring"
         ? "Проверяем авторизацию…"
-        : "Авторизируйтесь или зарегистрируйтесь, чтобы сохранить место.");
+        : account.status === "unavailable"
+          ? "Сервис аккаунта временно недоступен. Попробуйте ещё раз."
+          : "Авторизируйтесь или зарегистрируйтесь, чтобы сохранить место.");
       return;
     }
-    const previous = isSaved;
-    setIsSaved(!previous);
     try {
-      const favorites = createHttpFavorites(createBrowserHttpClient());
-      if (previous) await favorites.remove(detail.venueKey);
-      else {
-        await favorites.save({
-          venueKey: detail.venueKey,
-          venueId: detail.externalVenueId ? null : venue.id,
-          externalVenueId: detail.externalVenueId,
-          snapshot: {
-            title: venue.title,
-            type: `${venue.category} · ${venue.city}`,
-            rating: "",
-            image: heroPhoto,
-            text: venue.description,
-          },
-        });
-      }
-      setFavoriteMessage(previous ? "Место удалено из избранного." : "Место сохранено в избранном.");
+      const outcome = await account.toggleFavorite({
+        venueKey: detail.venueKey,
+        venueId: detail.externalVenueId ? null : venue.id,
+        externalVenueId: detail.externalVenueId,
+        snapshot: {
+          slug: venue.slug,
+          title: venue.title,
+          type: `${venue.category} · ${venue.city}`,
+          rating: "",
+          image: heroPhoto,
+          text: venue.description,
+        },
+      });
+      setFavoriteMessage(outcome === "removed" ? "Место удалено из избранного." : "Место сохранено в избранном.");
     } catch {
-      setIsSaved(previous);
       setFavoriteMessage("Не удалось изменить избранное. Попробуйте ещё раз.");
     }
   };
@@ -103,9 +87,9 @@ export function VenueDialog({ detail, returnTo }: {
         <div className="dialog-thumbnails" aria-hidden="true">{photos.slice(0, 4).map((photo, index) => <img key={`${photo}-${index}`} src={photo} alt="" loading={index ? "lazy" : "eager"} width={240} height={160} />)}</div>
       </div>
       <div className="dialog-content">
-        <div className="dialog-title"><div><p className="eyebrow">{venue.category} · {venue.city}</p><h2 id="venue-dialog-title">{venue.title}</h2></div><button className={`dialog-heart${isSaved ? " is-saved" : ""}`} type="button" aria-label={isSaved ? "Удалить из избранного" : "Добавить в избранное"} aria-pressed={isSaved} onClick={() => { void toggleFavorite(); }}><svg><use href="#heart" /></svg></button></div>
+        <div className="dialog-title"><div><p className="eyebrow">{venue.category} · {venue.city}</p><h2 id="venue-dialog-title">{venue.title}</h2></div><button className={`dialog-heart${isSaved ? " is-saved" : ""}`} type="button" aria-label={isSaved ? "Удалить из избранного" : "Добавить в избранное"} aria-pressed={isSaved} disabled={account.pendingFavoriteKeys.has(detail.venueKey)} onClick={() => { void toggleFavorite(); }}><svg><use href="#heart" /></svg></button></div>
         <p className="dialog-description">{venue.description || "Опубликованная карточка заведения в каталоге «Места»."}</p>
-        {favoriteMessage ? <p className="catalog-feedback" role="status">{favoriteMessage}{sessionStatus === "anonymous" ? <> <a href="/?open=favorites#guide">Войти</a></> : null}</p> : null}
+        {favoriteMessage ? <p className="catalog-feedback" role="status">{favoriteMessage}{account.status === "anonymous" ? <> <a href={`/login?${new URLSearchParams({ returnTo: `/venue/${venue.slug}` }).toString()}`}>Войти</a></> : null}</p> : null}
         <div className="feature-list">{venue.features.map((feature) => <span key={feature}><svg><use href="#star" /></svg>{feature}</span>)}</div>
         <div className="dialog-promotions" hidden={!promotions.length} aria-live="polite">{promotions.map((promotion) => <article key={promotion.id}><b>{promotion.title}</b><small>{promotion.description}</small></article>)}</div>
       </div>

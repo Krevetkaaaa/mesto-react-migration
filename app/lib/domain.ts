@@ -18,6 +18,7 @@ export interface User {
 }
 
 export interface FavoriteSnapshot {
+  slug?: string;
   title: string;
   type: string;
   rating: string;

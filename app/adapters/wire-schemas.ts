@@ -4,6 +4,7 @@ import type {
   AdminDashboard,
   CatalogVenue,
   Favorite,
+  FavoriteSnapshot,
   Membership,
   MenuItem,
   MerchantAccount,
@@ -56,6 +57,7 @@ export const userWireSchema = z.object({
 }));
 
 const favoriteSnapshotWireSchema = z.object({
+  slug: venueSlug.optional(),
   title: text,
   type: text,
   rating: text,
@@ -67,7 +69,14 @@ const favoriteSnapshotWireSchema = z.object({
   rating: "",
   image: "",
   text: "",
-});
+}).transform((value): FavoriteSnapshot => ({
+  ...(value.slug ? { slug: value.slug } : {}),
+  title: value.title,
+  type: value.type,
+  rating: value.rating,
+  image: value.image,
+  text: value.text,
+}));
 
 export const favoriteWireSchema = z.object({
   venue_key: z.string().min(1),

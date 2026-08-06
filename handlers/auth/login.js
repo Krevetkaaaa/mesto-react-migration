@@ -1,9 +1,11 @@
 const { json, methodNotAllowed, readJson, text } = require('../../lib/http');
 const { publicUser, sessionCookie, signIn } = require('../../lib/identity');
 const { rateLimit } = require('../../lib/rate-limit');
+const { requireSameOrigin } = require('../../lib/same-origin');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
+  if (!requireSameOrigin(req, res)) return;
   try {
     const body = await readJson(req, 50_000);
     const login = text(body.login, 200).toLowerCase();

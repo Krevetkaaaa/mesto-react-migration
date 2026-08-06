@@ -1,12 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Form, Link, useLocation, useNavigate, useNavigation, useRevalidator } from "react-router";
 
-import { createHttpFavorites } from "../../../adapters/favorites-http";
-import { createBrowserHttpClient } from "../../../adapters/http";
-import { createHttpSession } from "../../../adapters/session-http";
 import type { CatalogVenue } from "../../../lib/domain";
 import { catalogHref, parseCatalogUrl } from "../../../modules/catalog-url-state";
 import type { PublicCatalogSnapshot } from "../../../modules/public-catalog-experience";
+import { usePublicAccount } from "../account/PublicAccountProvider";
 
 type CatalogVenueView = Omit<CatalogVenue, "coordinates"> & {
   coordinates: readonly number[];
@@ -34,83 +32,51 @@ function imageFor(item: CatalogVenueView) {
 }
 
 function useCatalogFavorites() {
-  const [status, setStatus] = useState<"loading" | "anonymous" | "authenticated">("loading");
-  const [saved, setSaved] = useState<ReadonlySet<string>>(new Set());
+  const account = usePublicAccount();
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    const http = createBrowserHttpClient();
-    void createHttpSession(http).current().then((session) => {
-      if (session.status === "anonymous") {
-        setStatus("anonymous");
-        return;
-      }
-      setSaved(new Set(session.favoriteKeys));
-      setStatus("authenticated");
-    }).catch(() => setStatus("anonymous"));
-  }, []);
-
-  useEffect(() => {
-    const counter = document.querySelector<HTMLElement>(".favorites-count");
-    if (!counter) return;
-    counter.hidden = saved.size === 0;
-    counter.textContent = String(saved.size);
-  }, [saved]);
-
   async function toggle(item: CatalogVenueView) {
-    if (status !== "authenticated") {
-      setMessage(status === "loading"
+    if (account.status !== "authenticated") {
+      setMessage(account.status === "restoring"
         ? "Проверяем авторизацию…"
-        : "Авторизируйтесь или зарегистрируйтесь, чтобы сохранять места.");
+        : account.status === "unavailable"
+          ? "Сервис аккаунта временно недоступен. Попробуйте ещё раз."
+          : "Авторизируйтесь или зарегистрируйтесь, чтобы сохранять места.");
       return;
     }
-    const wasSaved = saved.has(item.key);
-    setSaved((current) => {
-      const next = new Set(current);
-      if (wasSaved) next.delete(item.key);
-      else next.add(item.key);
-      return next;
-    });
-    const favorites = createHttpFavorites(createBrowserHttpClient());
     try {
-      if (wasSaved) await favorites.remove(item.key);
-      else {
-        await favorites.save({
-          venueKey: item.key,
-          venueId: item.databaseId,
-          externalVenueId: item.databaseId ? null : item.slug,
-          snapshot: {
-            title: item.name,
-            type: `${item.category} · ${item.city}`,
-            rating: item.rating === null ? "" : String(item.rating),
-            image: imageFor(item),
-            text: item.description,
-          },
-        });
-      }
-      setMessage(wasSaved ? "Место удалено из избранного." : "Место сохранено в избранном.");
-    } catch {
-      setSaved((current) => {
-        const next = new Set(current);
-        if (wasSaved) next.add(item.key);
-        else next.delete(item.key);
-        return next;
+      const outcome = await account.toggleFavorite({
+        venueKey: item.key,
+        venueId: item.databaseId,
+        externalVenueId: item.databaseId ? null : item.slug,
+        snapshot: {
+          slug: item.slug,
+          title: item.name,
+          type: `${item.category} · ${item.city}`,
+          rating: item.rating === null ? "" : String(item.rating),
+          image: imageFor(item),
+          text: item.description,
+        },
       });
+      setMessage(outcome === "removed" ? "Место удалено из избранного." : "Место сохранено в избранном.");
+    } catch {
       setMessage("Не удалось изменить избранное. Попробуйте ещё раз.");
     }
   }
 
-  return { message, saved, status, toggle };
+  return { message, pending: account.pendingFavoriteKeys, saved: account.favoriteKeys, status: account.status, toggle };
 }
 
 function VenueCard({
   item,
   isSaved,
+  isPending,
   onFavorite,
   returnTo,
 }: {
   item: CatalogVenueView;
   isSaved: boolean;
+  isPending: boolean;
   onFavorite: (item: CatalogVenueView) => void;
   returnTo: string;
 }) {
@@ -149,6 +115,7 @@ function VenueCard({
           type="button"
           aria-label={isSaved ? "Удалить из избранного" : "Добавить в избранное"}
           aria-pressed={isSaved}
+          disabled={isPending}
           onClick={() => onFavorite(item)}
         ><svg aria-hidden="true"><use href="#heart" /></svg></button>
       </span>
@@ -239,11 +206,11 @@ export function CatalogScreen({ snapshot, cityLanding = false }: {
         <button className="catalog-refresh-action" id="catalog-refresh" type="button" disabled={pending} onClick={() => { void revalidator.revalidate(); }}><svg><use href="#search" /></svg>{pending ? "Обновляем…" : "Обновить каталог"}</button>
       </div>
       {snapshot.errorMessage ? <p className="catalog-feedback" role="alert">{snapshot.errorMessage} <button type="button" onClick={() => { void revalidator.revalidate(); }}>Повторить</button></p> : null}
-      {favorites.message ? <p className="catalog-feedback" role="status">{favorites.message}{favorites.status === "anonymous" ? <> <a href="/?open=favorites#guide">Войти</a></> : null}</p> : null}
+      {favorites.message ? <p className="catalog-feedback" role="status">{favorites.message}{favorites.status === "anonymous" ? <> <a href="/login?returnTo=%2Fcatalog">Войти</a></> : null}</p> : null}
       <div className="catalog-toolbar"><span id="catalog-count">{snapshot.visibleCount} мест</span><Link className="text-link" to="/#collections">К подборкам <svg><use href="#arrow" /></svg></Link></div>
       <div className="venue-grid catalog-grid" id="catalog-grid">
         {snapshot.items.length
-          ? snapshot.items.map((item) => <VenueCard key={item.slug} item={item} isSaved={favorites.saved.has(item.key)} onFavorite={(selected) => void favorites.toggle(selected)} returnTo={`${location.pathname}${location.search}`} />)
+          ? snapshot.items.map((item) => <VenueCard key={item.slug} item={item} isPending={favorites.pending.has(item.key)} isSaved={favorites.saved.has(item.key)} onFavorite={(selected) => void favorites.toggle(selected)} returnTo={`${location.pathname}${location.search}`} />)
           : <p className="catalog-empty">По этим параметрам пока нет заведений. Попробуйте изменить город или кухню.</p>}
       </div>
       {snapshot.nextPage ? (
