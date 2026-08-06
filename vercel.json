@@ -56,7 +56,14 @@
     },
     {
       "src": "^/merchant$",
-      "dest": "merchant"
+      "headers": {
+        "Location": "/merchant/overview",
+        "Cache-Control": "private, no-store, max-age=0",
+        "Vary": "Cookie",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex"
+      },
+      "status": 302
     },
     {
       "handle": "filesystem"

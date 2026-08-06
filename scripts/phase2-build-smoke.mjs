@@ -155,7 +155,13 @@ async function runSmoke() {
     (route) => route.src === "^/api(?:/(.*))?/?$" && route.dest === "/api/router?route=$1",
   );
   const merchantIndexRouteIndex = vercelConfig.routes.findIndex(
-    (route) => route.src === "^/merchant$" && route.dest === "merchant",
+    (route) => route.src === "^/merchant$"
+      && route.status === 302
+      && route.headers?.Location === "/merchant/overview"
+      && route.headers?.["Cache-Control"] === "private, no-store, max-age=0"
+      && route.headers?.Vary === "Cookie"
+      && route.headers?.["X-Content-Type-Options"] === "nosniff"
+      && route.headers?.["X-Robots-Tag"] === "noindex",
   );
   const filesystemIndex = vercelConfig.routes.findIndex(
     (route) => route.handle === "filesystem",
@@ -183,7 +189,7 @@ async function runSmoke() {
   invariant(diagramsIndex >= 0, "Vercel diagrams headers route is missing");
   invariant(legacyShellRouteIndex >= 0, "Vercel admin legacy route is missing");
   invariant(apiRouteIndex >= 0, "Vercel API rewrite is missing");
-  invariant(merchantIndexRouteIndex >= 0, "Vercel exact /merchant React route is missing");
+  invariant(merchantIndexRouteIndex >= 0, "Vercel exact /merchant private redirect is missing");
   invariant(filesystemIndex > legacyShellRouteIndex, "Vercel SSR must not intercept the legacy admin shell");
   invariant(filesystemIndex > apiRouteIndex, "Vercel filesystem must not intercept /api/*");
   invariant(
