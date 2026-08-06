@@ -1,6 +1,6 @@
 # Этап 6. Пользовательская авторизация и профиль
 
-Дата локального завершения: 7 августа 2026 года.
+Дата локального и Preview-завершения: 7 августа 2026 года.
 
 ## Владение маршрутами
 
@@ -49,6 +49,16 @@ React Router SSR и hydration теперь обслуживают:
 - Phase 4 regression: 16 passed, 24 ожидаемо skipped.
 - 11 Phase 6 PNG занимают 3 305 586 bytes. Login/register/favorites проверены на mobile и desktop, profile — на всех пяти baseline viewport.
 
+## Preview
+
+- Финальный защищённый deployment: `dpl_Ba2FpLUw2M9vrqr57zZd5H4atCpv`, URL `https://mesto-city-guide-dyfe7k75c-krevetkaaaas-projects.vercel.app`, статус `READY`, runtime commit `be6c265e93bf821289273e0358e6d922ba413c0d`.
+- `/login` и `/register` возвращают `200` и персональный cache contract; login body содержит React route/login markers и не содержит controlled 503 fallback.
+- `/profile` и `/favorites` для гостя возвращают `302` на `/login?returnTo=...` с `private, no-store, max-age=0`, `Vary: Cookie`, `nosniff` и `noindex`.
+- `/api/auth/session` возвращает ожидаемый anonymous `401` с `no-store`; `/api/auth/providers` возвращает `200` с provider availability и `no-store`.
+- Первый Preview выявил, что Vercel Deployment Protection блокирует внутренний SSR self-fetch. Server adapter теперь пересылает bypass только в exact same-origin `/api/*`, только из входящего server request и с ограничением размера; browser adapter этот заголовок не принимает.
+- Второй Preview выявил публичный cache policy на anonymous redirects. Все account redirects теперь явно получают тот же private cache contract, что document/data/action responses.
+- Production deployment и aliases не менялись.
+
 ## Visual Freeze и accessibility
 
 React-маршруты используют существующие CSS, изображения, typography, breakpoints и dialog-композицию. Отдельная строка удаления favorite была выявлена ручным сравнением и удалена как regression; финальный диалог снова совпадает с legacy-сценарием.
@@ -65,4 +75,4 @@ Axe блокирует все неожиданные serious и critical нар�
 
 ## Откат
 
-После публикации Phase 6 откатывается обычным `git revert` соответствующего implementation commit. Это возвращает React account routes и security changes к предыдущему checkpoint, но не восстанавливает внешние secrets, cookies или данные Supabase. Production deployment на этапе 6 не выполняется.
+После публикации Phase 6 откатывается последовательно: `git revert be6c265e93bf821289273e0358e6d922ba413c0d`, `git revert 57b0c82c9526ff9470a1a8a558dc407df654c7e8`, `git revert 88940e6194a0bb70dfac34b0ad6754f6a8784c19`. Это возвращает React account routes и security changes к предыдущему checkpoint, но не восстанавливает внешние secrets, cookies или данные Supabase. Production deployment на этапе 6 не выполняется.
