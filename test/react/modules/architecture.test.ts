@@ -39,8 +39,8 @@ describe("module architecture", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps slug lookup outside the Phase 3 catalog contract", async () => {
+  it("exposes the Phase 5 slug lookup through the catalog contract", async () => {
     const source = await readFile(resolve(projectRoot, "app/modules/venue-catalog.ts"), "utf8");
-    expect(source).not.toContain("getBySlug");
+    expect(source).toContain("getBySlug(slug: string): Promise<Venue>");
   });
 });

@@ -213,7 +213,14 @@ async function authenticateFixture(page, role) {
   };
   const [name, value] = sessions[role] || [];
   if (!name) throw new Error(`Unknown fixture role: ${role}`);
-  await page.context().addCookies([{ name, value, url: 'http://127.0.0.1:4173', httpOnly: true, sameSite: 'Lax' }]);
+  await page.context().addCookies([{
+    name,
+    value,
+    domain: '127.0.0.1',
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax'
+  }]);
 }
 
 const savedFavorite = {

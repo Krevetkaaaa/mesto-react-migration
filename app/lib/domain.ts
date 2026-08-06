@@ -36,6 +36,7 @@ export interface Favorite {
 export interface CatalogVenue {
   key: string;
   databaseId: string | null;
+  slug: string;
   name: string;
   city: string;
   address: string;

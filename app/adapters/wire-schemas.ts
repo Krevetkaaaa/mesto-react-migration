@@ -14,6 +14,7 @@ import type {
   VenueSubmission,
 } from "../lib/domain";
 import { UUID_PATTERN } from "../lib/identifiers";
+import { normalizeVenueSlug } from "../modules/venue-catalog";
 
 const text = z.string().nullish().transform((value) => value ?? "");
 const nullableText = z.string().nullish().transform((value) => value ?? null);
@@ -24,6 +25,13 @@ const coordinates = z.union([
   z.tuple([]),
   z.tuple([z.number(), z.number()]),
 ]);
+const venueSlug = z.string().refine((value) => {
+  try {
+    return normalizeVenueSlug(value) === value;
+  } catch {
+    return false;
+  }
+}, "Expected a canonical venue slug");
 
 export const userWireSchema = z.object({
   id: uuid,
@@ -78,6 +86,7 @@ export const favoriteWireSchema = z.object({
 export const catalogVenueWireSchema = z.object({
   id: z.string().min(1),
   databaseId: nullableUuid,
+  slug: venueSlug,
   name: z.string().min(1),
   city: text,
   address: text,
@@ -99,6 +108,7 @@ export const catalogVenueWireSchema = z.object({
 }).loose().transform((value): CatalogVenue => ({
   key: value.id,
   databaseId: value.databaseId,
+  slug: value.slug,
   name: value.name,
   city: value.city,
   address: value.address,
@@ -121,7 +131,7 @@ export const catalogVenueWireSchema = z.object({
 
 export const venueWireSchema = z.object({
   id: uuid,
-  slug: text,
+  slug: venueSlug,
   title: z.string().min(1),
   city: text,
   category: text,

@@ -84,6 +84,7 @@ test('GET /api/venues reads published places only from the configured database',
       async json() {
         return [{
           id: 'venue-1',
+          slug: 'stable-cafe-key',
           title: 'Cafe One',
           city: 'Simferopol',
           category: 'Cafe',
@@ -121,6 +122,8 @@ test('GET /api/venues reads published places only from the configured database',
   assert.equal(res.body.found, 4);
   assert.equal(res.body.nextSkip, 2);
   assert.equal(res.body.items[0].name, 'Cafe One');
+  assert.equal(res.body.items[0].slug, 'stable-cafe-key');
+  assert.notEqual(res.body.items[0].slug, 'cafe-one');
   assert.equal(res.body.items[0].averageCheck, '1500');
   assert.match(res.body.items[0].mapsUrl, /^https:\/\/yandex\.ru\/maps\//);
 
@@ -132,6 +135,36 @@ test('GET /api/venues reads published places only from the configured database',
   assert.equal(calls[0].url.searchParams.get('category'), 'eq.Cafe');
   assert.equal(calls[0].url.searchParams.get('limit'), '2');
   assert.equal(calls[0].url.searchParams.get('offset'), '0');
+});
+
+test('GET /api/venues never derives a missing stable slug from the title', async () => {
+  process.env.SUPABASE_URL = 'https://database.example';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => '0-0/1' },
+    async json() {
+      return [{
+        id: 'venue-without-slug',
+        title: 'Do Not Generate This Slug',
+        city: 'Simferopol',
+        status: 'published'
+      }];
+    }
+  });
+  const res = responseRecorder();
+
+  await handler({
+    method: 'GET',
+    query: {},
+    headers: {},
+    socket: { remoteAddress: 'venues-missing-slug-contract-test' }
+  }, res);
+
+  assert.equal(res.statusCode, 502);
+  assert.equal(res.body.items, undefined);
+  assert.doesNotMatch(JSON.stringify(res.body), /do-not-generate-this-slug/i);
 });
 
 test('organization search is absent while Yandex OAuth and map links remain available', () => {

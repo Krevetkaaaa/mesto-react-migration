@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { PublicHomeMarkup } from "../../../app/components/public/PublicHomeMarkup";
 import { PublicHelpView } from "../../../app/routes/public-help";
 import { PublicHomeView } from "../../../app/routes/public-home";
 
@@ -88,5 +89,20 @@ describe("public JSX structural parity", () => {
     ].map((filename) => readFile(resolve(root, filename), "utf8")));
 
     expect(publicSources.join("\n")).not.toMatch(/dangerouslySetInnerHTML\s*=|\.innerHTML\s*=/);
+  });
+
+  it("keeps standalone catalog ownership free of hidden home and legacy dialogs", () => {
+    const rendered = documentFor(renderToStaticMarkup(
+      <PublicHomeMarkup
+        standalone
+        catalogVisible
+        catalogContent={<div className="catalog-inner"><div id="catalog-grid">React catalog</div></div>}
+      />,
+    ));
+
+    expect(rendered.querySelector("main")?.getAttribute("data-react-route")).toBe("catalog");
+    expect(rendered.querySelector("#catalog-view")?.hasAttribute("hidden")).toBe(false);
+    expect(rendered.querySelector("#catalog-grid")?.textContent).toBe("React catalog");
+    expect(rendered.querySelector("#guide, #profile-view, #venue-dialog, #auth-dialog")).toBeNull();
   });
 });

@@ -2,6 +2,8 @@ const { json, methodNotAllowed, queryValue, text } = require('../lib/http');
 const { createStore } = require('../lib/supabase');
 
 const requestBuckets = new Map();
+const SLUG_PART = '[a-z\\u0430-\\u044f\\u04510-9]+';
+const SLUG_PATTERN = new RegExp(`^${SLUG_PART}(?:-${SLUG_PART})*$`, 'u');
 
 function clientAddress(req) {
   return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || 'anonymous';
@@ -20,9 +22,16 @@ function isRateLimited(req) {
 }
 
 function persistentItem(venue) {
+  if (typeof venue.slug !== 'string') throw new Error('Published venue has no canonical slug');
+  const rawSlug = venue.slug;
+  const slug = rawSlug.normalize('NFKC').trim().toLowerCase();
+  if (!slug || slug.length > 160 || slug !== rawSlug || !SLUG_PATTERN.test(slug)) {
+    throw new Error('Published venue has no canonical slug');
+  }
   return {
     id: `mesto-${venue.id}`,
     databaseId: venue.id,
+    slug,
     name: venue.title,
     city: venue.city || '',
     address: venue.address || '',

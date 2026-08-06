@@ -5,13 +5,16 @@ import {
   catalogVenueWireSchema,
   menuItemWireSchema,
   promotionWireSchema,
+  venueWireSchema,
 } from "./wire-schemas";
 import { normalizeCatalogSearch } from "../lib/catalog-normalization";
 import { requireUuid } from "../lib/identifiers";
-import type {
-  CatalogSearch,
-  VenueCatalog,
+import {
+  normalizeVenueSlug,
+  type CatalogSearch,
+  type VenueCatalog,
 } from "../modules/venue-catalog";
+import { ApplicationError } from "../lib/application-error";
 
 const catalogResponseSchema = z.object({
   found: z.number().int().nonnegative(),
@@ -25,6 +28,16 @@ const catalogResponseSchema = z.object({
 const contentResponseSchema = z.object({
   menu: z.array(menuItemWireSchema),
   promotions: z.array(promotionWireSchema),
+}).loose();
+
+const venueResponseSchema = z.object({
+  venue: venueWireSchema.refine((venue) => {
+    try {
+      return venue.status === "published" && normalizeVenueSlug(venue.slug) === venue.slug;
+    } catch {
+      return false;
+    }
+  }, "Expected a published venue with a canonical slug"),
 }).loose();
 
 class HttpVenueCatalog implements VenueCatalog {
@@ -67,6 +80,21 @@ class HttpVenueCatalog implements VenueCatalog {
       menuItems: response.menu,
       promotions: response.promotions,
     };
+  }
+
+  async getBySlug(slug: string) {
+    const normalizedSlug = normalizeVenueSlug(slug);
+    const response = await this.http.request({
+      path: `/api/venues/${encodeURIComponent(normalizedSlug)}`,
+      schema: venueResponseSchema,
+    });
+    if (response.venue.slug !== normalizedSlug) {
+      throw new ApplicationError(
+        "unavailable",
+        "Venue response did not match the requested slug",
+      );
+    }
+    return response.venue;
   }
 }
 

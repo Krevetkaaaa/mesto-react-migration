@@ -70,6 +70,7 @@ function catalogVenue(overrides: Partial<CatalogVenue> = {}): CatalogVenue {
   return {
     key: "quiet-garden",
     databaseId: venueId,
+    slug: "quiet-garden",
     name: "Quiet Garden",
     city: "Simferopol",
     address: "Main Street 1",
@@ -257,6 +258,7 @@ describe("stateful module fakes", () => {
         catalogVenue({
           key: "sea-cafe",
           databaseId: secondVenueId,
+          slug: "sea-cafe",
           name: "Sea Cafe",
           city: "Yalta",
           address: "Coast Road 2",

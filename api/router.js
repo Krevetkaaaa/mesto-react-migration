@@ -1,4 +1,5 @@
 const { json } = require('../lib/http');
+const venueBySlug = require('../handlers/venue');
 
 const routes = new Map([
   ['venues', require('../handlers/venues')],
@@ -34,6 +35,10 @@ const routes = new Map([
 module.exports = async function handler(req, res) {
   const value = req.query?.route;
   const key = (Array.isArray(value) ? value.join('/') : String(value || '')).replace(/^\/+|\/+$/g, '');
+  if (key.startsWith('venues/')) {
+    req.query = { ...req.query, slug: key.slice('venues/'.length) };
+    return venueBySlug(req, res);
+  }
   const route = routes.get(key);
   if (!route) return json(res, 404, { message: 'API-маршрут не найден.' });
   return route(req, res);

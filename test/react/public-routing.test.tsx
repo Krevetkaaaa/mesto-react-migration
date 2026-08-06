@@ -11,6 +11,8 @@ vi.mock("react-router", async () => {
     ...actual,
     Links: () => <link data-route-links="true" rel="stylesheet" href="/route.css" />,
     Meta: () => <meta data-route-meta="true" name="description" content="route" />,
+    Scripts: () => <script data-route-scripts="true" />,
+    ScrollRestoration: () => <script data-scroll-restoration="true" />,
     useLocation: () => ({
       hash: "",
       key: "test",
@@ -29,10 +31,13 @@ describe("public routing root", () => {
   });
 
   it.each([
-    ["/", true, true],
-    ["/help", true, false],
-    ["/__react/health", false, false],
-  ])("renders the transitional document contract for %s", (pathname, hasTheme, isHome) => {
+    ["/", true, "is-home-view", false],
+    ["/help", true, "", false],
+    ["/catalog", true, "is-catalog-view", true],
+    ["/city/simferopol", true, "is-catalog-view", true],
+    ["/venue/tihiy-sad", true, "is-catalog-view", true],
+    ["/__react/health", false, "", false],
+  ])("renders the transitional document contract for %s", (pathname, hasTheme, bodyClass, hydrates) => {
     routeState.pathname = pathname;
 
     const html = renderToStaticMarkup(
@@ -42,8 +47,9 @@ describe("public routing root", () => {
     );
 
     expect(html.includes('src="/theme.js?v=theme-1"')).toBe(hasTheme);
-    expect(html.includes('<body class="is-home-view">')).toBe(isHome);
-    expect(html).not.toContain("react-router");
+    expect(html.includes(`<body${bodyClass ? ` class="${bodyClass}"` : ""}>`)).toBe(true);
+    expect(html.includes('data-route-scripts="true"')).toBe(hydrates);
+    expect(html.includes('data-scroll-restoration="true"')).toBe(hydrates);
 
     if (hasTheme) {
       expect(html.indexOf('src="/theme.js?v=theme-1"')).toBeLessThan(

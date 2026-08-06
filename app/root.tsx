@@ -4,20 +4,32 @@ import {
   Links,
   Meta,
   Outlet,
+  Scripts,
+  ScrollRestoration,
   useLocation,
 } from "react-router";
 
 import type { Route } from "./+types/root";
 
-const THEMED_PUBLIC_PATHS = new Set(["/", "/help"]);
+function isInteractivePublicPath(pathname: string) {
+  return pathname === "/catalog"
+    || pathname.startsWith("/city/")
+    || pathname.startsWith("/venue/");
+}
 
 export function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const isHome = pathname === "/";
-  const loadsPublicTheme = THEMED_PUBLIC_PATHS.has(pathname);
+  const hydratesPublicRoute = isInteractivePublicPath(pathname);
+  const loadsPublicTheme = isHome || pathname === "/help" || hydratesPublicRoute;
+  const bodyClassName = isHome
+    ? "is-home-view"
+    : hydratesPublicRoute
+      ? "is-catalog-view"
+      : undefined;
 
   return (
-    <html lang="ru">
+    <html lang="ru" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -25,7 +37,15 @@ export function Layout({ children }: { children: ReactNode }) {
         {loadsPublicTheme ? <script src="/theme.js?v=theme-1" /> : null}
         <Links />
       </head>
-      <body className={isHome ? "is-home-view" : undefined}>{children}</body>
+      <body className={bodyClassName}>
+        {children}
+        {hydratesPublicRoute ? (
+          <>
+            <ScrollRestoration />
+            <Scripts />
+          </>
+        ) : null}
+      </body>
     </html>
   );
 }

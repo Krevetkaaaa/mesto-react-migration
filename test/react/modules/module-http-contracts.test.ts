@@ -180,6 +180,7 @@ describe("HTTP module contracts", () => {
         items: [{
           id: "mesto-quiet-garden",
           databaseId: venueId,
+          slug: "quiet-garden",
           name: "Тихий сад",
           city: "Симферополь",
           categories: ["Ресторан"],
@@ -195,7 +196,12 @@ describe("HTTP module contracts", () => {
       category: "Ресторан",
       offset: 10,
       limit: 20,
-    })).resolves.toMatchObject({ total: 1, offset: 10, limit: 20 });
+    })).resolves.toMatchObject({
+      total: 1,
+      offset: 10,
+      limit: 20,
+      items: [{ slug: "quiet-garden" }],
+    });
     await expect(catalog.content(venueId)).resolves.toMatchObject({
       menuItems: [{ id: menuId }],
       promotions: [{ id: promotionId, status: "active" }],
@@ -365,7 +371,7 @@ describe("HTTP module contracts", () => {
       results: 50,
       nextSkip: null,
       databaseConfigured: true,
-      items: [{ id: "mesto-invalid", databaseId: venueId, name: "Venue", coordinates: [34.1] }],
+      items: [{ id: "mesto-invalid", databaseId: venueId, slug: "invalid-coordinates", name: "Venue", coordinates: [34.1] }],
     }]);
     const invalidUuid = new RecordingHttpClient([{
       found: 1,
@@ -373,7 +379,7 @@ describe("HTTP module contracts", () => {
       results: 50,
       nextSkip: null,
       databaseConfigured: true,
-      items: [{ id: "mesto-invalid", databaseId: "not-a-uuid", name: "Venue", coordinates: [] }],
+      items: [{ id: "mesto-invalid", databaseId: "not-a-uuid", slug: "invalid-uuid", name: "Venue", coordinates: [] }],
     }]);
 
     await expect(createHttpVenueCatalog(invalidCoordinates).search()).rejects.toMatchObject({

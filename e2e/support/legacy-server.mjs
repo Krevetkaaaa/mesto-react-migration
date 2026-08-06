@@ -48,6 +48,7 @@ const catalogItems = [
   {
     id: 'mesto-fixture-1',
     databaseId: '30000000-0000-4000-8000-000000000001',
+    slug: 'tihiy-sad',
     name: 'Тихий сад',
     city: 'Симферополь',
     address: 'ул. Пушкина, 18',
@@ -70,6 +71,7 @@ const catalogItems = [
   {
     id: 'mesto-fixture-2',
     databaseId: '30000000-0000-4000-8000-000000000002',
+    slug: 'morskoy-svet',
     name: 'Морской свет',
     city: 'Ялта',
     address: 'наб. Ленина, 7',
@@ -92,6 +94,7 @@ const catalogItems = [
   {
     id: 'mesto-fixture-3',
     databaseId: '30000000-0000-4000-8000-000000000003',
+    slug: 'kofe-vo-dvore',
     name: 'Кофе во дворе',
     city: 'Симферополь',
     address: 'ул. Горького, 11',
@@ -112,6 +115,27 @@ const catalogItems = [
     reviewCount: 51
   }
 ];
+
+const publicVenueDetails = catalogItems.map((item) => ({
+  id: item.databaseId,
+  slug: item.slug,
+  title: item.name,
+  city: item.city,
+  category: item.category,
+  cuisine: item.cuisine,
+  description: item.description,
+  address: item.address,
+  phone: item.phones[0] || '',
+  website: item.website,
+  hours: item.hours,
+  average_check: item.averageCheck,
+  features: structuredClone(item.features),
+  photos: structuredClone(item.photos),
+  source: item.source,
+  status: 'published',
+  created_at: '2026-07-01T10:00:00.000Z',
+  updated_at: '2026-07-15T12:00:00.000Z'
+}));
 
 const merchantVenue = {
   id: '30000000-0000-4000-8000-000000000001',
@@ -222,6 +246,12 @@ function initialFixtureState() {
     adminMerchants: structuredClone(adminMerchants),
     favorites: [],
     merchantDashboard: structuredClone(merchantDashboard),
+    publicVenueDetails: structuredClone(publicVenueDetails),
+    requestCounters: {
+      venueDetail: 0,
+      venueDetailBySlug: {},
+      venueList: 0
+    },
     nextAdminMerchant: 2,
     nextAdminVenue: 2,
     nextMenuItem: 2,
@@ -244,7 +274,9 @@ function initialFixtureState() {
       merchantMultiVenue: false,
       merchantMustChangePassword: false,
       merchantRole: 'owner',
-      merchantSessionMode: 'active'
+      merchantSessionMode: 'active',
+      venueDelayMs: 0,
+      venueError: false
     }
   };
 }
@@ -271,11 +303,14 @@ function applyFixturePatch(patch = {}) {
     'merchantMultiVenue',
     'merchantMustChangePassword',
     'merchantRole',
-    'merchantSessionMode'
+    'merchantSessionMode',
+    'venueDelayMs',
+    'venueError'
   ]) {
     if (Object.hasOwn(patch, key)) fixtureState.scenario[key] = patch[key];
   }
   if (Array.isArray(patch.favorites)) fixtureState.favorites = structuredClone(patch.favorites);
+  if (Array.isArray(patch.publicVenueDetails)) fixtureState.publicVenueDetails = structuredClone(patch.publicVenueDetails);
   fixtureState.merchantDashboard.memberships.forEach((membership) => {
     membership.membership_role = fixtureState.scenario.merchantRole;
   });
@@ -317,6 +352,8 @@ function fixtureSummary() {
     menu: fixtureState.merchantDashboard.menu.length,
     oauthSessions: fixtureState.oauthSessions,
     promotions: fixtureState.merchantDashboard.promotions.length,
+    publicVenueDetails: structuredClone(fixtureState.publicVenueDetails),
+    requestCounters: structuredClone(fixtureState.requestCounters),
     reviews: fixtureState.adminDashboard.reviews.length,
     submissions: fixtureState.adminDashboard.submissions.length,
     uploads: fixtureState.uploads.length,
@@ -398,9 +435,22 @@ async function handleApi(request, response, url) {
   const requestCookies = cookies(request);
 
   if (path === '/api/venues' && request.method === 'GET') {
+    fixtureState.requestCounters.venueList += 1;
     await wait(fixtureState.scenario.catalogDelayMs);
     if (fixtureState.scenario.catalogError) return json(response, 503, { message: 'Каталог временно недоступен.' });
     return json(response, 200, catalogPayload(url));
+  }
+  const venueDetailMatch = path.match(/^\/api\/venues\/([^/]+)$/);
+  if (venueDetailMatch && request.method === 'GET') {
+    const slug = decodeURIComponent(venueDetailMatch[1]);
+    fixtureState.requestCounters.venueDetail += 1;
+    fixtureState.requestCounters.venueDetailBySlug[slug] = (fixtureState.requestCounters.venueDetailBySlug[slug] || 0) + 1;
+    await wait(fixtureState.scenario.venueDelayMs);
+    if (fixtureState.scenario.venueError) return json(response, 503, { message: 'Заведение временно недоступно.' });
+    const venue = fixtureState.publicVenueDetails.find((item) => item.slug === slug && item.status === 'published');
+    return venue
+      ? json(response, 200, { venue: structuredClone(venue) })
+      : json(response, 404, { code: 'VENUE_NOT_FOUND', message: 'Заведение не найдено.' });
   }
   if (path === '/api/venue-content' && request.method === 'GET') return json(response, 200, { menu: [], promotions: [] });
   if (path === '/api/auth/providers' && request.method === 'GET') return json(response, 200, { google: false, yandex: false, vk: false });
