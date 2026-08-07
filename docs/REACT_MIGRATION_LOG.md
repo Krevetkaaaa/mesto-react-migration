@@ -41,7 +41,7 @@
 | 8. Admin console | local complete; Preview blocked | `3b46732e8e5829f789b35276649165c06f3d2589` | 65 server + 107 unit, strict check, production smoke, Phase 4-7 regressions, 12 functional/fixture scenarios и 45-snapshot Visual Freeze matrix | Preview `TEAM_ACCESS_REQUIRED`; multi-store merchant update не транзакционен; strong typed/revocable admin session остаётся Phase 10 blocker; production deploy forbidden |
 | 9. Backend scale | local checkpoint; production criteria blocked | `dc8c9fbb4f4cdda46c343feb7d98d65f09889377` | 86 server + 107 unit, strict check и production smoke прошли | Shared limiter/provider, CDN purge/Preview headers, representative EXPLAIN и direct media upload требуют внешнего environment |
 | 10. Performance, security and accessibility | local checkpoint; production criteria blocked | `ddff8daff8d702bb6c6cebaad7e810a5e26b2d03` | 99 server + 113 unit, strict check, production smoke, public JS/client-secret gates и Phase 4-8 Chromium regressions прошли | p75 Web Vitals, contrast remediation, nonce/hash CSP, shared admin revocation, dependency audit decision и production telemetry не закрыты; Preview `TEAM_ACCESS_REQUIRED` |
-| 11. Load testing | partial local checkpoint; baseline failed | `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c` | loopback-only harness: 4 smoke profiles passed; mixed 25-VU baseline failed predeclared p99/transport SLO and aborted | Expected/burst/soak не запускались; fixture не доказывает Supabase/CDN/serverless/distributed limiter capacity |
+| 11. Load testing | partial local checkpoint; expected SLO blocked | `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, fix `ea542198675b03917f0aa19429dab20012a0a7a5` | loopback-only harness: 4 smoke profiles и mixed 25-VU baseline passed; expected 100 VU вернул 4891/4891 HTTP 200, но failed p95 `1159,35 > 1000 ms` | Burst/soak не запускались; fixture не доказывает Supabase/CDN/serverless/distributed limiter capacity |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
 ### Этап 0. Требования и показатели
@@ -227,15 +227,17 @@
 
 ### Этап 11. Нагрузочное тестирование
 
-- Partial local checkpoint: `2026-08-07`; implementation commit `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`.
-- Harness без новых dependencies разрешает только проверенный loopback production-SSR + fixture gateway, сбрасывает in-memory state, требует fixture sentinel на API, использует динамические ports и завершает gateway/child PIDs. Remote targets и production load запрещены.
+- Partial local checkpoint: `2026-08-08`; implementation commit `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, isolation fix `ea542198675b03917f0aa19429dab20012a0a7a5`.
+- Harness без новых dependencies разрешает только проверенный loopback production-SSR + fixture gateway, сбрасывает in-memory state, требует fixture sentinel на API, использует workspace-exclusive lock и динамические ports и завершает gateway/child PIDs. Remote targets и production load запрещены.
 - Профили: public read, popular venue SSR document, known-fixture auth/session, mixed 90/6/3/1 и read-only merchant/admin. Измеряются p50/p95/p99, attempted/successful RPS, statuses/429/5xx, transport, bytes, cache headers и per-label metrics; SLO/abort заданы до запуска.
-- Final smoke 5 VU: public `153,90 RPS`, p95/p99 `70,41/169,01 ms`; popular venue document `154,71`, `46,23/65,98`; auth-safe `920,76`, `10,96/18,15`; merchant/admin `876,72`, `13,41/19,95`. Во всех четырёх profiles только HTTP 200.
-- Mixed baseline 25 VU failed: 1148 attempts / 1123 HTTP 200, successful `106,59 RPS`, p95 `347,86 ms`, p99 `5007,88 ms`, 25 transport timeouts; abort после пяти последовательных transport errors. SLO не ослаблялся.
-- Expected 100 VU, burst 300 VU и soak не запускались после baseline failure. Короткий fixture probe не доказывает production capacity, cold starts, cache hit, Supabase query time, browser errors или multi-instance limiter.
-- Local checks: `npm.cmd run check`; `npm.cmd test` — `102/102` server и `113/113` unit/contract/component. `npm.cmd run test:load:local` намеренно возвращает exit 1 на failed baseline gate.
-- Production-like продолжение требует диагностики mixed saturation, warmup/repeated runs, isolated staging с representative data, shared provider, telemetry и явного разрешения владельца. Подробно: `docs/PHASE11_LOCAL_LOAD.md`.
-- Database migrations, external load, merge, deploy и aliases отсутствуют. Откат: `git revert 6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`.
+- Final smoke 5 VU: public `149,89 RPS`, p95/p99 `66,14/240,52 ms`; popular venue document `115,97`, `64,72/79,70`; auth-safe `926,80`, `9,91/18,09`; merchant/admin `810,39`, `16,77/20,76`. Во всех четырёх profiles только HTTP 200.
+- Первоначальные 25 baseline timeouts оказались дефектом harness: непрочитанный access-log stdout заполнил Windows pipe и заблокировал React child. Fix отключил pipe, добавил proxy cancellation/health body consumption, exclusive lock и явные single-stage arguments. Это не считается app regression.
+- Mixed baseline 25 VU passed: 2416/2416 HTTP 200, successful `240,68 RPS`, p95 `325,23 ms`, p99 `351,63 ms`, без transport/HTTP errors.
+- Expected mixed 100 VU: 4891/4891 HTTP 200, successful `242,60 RPS`, p50/p95/p99 `401,68/1159,35/1707,18 ms`; failed только predeclared p95 `1000 ms`. SSR home document был самым медленным (p95 `1753,84 ms`), direct fixture API p95 остался `13,25–18,69 ms`. SLO не ослаблялся.
+- Burst 300 VU и soak не запускались после expected failure. Короткий fixture probe не доказывает production capacity, cold starts, cache hit, Supabase query time, browser errors или multi-instance limiter.
+- Local checks: `npm.cmd run check`; `npm.cmd test` — `102/102` server и `113/113` unit/contract/component. `npm.cmd run test:load:local` passed; отдельный expected command намеренно вернул exit 1 по p95 SLO.
+- Production-like продолжение требует оптимизации/проверки home SSR, warmup/repeated runs, isolated staging с representative data, shared provider, telemetry и явного разрешения владельца. Подробно: `docs/PHASE11_LOCAL_LOAD.md`.
+- Database migrations, external load, merge, deploy и aliases отсутствуют. Откат fix: `git revert ea542198675b03917f0aa19429dab20012a0a7a5`; полный откат Phase 11 затем: `git revert 6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`.
 
 ## GenericAgent
 
