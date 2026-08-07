@@ -1,25 +1,9 @@
-const { json, methodNotAllowed, queryValue, text } = require('../lib/http');
+const { json, methodNotAllowed, publicJson, queryValue, text } = require('../lib/http');
+const { enforceRateLimit } = require('../lib/rate-limit');
 const { createStore } = require('../lib/supabase');
 
-const requestBuckets = new Map();
 const SLUG_PART = '[a-z\\u0430-\\u044f\\u04510-9]+';
 const SLUG_PATTERN = new RegExp(`^${SLUG_PART}(?:-${SLUG_PART})*$`, 'u');
-
-function clientAddress(req) {
-  return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || 'anonymous';
-}
-
-function isRateLimited(req) {
-  const now = Date.now();
-  const key = clientAddress(req);
-  const current = requestBuckets.get(key);
-  if (!current || now - current.startedAt > 60_000) {
-    requestBuckets.set(key, { startedAt: now, count: 1 });
-    return false;
-  }
-  current.count += 1;
-  return current.count > 30;
-}
 
 function persistentItem(venue) {
   if (typeof venue.slug !== 'string') throw new Error('Published venue has no canonical slug');
@@ -65,7 +49,11 @@ function dedupe(items) {
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
-  if (isRateLimited(req)) return json(res, 429, { message: 'Слишком много запросов. Попробуйте через минуту.' });
+  if (!await enforceRateLimit(req, res, {
+    policy: 'public-catalog',
+    scope: 'venues-list',
+    message: 'Слишком много запросов. Попробуйте через минуту.'
+  })) return;
 
   const city = text(queryValue(req.query.city), 80, 'all');
   const category = text(queryValue(req.query.category), 80);
@@ -97,7 +85,7 @@ module.exports = async function handler(req, res) {
     const items = dedupe(page.items.map(persistentItem));
     const found = Number.isFinite(page.total) ? page.total : skip + items.length;
     const nextSkip = skip + items.length < found ? skip + results : null;
-    return json(res, 200, {
+    return publicJson(req, res, {
       source: 'Место',
       city,
       query,

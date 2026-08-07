@@ -7,6 +7,8 @@ const {
   setAdminResponseHeaders
 } = require('../../lib/admin');
 const { createStore } = require('../../lib/supabase');
+const { invalidatePublicVenueCache } = require('../../lib/public-cache');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 
 function has(body, key) {
   return Object.prototype.hasOwnProperty.call(body, key);
@@ -66,6 +68,9 @@ module.exports = async function handler(req, res) {
   }
   const session = requireAdmin(req, res);
   if (!session) return;
+  if (req.method !== 'GET' && !await enforceRateLimit(req, res, {
+    policy: 'mutation', scope: 'admin-venues', identifier: session.sub
+  })) return;
   const store = createStore();
   try {
     if (req.method === 'GET') {
@@ -90,6 +95,7 @@ module.exports = async function handler(req, res) {
         entity_type: 'venue',
         entity_id: id
       }));
+      await attemptPostCommit(() => invalidatePublicVenueCache({ id, reason: 'venue.deleted' }));
       return json(res, 200, { ok: true });
     }
 
@@ -113,6 +119,11 @@ module.exports = async function handler(req, res) {
       action: req.method === 'PATCH' ? 'venue.updated' : 'venue.created',
       entity_type: 'venue',
       entity_id: venue.id
+    }));
+    await attemptPostCommit(() => invalidatePublicVenueCache({
+      id: venue.id,
+      slug: venue.slug || payload.slug,
+      reason: req.method === 'PATCH' ? 'venue.updated' : 'venue.created'
     }));
     return json(res, req.method === 'PATCH' ? 200 : 201, { venue });
   } catch (error) {

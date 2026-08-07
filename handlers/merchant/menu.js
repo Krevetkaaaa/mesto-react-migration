@@ -1,5 +1,7 @@
 const { boolean, json, methodNotAllowed, readJson, text, uuid } = require('../../lib/http');
-const { merchantHandlerError, setMerchantResponseHeaders } = require('../../lib/merchant-operations');
+const { attemptPostCommit, merchantHandlerError, setMerchantResponseHeaders } = require('../../lib/merchant-operations');
+const { invalidatePublicVenueCache } = require('../../lib/public-cache');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { merchantWorkspace, requireVenue } = require('../../lib/venue-access');
 
 module.exports = async function handler(req, res) {
@@ -8,6 +10,9 @@ module.exports = async function handler(req, res) {
   try {
     const workspace = await merchantWorkspace(req, res);
     if (!workspace) return;
+    if (!await enforceRateLimit(req, res, {
+      policy: 'mutation', scope: 'merchant-menu', identifier: workspace.profile.id
+    })) return;
     const body = await readJson(req, 250_000);
     const id = req.method === 'POST' ? '' : uuid(body.id);
     if (req.method !== 'POST' && !id) return json(res, 400, { message: 'Укажите корректную позицию меню.' });
@@ -21,6 +26,7 @@ module.exports = async function handler(req, res) {
     if (!requireVenue(workspace, res, venueId, 'menu')) return;
     if (req.method === 'DELETE') {
       await workspace.store.deleteMenuItem(id, workspace.profile.id);
+      await attemptPostCommit(() => invalidatePublicVenueCache({ id: venueId, reason: 'menu.deleted' }));
       return json(res, 200, { ok: true });
     }
     const price = body.price === '' || body.price == null ? null : Number(body.price);
@@ -36,7 +42,9 @@ module.exports = async function handler(req, res) {
       sort_order: Number.isInteger(Number(body.sortOrder)) ? Number(body.sortOrder) : 0
     };
     if (!payload.title) return json(res, 400, { message: 'Укажите название позиции.' });
-    return json(res, id ? 200 : 201, { item: await workspace.store.saveMenuItem(payload, id, workspace.profile.id) });
+    const item = await workspace.store.saveMenuItem(payload, id, workspace.profile.id);
+    await attemptPostCommit(() => invalidatePublicVenueCache({ id: venueId, reason: id ? 'menu.updated' : 'menu.created' }));
+    return json(res, id ? 200 : 201, { item });
   } catch (error) {
     return merchantHandlerError(res, error, 'Не удалось сохранить меню.');
   }

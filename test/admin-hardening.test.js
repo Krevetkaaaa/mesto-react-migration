@@ -7,6 +7,7 @@ const logoutHandler = require('../handlers/admin/logout');
 const merchantsHandler = require('../handlers/admin/merchants');
 const reviewsHandler = require('../handlers/admin/reviews');
 const venuesHandler = require('../handlers/admin/venues');
+const { configurePublicCacheInvalidation } = require('../lib/public-cache');
 const { signSession } = require('../lib/security');
 
 const ADMIN_SECRET = 'phase-8-admin-secret';
@@ -31,6 +32,7 @@ test.beforeEach(() => {
 
 test.afterEach(() => {
   global.fetch = originalFetch;
+  configurePublicCacheInvalidation(null);
   for (const [name, value] of Object.entries(originalEnvironment)) {
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;
@@ -164,6 +166,12 @@ test('admin dependency failures never expose Supabase details', async () => {
 
 test('a failed audit cannot replace a successful venue deletion result', async () => {
   const calls = [];
+  const invalidations = [];
+  configurePublicCacheInvalidation({
+    async invalidateVenue(details) {
+      invalidations.push(details);
+    }
+  });
   global.fetch = async (input, init) => {
     const url = new URL(String(input));
     calls.push(`${init?.method || 'GET'} ${url.pathname}`);
@@ -181,6 +189,7 @@ test('a failed audit cannot replace a successful venue deletion result', async (
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { ok: true });
   assert.deepEqual(calls, ['DELETE /rest/v1/venues', 'POST /rest/v1/audit_log']);
+  assert.deepEqual(invalidations, [{ id: VENUE_ID, slug: '', reason: 'venue.deleted' }]);
 });
 
 test('password reset reports post-commit metadata failure without hiding new credentials', async () => {

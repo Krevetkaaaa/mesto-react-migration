@@ -1,6 +1,8 @@
 const { json, methodNotAllowed, readJson, text } = require('../../lib/http');
 const { attemptPostCommit, merchantHandlerError, setMerchantResponseHeaders } = require('../../lib/merchant-operations');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { merchantWorkspace, requireVenue } = require('../../lib/venue-access');
+const { invalidatePublicVenueCache } = require('../../lib/public-cache');
 
 module.exports = async function handler(req, res) {
   setMerchantResponseHeaders(res);
@@ -8,6 +10,9 @@ module.exports = async function handler(req, res) {
   try {
     const workspace = await merchantWorkspace(req, res);
     if (!workspace) return;
+    if (!await enforceRateLimit(req, res, {
+      policy: 'mutation', scope: 'merchant-venue', identifier: workspace.profile.id
+    })) return;
     const body = await readJson(req, 750_000);
     const venue = requireVenue(workspace, res, body.id, 'venue');
     if (!venue) return;
@@ -33,6 +38,7 @@ module.exports = async function handler(req, res) {
     if (!Object.keys(patch).length) return json(res, 200, { venue });
     const updated = await workspace.store.saveVenue(patch, venue.id);
     await attemptPostCommit(() => workspace.store.audit({ actor_id: workspace.profile.id, actor_label: workspace.profile.display_name, actor_role: 'merchant', action: 'venue.updated', entity_type: 'venue', entity_id: venue.id }));
+    await attemptPostCommit(() => invalidatePublicVenueCache({ id: venue.id, slug: updated?.slug || venue.slug, reason: 'venue.updated' }));
     return json(res, 200, { venue: updated });
   } catch (error) {
     return merchantHandlerError(res, error, 'Не удалось сохранить заведение.');

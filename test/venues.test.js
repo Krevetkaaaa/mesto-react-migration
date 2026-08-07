@@ -34,6 +34,10 @@ function responseRecorder() {
     json(body) {
       this.body = body;
       return body;
+    },
+    end() {
+      this.ended = true;
+      return this;
     }
   };
 }
@@ -107,7 +111,7 @@ test('GET /api/venues reads published places only from the configured database',
 
   const req = {
     method: 'GET',
-    query: { city: 'Simferopol', category: 'Cafe', query: 'Italian', results: '2', skip: '0' },
+    query: { city: 'Simferopol', category: 'Cafe', query: 'Ital_ian', results: '2', skip: '0' },
     headers: {},
     socket: { remoteAddress: 'venues-database-contract-test' }
   };
@@ -126,15 +130,39 @@ test('GET /api/venues reads published places only from the configured database',
   assert.notEqual(res.body.items[0].slug, 'cafe-one');
   assert.equal(res.body.items[0].averageCheck, '1500');
   assert.match(res.body.items[0].mapsUrl, /^https:\/\/yandex\.ru\/maps\//);
+  assert.equal(res.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
+  assert.match(res.headers.etag, /^W\/"[A-Za-z0-9_-]{32}"$/);
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url.origin, 'https://database.example');
   assert.equal(calls[0].url.pathname, '/rest/v1/venues');
   assert.equal(calls[0].url.searchParams.get('status'), 'eq.published');
+  assert.notEqual(calls[0].url.searchParams.get('select'), '*');
+  assert.match(calls[0].url.searchParams.get('select'), /id,slug,title/);
   assert.equal(calls[0].url.searchParams.get('city'), 'eq.Simferopol');
   assert.equal(calls[0].url.searchParams.get('category'), 'eq.Cafe');
   assert.equal(calls[0].url.searchParams.get('limit'), '2');
   assert.equal(calls[0].url.searchParams.get('offset'), '0');
+  assert.equal(calls[0].url.searchParams.get('order'), 'created_at.desc,id.desc');
+  assert.equal(calls[0].options.headers.Prefer, 'count=exact');
+  assert.doesNotMatch(calls[0].url.searchParams.get('or'), /_/);
+});
+
+test('GET /api/venues keeps unconfigured and failed catalog responses out of shared caches', async () => {
+  delete process.env.SUPABASE_URL;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const res = responseRecorder();
+
+  await handler({
+    method: 'GET',
+    query: {},
+    headers: {},
+    socket: { remoteAddress: 'venues-no-cache-contract-test' }
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['cache-control'], 'no-store, max-age=0');
+  assert.equal(res.headers.etag, undefined);
 });
 
 test('GET /api/venues never derives a missing stable slug from the title', async () => {

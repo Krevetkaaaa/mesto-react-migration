@@ -1,11 +1,17 @@
 const { json, methodNotAllowed, readJson } = require('../../lib/http');
 const { normalizeUsername, publicUser, sessionCookie } = require('../../lib/identity');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { authRequest, createStore } = require('../../lib/supabase');
 const { requireSameOrigin } = require('../../lib/same-origin');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
   if (!requireSameOrigin(req, res)) return;
+  if (!await enforceRateLimit(req, res, {
+    policy: 'oauth',
+    scope: 'oauth-session',
+    message: 'Слишком много попыток входа через внешний сервис.'
+  })) return;
   try {
     const body = await readJson(req, 100_000);
     const accessToken = String(body.accessToken || '');

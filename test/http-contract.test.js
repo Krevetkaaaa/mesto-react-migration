@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { Readable } = require('node:stream');
 
 const router = require('../api/router');
-const { json, methodNotAllowed, readJson } = require('../lib/http');
+const { PUBLIC_CACHE_CONTROL, json, methodNotAllowed, publicJson, readJson } = require('../lib/http');
 
 function responseRecorder() {
   return {
@@ -20,6 +20,10 @@ function responseRecorder() {
     json(body) {
       this.body = body;
       return body;
+    },
+    end() {
+      this.ended = true;
+      return this;
     }
   };
 }
@@ -68,6 +72,27 @@ test('json preserves an explicit Cache-Control policy', () => {
   });
 
   assert.equal(res.headers['cache-control'], 'public, s-maxage=60, stale-while-revalidate=120');
+});
+
+test('publicJson emits a stable weak ETag and honors If-None-Match', () => {
+  const payload = { items: [{ id: 'venue-1', title: 'Mesto' }] };
+  const initial = responseRecorder();
+
+  publicJson({ headers: {} }, initial, payload);
+
+  assert.equal(initial.statusCode, 200);
+  assert.equal(initial.headers['cache-control'], PUBLIC_CACHE_CONTROL);
+  assert.match(initial.headers.etag, /^W\/"[A-Za-z0-9_-]{32}"$/);
+  assert.deepEqual(initial.body, payload);
+
+  const conditional = responseRecorder();
+  publicJson({ headers: { 'if-none-match': `"another", ${initial.headers.etag}` } }, conditional, payload);
+
+  assert.equal(conditional.statusCode, 304);
+  assert.equal(conditional.headers['cache-control'], PUBLIC_CACHE_CONTROL);
+  assert.equal(conditional.headers.etag, initial.headers.etag);
+  assert.equal(conditional.body, null);
+  assert.equal(conditional.ended, true);
 });
 
 test('readJson parses a streamed JSON request and rejects invalid JSON', async () => {

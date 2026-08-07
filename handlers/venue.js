@@ -1,5 +1,5 @@
-const { json, methodNotAllowed, queryValue } = require('../lib/http');
-const { rateLimit } = require('../lib/rate-limit');
+const { json, methodNotAllowed, publicJson, queryValue } = require('../lib/http');
+const { enforceRateLimit } = require('../lib/rate-limit');
 const { createStore } = require('../lib/supabase');
 
 const SLUG_PART = '[a-z\\u0430-\\u044f\\u04510-9]+';
@@ -27,18 +27,12 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const retryAfter = rateLimit(req, {
+  if (!await enforceRateLimit(req, res, {
+    policy: 'public-detail',
     scope: 'venue-by-slug',
     identifier: slug,
-    limit: 60,
-    windowMs: 60_000
-  });
-  if (retryAfter) {
-    return json(res, 429, {
-      code: 'RATE_LIMITED',
-      message: 'Слишком много запросов. Повторите позже.'
-    }, { 'Retry-After': String(retryAfter) });
-  }
+    message: 'Слишком много запросов. Повторите позже.'
+  })) return;
 
   const store = createStore();
   if (!store.configured) {
@@ -56,7 +50,7 @@ module.exports = async function handler(req, res) {
         message: 'Заведение не найдено.'
       });
     }
-    return json(res, 200, { venue });
+    return publicJson(req, res, { venue });
   } catch {
     return json(res, 500, {
       code: 'VENUE_LOOKUP_FAILED',

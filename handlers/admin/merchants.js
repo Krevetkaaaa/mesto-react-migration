@@ -8,6 +8,7 @@ const {
 } = require('../../lib/admin');
 const { createManagedUser, isStrongPassword, resetManagedPassword, temporaryPassword } = require('../../lib/identity');
 const { normalizeMembershipRole } = require('../../lib/merchant-permissions');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { authRequest, createStore } = require('../../lib/supabase');
 
 function has(body, key) {
@@ -37,6 +38,9 @@ module.exports = async function handler(req, res) {
   }
   const admin = requireAdmin(req, res);
   if (!admin) return;
+  if (req.method !== 'GET' && !await enforceRateLimit(req, res, {
+    policy: 'mutation', scope: 'admin-merchants', identifier: admin.sub
+  })) return;
   const store = createStore();
 
   try {

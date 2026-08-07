@@ -1,11 +1,15 @@
 const { email, json, methodNotAllowed, readJson, text } = require('../lib/http');
 const { contactEmail, requireUser } = require('../lib/identity');
+const { enforceRateLimit } = require('../lib/rate-limit');
 const { configuration, createStore } = require('../lib/supabase');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
   const profile = await requireUser(req, res);
   if (!profile) return;
+  if (!await enforceRateLimit(req, res, {
+    policy: 'mutation', scope: 'submission-create', identifier: profile.id
+  })) return;
   try {
     const body = await readJson(req, 1_500_000);
     const photoPrefix = `${configuration().url}/storage/v1/object/public/venue-submissions/${profile.id}/`;

@@ -1,5 +1,7 @@
 const { json, methodNotAllowed, text, uuid } = require('../../lib/http');
-const { handleApiError, readAdminBody, requireAdmin, setAdminResponseHeaders } = require('../../lib/admin');
+const { attemptPostCommit, handleApiError, readAdminBody, requireAdmin, setAdminResponseHeaders } = require('../../lib/admin');
+const { invalidatePublicVenueCache } = require('../../lib/public-cache');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { createStore } = require('../../lib/supabase');
 
 module.exports = async function handler(req, res) {
@@ -7,6 +9,9 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['PATCH']);
   const session = requireAdmin(req, res);
   if (!session) return;
+  if (!await enforceRateLimit(req, res, {
+    policy: 'mutation', scope: 'admin-submissions', identifier: session.sub
+  })) return;
   try {
     const body = await readAdminBody(req, 100_000);
     const id = uuid(body.id);
@@ -19,6 +24,9 @@ module.exports = async function handler(req, res) {
       note: text(body.note, 600),
       moderator: session.sub
     });
+    if (body.decision === 'approved') {
+      await attemptPostCommit(() => invalidatePublicVenueCache({ reason: 'submission.approved' }));
+    }
     return json(res, 200, { result });
   } catch (error) {
     return handleApiError(res, error);

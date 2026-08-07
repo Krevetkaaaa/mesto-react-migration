@@ -1,5 +1,6 @@
 const { json, methodNotAllowed, readJson, text, uuid } = require('../lib/http');
 const { requireUser } = require('../lib/identity');
+const { enforceRateLimit } = require('../lib/rate-limit');
 const { createStore } = require('../lib/supabase');
 
 const FAVORITE_SLUG_PART = '[a-z\\u0430-\\u044f\\u04510-9]+';
@@ -18,6 +19,9 @@ module.exports = async function handler(req, res) {
   if (!['GET', 'POST', 'DELETE'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST', 'DELETE']);
   const profile = await requireUser(req, res);
   if (!profile) return;
+  if (req.method !== 'GET' && !await enforceRateLimit(req, res, {
+    policy: 'mutation', scope: 'favorites-mutation', identifier: profile.id
+  })) return;
   const store = createStore();
   try {
     if (req.method === 'GET') return json(res, 200, { favorites: await store.listFavorites(profile.id) });

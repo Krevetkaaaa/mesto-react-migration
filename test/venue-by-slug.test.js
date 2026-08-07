@@ -33,6 +33,10 @@ function responseRecorder() {
     json(body) {
       this.body = body;
       return body;
+    },
+    end() {
+      this.ended = true;
+      return this;
     }
   };
 }
@@ -116,12 +120,36 @@ test('GET /api/venues/:slug normalizes a Unicode slug and selects a published ro
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.venue.title, 'Тихий сад');
   assert.equal(res.body.venue.status, 'published');
+  assert.equal(res.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
+  assert.match(res.headers.etag, /^W\/"[A-Za-z0-9_-]{32}"$/);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url.pathname, '/rest/v1/venues');
   assert.equal(calls[0].url.searchParams.get('status'), 'eq.published');
   assert.equal(calls[0].url.searchParams.get('slug'), 'eq.тихий-сад');
   assert.equal(calls[0].url.searchParams.get('limit'), '1');
   assert.doesNotMatch(calls[0].url.searchParams.get('select'), /created_by|owner|membership/);
+});
+
+test('GET /api/venues/:slug returns 304 for the current entity tag', async () => {
+  configuredDatabase();
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    async json() { return [publishedVenue({ slug: 'quiet-garden' })]; }
+  });
+  const initial = responseRecorder();
+  await handler(request({ slug: 'quiet-garden' }, 'venue-slug-etag-initial'), initial);
+
+  const conditionalRequest = request({ slug: 'quiet-garden' }, 'venue-slug-etag-conditional');
+  conditionalRequest.headers['if-none-match'] = initial.headers.etag;
+  const conditional = responseRecorder();
+  await handler(conditionalRequest, conditional);
+
+  assert.equal(conditional.statusCode, 304);
+  assert.equal(conditional.body, null);
+  assert.equal(conditional.headers.etag, initial.headers.etag);
+  assert.equal(conditional.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
 });
 
 test('GET /api/venues/:slug returns 404 for absent and unpublished rows', async (t) => {

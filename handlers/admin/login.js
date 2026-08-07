@@ -1,27 +1,19 @@
 const { json, methodNotAllowed, text } = require('../../lib/http');
 const { readAdminBody, setAdminResponseHeaders } = require('../../lib/admin');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { requireSameOrigin } = require('../../lib/same-origin');
 const { createSessionCookie, verifyPassword } = require('../../lib/security');
-
-const attempts = new Map();
-
-function limited(req) {
-  const key = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'anonymous').split(',')[0].trim();
-  const now = Date.now();
-  const current = attempts.get(key);
-  if (!current || now - current.startedAt > 15 * 60_000) {
-    attempts.set(key, { startedAt: now, count: 1 });
-    return false;
-  }
-  current.count += 1;
-  return current.count > 10;
-}
 
 module.exports = async function handler(req, res) {
   setAdminResponseHeaders(res);
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
   if (!requireSameOrigin(req, res)) return;
-  if (limited(req)) return json(res, 429, { message: 'Слишком много попыток. Повторите позже.' });
+  if (!await enforceRateLimit(req, res, {
+    policy: 'auth-login',
+    scope: 'admin-login',
+    message: 'Слишком много попыток. Повторите позже.',
+    code: 'ADMIN_RATE_LIMITED'
+  })) return;
   const expectedLogin = process.env.MESTO_ADMIN_LOGIN;
   const expectedHash = process.env.MESTO_ADMIN_PASSWORD_HASH;
   const secret = process.env.MESTO_ADMIN_SESSION_SECRET;
