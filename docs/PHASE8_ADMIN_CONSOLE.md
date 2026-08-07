@@ -70,4 +70,11 @@ Visual regression не ослаблялся. Он выявил и помог и�
 
 ## Preview и откат
 
-Preview deployment будет зафиксирован отдельным документационным commit после проверки exact runtime commit, document/data/API headers и отсутствия legacy `admin.js`. До production cutover legacy admin files сохранены. Кодовый откат выполняется `git revert` Phase 8 implementation commit; внешний Preview удаляется отдельно. Git не откатывает cookies, environment variables или внешние данные.
+- Implementation commit: `3b46732e8e5829f789b35276649165c06f3d2589`; migration remote подтверждён тем же hash.
+- Создан deployment `dpl_GYPSPwhXkvRhHYUjBsxtRtfvQWu5`, URL `https://mesto-city-guide-fqxje6hwj-krevetkaaaas-projects.vercel.app`, target `preview`, exact metadata commit `3b46732e8e5829f789b35276649165c06f3d2589`.
+- Deployment не собран: Vercel API вернул `readyState: BLOCKED`, `buildSkipped: true`, `seatBlock.blockCode: TEAM_ACCESS_REQUIRED` и причину: Git author `176798612+Krevetkaaaa@users.noreply.github.com` должен иметь доступ к team `krevetkaaaa's projects`.
+- Принятые deployment routes уже показывают correct private `/admin` redirect до `filesystem` и dynamic admin mappings, но runtime verification невозможна: URL отдаёт служебную страницу `Deployment is building`, а не приложение. Статус не выдаётся за `READY`.
+- Для разблокировки владелец должен подтвердить/добавить Git author в Vercel team configuration, затем повторить Preview deployment exact implementation commit. Git metadata не удалялась, автор не подменялся и platform access check не обходился.
+- Production deployment, production alias и merge не выполнялись.
+
+До production cutover legacy admin files сохранены. Кодовый откат: `git revert 3b46732e8e5829f789b35276649165c06f3d2589`; заблокированный Preview удаляется отдельно. Git не откатывает cookies, environment variables или внешние данные.
