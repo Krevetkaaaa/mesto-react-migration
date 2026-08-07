@@ -1,8 +1,9 @@
 const { json, methodNotAllowed } = require('../../lib/http');
-const { handleApiError, requireAdmin } = require('../../lib/admin');
+const { handleApiError, requireAdmin, setAdminResponseHeaders } = require('../../lib/admin');
 const { createStore } = require('../../lib/supabase');
 
 module.exports = async function handler(req, res) {
+  setAdminResponseHeaders(res);
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
   const session = requireAdmin(req, res);
   if (!session) return;

@@ -93,8 +93,7 @@ const gateway = createServer(async (request, response) => {
     return;
   }
 
-  const useLegacy = pathname === "/admin"
-    || pathname.startsWith("/api/")
+  const useLegacy = pathname.startsWith("/api/")
     || pathname.startsWith("/__e2e/")
     || pathname.startsWith("/__e2e-fonts/");
   proxy(request, response, useLegacy ? legacyPort : reactPort);

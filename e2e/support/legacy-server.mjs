@@ -259,6 +259,22 @@ function initialFixtureState() {
   return {
     adminDashboard: structuredClone(adminDashboard),
     adminMerchants: structuredClone(adminMerchants),
+    adminRequestCounters: {
+      dashboard: 0,
+      login: 0,
+      logout: 0,
+      merchantCreate: 0,
+      merchantList: 0,
+      merchantPasswordReset: 0,
+      merchantStatus: 0,
+      merchantUpdate: 0,
+      reviewModeration: 0,
+      session: 0,
+      submissionModeration: 0,
+      venueCreate: 0,
+      venueDelete: 0,
+      venueUpdate: 0
+    },
     customerUser: structuredClone(customer),
     favorites: [],
     authRequestCounters: {
@@ -302,9 +318,17 @@ function initialFixtureState() {
     uploads: [],
     scenario: {
       adminDatabaseConfigured: true,
+      adminDashboardDelayMs: 0,
+      adminDashboardError: false,
+      adminDashboardFailNext: false,
       adminEmpty: false,
       adminMerchantsDelayMs: 0,
       adminMerchantsError: false,
+      adminMerchantsFailNext: false,
+      adminMutationDelayMs: 0,
+      adminMutationError: false,
+      adminMutationFailNext: false,
+      adminSessionMode: 'active',
       authDelayMs: 0,
       authError: false,
       catalogDelayMs: 0,
@@ -347,9 +371,17 @@ function resetFixtureState() {
 function applyFixturePatch(patch = {}) {
   for (const key of [
     'adminDatabaseConfigured',
+    'adminDashboardDelayMs',
+    'adminDashboardError',
+    'adminDashboardFailNext',
     'adminEmpty',
     'adminMerchantsDelayMs',
     'adminMerchantsError',
+    'adminMerchantsFailNext',
+    'adminMutationDelayMs',
+    'adminMutationError',
+    'adminMutationFailNext',
+    'adminSessionMode',
     'authDelayMs',
     'authError',
     'catalogDelayMs',
@@ -420,7 +452,10 @@ function applyFixturePatch(patch = {}) {
 
 function fixtureSummary() {
   return {
+    adminDashboard: structuredClone(fixtureState.adminDashboard),
+    adminMerchantItems: structuredClone(fixtureState.adminMerchants),
     adminMerchants: fixtureState.adminMerchants.length,
+    adminRequestCounters: structuredClone(fixtureState.adminRequestCounters),
     adminVenues: fixtureState.adminDashboard.venues.length,
     authRequestCounters: structuredClone(fixtureState.authRequestCounters),
     favorites: fixtureState.favorites.length,
@@ -588,6 +623,54 @@ function cookies(request) {
     const separator = entry.indexOf('=');
     return separator === -1 ? [entry, ''] : [entry.slice(0, separator), decodeURIComponent(entry.slice(separator + 1))];
   }));
+}
+
+function adminResponse(response, statusCode, body, headers = {}) {
+  return json(response, statusCode, body, {
+    'Cache-Control': 'private, no-store, max-age=0',
+    Vary: 'Cookie',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Robots-Tag': 'noindex',
+    ...headers
+  });
+}
+
+function hasAdminSession(requestCookies) {
+  return requestCookies['e2e-admin'] === 'active'
+    && fixtureState.scenario.adminSessionMode === 'active';
+}
+
+function requireAdminFixture(response, requestCookies) {
+  if (hasAdminSession(requestCookies)) return true;
+  const expired = requestCookies['e2e-admin'] === 'active'
+    && fixtureState.scenario.adminSessionMode === 'expired';
+  adminResponse(response, 401, {
+    message: 'Требуется вход администратора.',
+    ...(expired ? { code: 'SESSION_EXPIRED' } : {})
+  });
+  return false;
+}
+
+function hasSameOrigin(request) {
+  const expectedOrigin = `http://${request.headers.host}`;
+  const origin = String(request.headers.origin || '');
+  const fetchSite = String(request.headers['sec-fetch-site'] || '').toLowerCase();
+  return origin === expectedOrigin || (!origin && fetchSite === 'same-origin');
+}
+
+function requireAdminMutation(response, request, requestCookies) {
+  if (!requireAdminFixture(response, requestCookies)) return false;
+  if (hasSameOrigin(request)) return true;
+  adminResponse(response, 403, { message: 'Запрос отклонён проверкой источника.' });
+  return false;
+}
+
+async function shouldFailAdminMutation() {
+  await wait(fixtureState.scenario.adminMutationDelayMs);
+  const fail = fixtureState.scenario.adminMutationError
+    || fixtureState.scenario.adminMutationFailNext;
+  fixtureState.scenario.adminMutationFailNext = false;
+  return fail;
 }
 
 async function readJson(request) {
@@ -921,21 +1004,43 @@ async function handleApi(request, response, url) {
     return json(response, 200, { user });
   }
   if (path === '/api/admin/session' && request.method === 'GET') {
-    return requestCookies['e2e-admin'] === 'active'
-      ? json(response, 200, { authenticated: true, user: { login: 'editor', role: 'admin' } })
-      : json(response, 401, { authenticated: false });
+    fixtureState.adminRequestCounters.session += 1;
+    return hasAdminSession(requestCookies)
+      ? adminResponse(response, 200, { authenticated: true, user: { login: 'editor', role: 'admin' } })
+      : adminResponse(response, 401, {
+          authenticated: false,
+          ...(fixtureState.scenario.adminSessionMode === 'expired' ? { code: 'SESSION_EXPIRED' } : {})
+        });
   }
   if (path === '/api/admin/login' && request.method === 'POST') {
-    await readJson(request);
-    return json(response, 200, { authenticated: true, user: { login: 'editor', role: 'admin' } }, {
+    fixtureState.adminRequestCounters.login += 1;
+    if (!hasSameOrigin(request)) {
+      return adminResponse(response, 403, { message: 'Запрос отклонён проверкой источника.' });
+    }
+    const body = await readJson(request);
+    if (String(body.login || '').trim() !== 'editor' || body.password !== 'fixture-password') {
+      return adminResponse(response, 401, { message: 'Неверный логин или пароль.' });
+    }
+    fixtureState.scenario.adminSessionMode = 'active';
+    return adminResponse(response, 200, { authenticated: true, user: { login: 'editor', role: 'admin' } }, {
       'Set-Cookie': 'e2e-admin=active; Path=/; HttpOnly; SameSite=Lax'
     });
   }
   if (path === '/api/admin/logout' && request.method === 'POST') {
-    return json(response, 200, { authenticated: false }, { 'Set-Cookie': 'e2e-admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax' });
+    fixtureState.adminRequestCounters.logout += 1;
+    if (!requireAdminMutation(response, request, requestCookies)) return;
+    return adminResponse(response, 200, { ok: true }, {
+      'Set-Cookie': 'e2e-admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'
+    });
   }
   if (path === '/api/admin/dashboard' && request.method === 'GET') {
-    if (requestCookies['e2e-admin'] !== 'active') return json(response, 401, { message: 'Требуется вход администратора.' });
+    fixtureState.adminRequestCounters.dashboard += 1;
+    if (!requireAdminFixture(response, requestCookies)) return;
+    await wait(fixtureState.scenario.adminDashboardDelayMs);
+    const fail = fixtureState.scenario.adminDashboardError
+      || fixtureState.scenario.adminDashboardFailNext;
+    fixtureState.scenario.adminDashboardFailNext = false;
+    if (fail) return adminResponse(response, 503, { message: 'Панель временно недоступна.' });
     fixtureState.adminDashboard.stats = {
       ...fixtureState.adminDashboard.stats,
       venues: fixtureState.adminDashboard.venues.length,
@@ -945,36 +1050,53 @@ async function handleApi(request, response, url) {
       cities: new Set(fixtureState.adminDashboard.venues.map((venue) => venue.city)).size
     };
     fixtureState.adminDashboard.databaseConfigured = fixtureState.scenario.adminDatabaseConfigured !== false;
-    return json(response, 200, structuredClone(fixtureState.adminDashboard));
+    return adminResponse(response, 200, structuredClone(fixtureState.adminDashboard));
   }
   if (path === '/api/admin/merchants' && request.method === 'GET') {
+    fixtureState.adminRequestCounters.merchantList += 1;
+    if (!requireAdminFixture(response, requestCookies)) return;
     await wait(fixtureState.scenario.adminMerchantsDelayMs);
-    if (fixtureState.scenario.adminMerchantsError) return json(response, 503, { message: 'Рестораторы временно недоступны.' });
-    return requestCookies['e2e-admin'] === 'active' ? json(response, 200, { merchants: structuredClone(fixtureState.adminMerchants) }) : json(response, 401, { message: 'Требуется вход администратора.' });
+    const fail = fixtureState.scenario.adminMerchantsError
+      || fixtureState.scenario.adminMerchantsFailNext;
+    fixtureState.scenario.adminMerchantsFailNext = false;
+    if (fail) return adminResponse(response, 503, { message: 'Рестораторы временно недоступны.' });
+    return adminResponse(response, 200, { merchants: structuredClone(fixtureState.adminMerchants) });
   }
   if (path === '/api/admin/submissions' && request.method === 'PATCH') {
+    fixtureState.adminRequestCounters.submissionModeration += 1;
+    if (!requireAdminMutation(response, request, requestCookies)) return;
+    if (await shouldFailAdminMutation()) return adminResponse(response, 503, { message: 'Изменение временно недоступно.' });
     const body = await readJson(request);
     const item = fixtureState.adminDashboard.submissions.find((submission) => submission.id === body.id);
-    if (!item) return json(response, 404, { message: 'Заявка не найдена.' });
+    if (!item) return adminResponse(response, 404, { message: 'Заявка не найдена.' });
     item.status = body.decision;
     item.moderation_note = body.note || '';
-    return json(response, 200, { item: structuredClone(item) });
+    return adminResponse(response, 200, { result: structuredClone(item) });
   }
   if (path === '/api/admin/reviews' && request.method === 'PATCH') {
+    fixtureState.adminRequestCounters.reviewModeration += 1;
+    if (!requireAdminMutation(response, request, requestCookies)) return;
+    if (await shouldFailAdminMutation()) return adminResponse(response, 503, { message: 'Изменение временно недоступно.' });
     const body = await readJson(request);
     const item = fixtureState.adminDashboard.reviews.find((review) => review.id === body.id);
-    if (!item) return json(response, 404, { message: 'Отзыв не найден.' });
+    if (!item) return adminResponse(response, 404, { message: 'Отзыв не найден.' });
     item.status = body.decision;
     item.moderation_note = body.note || '';
-    return json(response, 200, { item: structuredClone(item) });
+    return adminResponse(response, 200, { result: structuredClone(item) });
   }
   if (path === '/api/admin/venues' && ['POST', 'PATCH', 'DELETE'].includes(request.method)) {
+    const counter = request.method === 'POST'
+      ? 'venueCreate'
+      : request.method === 'PATCH' ? 'venueUpdate' : 'venueDelete';
+    fixtureState.adminRequestCounters[counter] += 1;
+    if (!requireAdminMutation(response, request, requestCookies)) return;
+    if (await shouldFailAdminMutation()) return adminResponse(response, 503, { message: 'Изменение временно недоступно.' });
     const body = await readJson(request);
     const items = fixtureState.adminDashboard.venues;
     const index = items.findIndex((venue) => venue.id === body.id);
     if (request.method === 'DELETE') {
       if (index !== -1) items.splice(index, 1);
-      return json(response, 200, { ok: true });
+      return adminResponse(response, 200, { ok: true });
     }
     const venue = {
       ...(index === -1 ? {} : items[index]),
@@ -986,14 +1108,18 @@ async function handleApi(request, response, url) {
     };
     delete venue.averageCheck;
     if (index === -1) items.push(venue); else items[index] = venue;
-    return json(response, request.method === 'POST' ? 201 : 200, { venue: structuredClone(venue) });
+    return adminResponse(response, request.method === 'POST' ? 201 : 200, { venue: structuredClone(venue) });
   }
   if (path === '/api/admin/merchants' && ['POST', 'PATCH'].includes(request.method)) {
+    if (!requireAdminMutation(response, request, requestCookies)) return;
+    if (await shouldFailAdminMutation()) return adminResponse(response, 503, { message: 'Изменение временно недоступно.' });
     const body = await readJson(request);
     if (request.method === 'POST') {
+      fixtureState.adminRequestCounters.merchantCreate += 1;
+      const id = `20000000-0000-4000-8000-${String(fixtureState.nextAdminMerchant++).padStart(12, '0')}`;
       const created = {
-        id: `20000000-0000-4000-8000-${String(fixtureState.nextAdminMerchant++).padStart(12, '0')}`,
-        user_id: `20000000-0000-4000-8000-${String(fixtureState.nextAdminMerchant).padStart(12, '0')}`,
+        id,
+        user_id: id,
         display_name: body.displayName,
         username: body.username,
         email: body.email || `${body.username}@accounts.mesto.guide`,
@@ -1007,23 +1133,34 @@ async function handleApi(request, response, url) {
         })).filter((membership) => membership.venue)
       };
       fixtureState.adminMerchants.push(created);
-      return json(response, 201, {
+      return adminResponse(response, 201, {
         merchant: structuredClone(created),
         credentials: { login: body.username, password: body.password || 'FixturePass123' },
         message: 'Ресторатор создан.'
       });
     }
     const existing = fixtureState.adminMerchants.find((item) => (item.id || item.user_id) === body.userId);
-    if (!existing) return json(response, 404, { message: 'Аккаунт ресторатора не найден.' });
-    if (body.action === 'reset-password') return json(response, 200, { credentials: { password: 'ResetPass123' }, message: 'Временный пароль создан.' });
-    if (body.status) existing.status = body.status;
+    if (!existing) return adminResponse(response, 404, { message: 'Аккаунт ресторатора не найден.' });
+    if (body.action === 'reset-password') {
+      fixtureState.adminRequestCounters.merchantPasswordReset += 1;
+      return adminResponse(response, 200, {
+        credentials: { password: body.password || 'ResetPass123' },
+        message: 'Временный пароль создан.'
+      });
+    }
+    if (body.status) {
+      fixtureState.adminRequestCounters.merchantStatus += 1;
+      existing.status = body.status;
+    } else {
+      fixtureState.adminRequestCounters.merchantUpdate += 1;
+    }
     if (body.displayName) existing.display_name = body.displayName;
     if (Array.isArray(body.venueIds)) existing.memberships = body.venueIds.map((venueId) => ({
       venue_id: venueId,
       membership_role: body.membershipRole || 'owner',
       venue: fixtureState.adminDashboard.venues.find((venue) => venue.id === venueId)
     })).filter((membership) => membership.venue);
-    return json(response, 200, { ok: true });
+    return adminResponse(response, 200, { ok: true });
   }
 
   return json(response, 404, { message: `Fixture route not found: ${request.method} ${path}` });

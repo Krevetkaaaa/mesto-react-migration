@@ -38,7 +38,7 @@
 | 5. Venue catalog | complete | `688e63f1a3f9267e892709c3338558c0a6089cad`, routing fix `5089a340fa61857b32952c69ef1436d478278f15` | 39 server + 82 unit, strict check, production smoke, Phase 4 regression, Phase 5 functional/accessibility and 19-snapshot visual matrix, Preview route matrix passed | Protected Preview cannot authenticate SSR self-fetch for a non-editorial venue; covered by controlled E2E/contracts and must be rechecked before production cutover |
 | 6. Customer auth and profile | complete | `88940e6194a0bb70dfac34b0ad6754f6a8784c19`, Preview fixes `57b0c82c9526ff9470a1a8a558dc407df654c7e8`, `be6c265e93bf821289273e0358e6d922ba413c0d` | 51 server + 92 unit, strict check, production smoke, Phase 4/5 regression, Phase 6 functional/accessibility, 11-snapshot visual matrix and protected Preview route/cache matrix passed | Known frozen-palette contrast debt is deferred to an approved accessibility task; production deploy remains forbidden |
 | 7. Merchant workspace | complete | `2c79e24db2930c20d57b9f09f39bd4174f06aac7`, Preview routing fixes `35abda67f17b55ec259b75e03e7df49f98b27b3b`, `e1e173772fc71ded709ee808a9a76c4dee3e6b49` | 60 server + 98 unit, strict check, production smoke, fixture contracts, Phase 4-6 regressions, Phase 7 functional/accessibility и 48-snapshot visual matrix, protected Preview route/cache matrix | Post-commit observability/idempotency deferred; production deploy remains forbidden |
-| 8. Admin console | pending | pending | pending | Visual Freeze обязателен для каждого маршрута |
+| 8. Admin console | local complete; Preview pending | pending | 65 server + 107 unit, strict check, production smoke, Phase 4-7 regressions, 12 functional/fixture scenarios и 45-snapshot Visual Freeze matrix | Multi-store merchant update не транзакционен; strong typed/revocable admin session остаётся Phase 10 blocker; production deploy forbidden |
 | 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
@@ -180,9 +180,24 @@
 - Подробный контракт: `docs/PHASE7_MERCHANT_WORKSPACE.md`.
 - Откат: `git revert e1e173772fc71ded709ee808a9a76c4dee3e6b49`, затем `git revert 35abda67f17b55ec259b75e03e7df49f98b27b3b`, затем `git revert 2c79e24db2930c20d57b9f09f39bd4174f06aac7`; внешние deployments удаляются отдельно.
 
+### Этап 8. Административная панель
+
+- Локальные ворота завершены: `2026-08-07`; Preview pending.
+- Branch: `codex/react-migration`; implementation commit будет зафиксирован после финального diff audit.
+- Route ownership: React SSR/hydration обслуживает `/admin/overview`, `/admin/submissions`, `/admin/reviews`, `/admin/venues` и `/admin/merchants`; exact `/admin` даёт private `302` до Vercel `filesystem`. Legacy `admin.html`/`admin.js` сохранены, но runtime больше не подключает `admin.js`.
+- UI: login/protected shell, overview, submissions, reviews, venues, merchants/assignments, explicit confirmations, single-flight forms, semantic tables/mobile overflow и conditional one-time credentials DOM.
+- Partial state: merchant list является независимым secondary slice; его controlled failure сериализуется plain DTO и не уничтожает dashboard или hydration.
+- Backend: same-origin fail-closed для unsafe admin requests; private/no-store/noindex; строгие JSON/size/UUID/venueIds/venue payload checks; controlled `ADMIN_*` errors без Supabase leakage; post-commit audit best-effort; password reset metadata warning протянут до UI.
+- Local tests: `npm.cmd run check`; `npm.cmd test` — 65/65 server и 107/107 unit/contract/component; `npm.cmd run smoke`; Phase 8 — 57 passed / 105 expected skipped, включая 12 functional/fixture и 45 Visual Freeze assertions. Phase 7 regression — 58/98, Phase 6 — 19/59, Phase 5 — 28/52, Phase 4 — 16/24.
+- Visual/accessibility: canonical login + five protected routes на пяти frozen viewport; interactive confirmation/editor/error/empty/credentials/mobile states; threshold остался 1500, snapshots не обновлялись; unexpected serious/critical Axe violations отсутствуют кроме отдельно учтённого frozen color-contrast debt.
+- Ограничения: merchant profile+memberships не имеют общей транзакции; core dashboard slices связаны store call; strong typed/revocable admin session и distributed login limiter обязательны до production на этапах 9–10.
+- Database migrations, merge, production deployment и aliases отсутствуют.
+- Подробный контракт: `docs/PHASE8_ADMIN_CONSOLE.md`.
+- Откат: `git revert <phase-8-implementation-commit>`; внешние deployments и данные удаляются/восстанавливаются отдельно.
+
 ## GenericAgent
 
-Основная установка GenericAgent в `C:\Users\kir21\GenericAgent` не имеет `mykey.py`, локального OpenAI-compatible backend или поддерживаемой авторизации через Codex subscription. Обнаруженная вложенная локальная копия `genericagent/` исключена из Git; её единственный профиль является пустым `mixin_config` и инициализируется как `BADCONFIG_MIXIN`, а не как рабочая LLM-сессия. Реальные LLM-задачи через GenericAgent сейчас заблокированы. Подключение выполняется владельцем локально через `C:\Users\kir21\GenericAgent\ga.cmd configure`; секрет не должен передаваться в чат или Git.
+Основная установка GenericAgent в `C:\Users\kir21\GenericAgent` проверена повторно. В isolated `.venv` был установлен отсутствовавший `psutil`, а `ga.cmd` получил `PYTHONUTF8=1`; теперь `ga status` и `ga --help` запускаются в Windows без dependency/Unicode crash. `mykey.py`, локальный OpenAI-compatible backend и поддерживаемая авторизация через Codex subscription по-прежнему отсутствуют, поэтому реальные LLM-задачи через GenericAgent заблокированы и не имитировались. Подключение выполняется владельцем локально через `C:\Users\kir21\GenericAgent\ga.cmd configure`; секрет не должен передаваться в чат или Git.
 
 ## Общий rollback
 

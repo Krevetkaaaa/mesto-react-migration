@@ -25,6 +25,18 @@
 npm.cmd run test:e2e
 ```
 
+Миграционные suites запускаются отдельно, чтобы новый route сравнивался с теми же frozen Phase 1 PNG без snapshot update:
+
+```powershell
+npm.cmd run test:e2e:phase4
+npm.cmd run test:e2e:phase5
+npm.cmd run test:e2e:phase6
+npm.cmd run test:e2e:phase7
+npm.cmd run test:e2e:phase8
+```
+
+Phase 8 использует `e2e/phase8-playwright.config.js`: один Chromium-проект выполняет admin functional/fixture/Axe scenarios, пять fixed-viewport проектов проверяют canonical login, overview, submissions, reviews, venues, merchants и утверждённые interactive states. Порог остаётся `1500` pixels; `--update-snapshots` в Phase 8 запрещён без отдельного согласования Visual Freeze.
+
 Явный воспроизводимый local override:
 
 ```powershell

@@ -528,7 +528,10 @@ describe("HTTP module contracts", () => {
       },
       { ok: true },
       { ok: true },
-      { credentials: { password: "ResetPass123" } },
+      {
+        credentials: { password: "ResetPass123" },
+        warning: "PASSWORD_RESET_METADATA_PENDING",
+      },
     ]);
     const admin = createHttpAdminConsole(http);
 
@@ -573,7 +576,12 @@ describe("HTTP module contracts", () => {
       },
     });
     await admin.execute({ type: "merchant.status", userId: merchantId, status: "suspended" });
-    await admin.execute({ type: "merchant.password.reset", userId: merchantId });
+    const passwordReset = await admin.execute({ type: "merchant.password.reset", userId: merchantId });
+    expect(passwordReset).toEqual({
+      type: "merchant.password.reset",
+      credentials: { password: "ResetPass123" },
+      warning: "PASSWORD_RESET_METADATA_PENDING",
+    });
 
     expect(http.requests.map((request) => [request.method, request.path])).toEqual([
       ["PATCH", "/api/admin/submissions"],

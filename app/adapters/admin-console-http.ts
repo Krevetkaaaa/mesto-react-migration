@@ -51,6 +51,7 @@ const createdMerchantResponseSchema = z.object({
 }).loose();
 const resetPasswordResponseSchema = z.object({
   credentials: z.object({ password: z.string().min(1) }).loose(),
+  warning: z.literal("PASSWORD_RESET_METADATA_PENDING").optional(),
 }).loose();
 
 function adminVenueBody(command: SaveAdminVenueCommand) {
@@ -161,7 +162,7 @@ class HttpAdminConsole implements AdminConsole {
       case "merchant.password.reset":
         return {
           type: "merchant.password.reset",
-          credentials: await this.resetMerchantPassword(command.userId, command.password),
+          ...await this.resetMerchantPassword(command.userId, command.password),
         };
     }
   }
@@ -264,7 +265,10 @@ class HttpAdminConsole implements AdminConsole {
       },
       schema: resetPasswordResponseSchema,
     });
-    return response.credentials;
+    return {
+      credentials: response.credentials,
+      ...(response.warning ? { warning: response.warning } : {}),
+    };
   }
 }
 

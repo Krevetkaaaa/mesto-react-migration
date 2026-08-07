@@ -1,4 +1,6 @@
-const { json, methodNotAllowed, readJson, text } = require('../../lib/http');
+const { json, methodNotAllowed, text } = require('../../lib/http');
+const { readAdminBody, setAdminResponseHeaders } = require('../../lib/admin');
+const { requireSameOrigin } = require('../../lib/same-origin');
 const { createSessionCookie, verifyPassword } = require('../../lib/security');
 
 const attempts = new Map();
@@ -16,16 +18,18 @@ function limited(req) {
 }
 
 module.exports = async function handler(req, res) {
+  setAdminResponseHeaders(res);
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
+  if (!requireSameOrigin(req, res)) return;
   if (limited(req)) return json(res, 429, { message: 'Слишком много попыток. Повторите позже.' });
   const expectedLogin = process.env.MESTO_ADMIN_LOGIN;
   const expectedHash = process.env.MESTO_ADMIN_PASSWORD_HASH;
   const secret = process.env.MESTO_ADMIN_SESSION_SECRET;
   if (!expectedLogin || !expectedHash || !secret) return json(res, 503, { message: 'Доступ администратора ещё не настроен.' });
   try {
-    const body = await readJson(req, 50_000);
+    const body = await readAdminBody(req, 50_000);
     const login = text(body.login, 120);
-    const valid = login === expectedLogin && verifyPassword(body.password, expectedHash);
+    const valid = typeof body.password === 'string' && login === expectedLogin && verifyPassword(body.password, expectedHash);
     if (!valid) return json(res, 401, { message: 'Неверный логин или пароль.' });
     res.setHeader('Set-Cookie', createSessionCookie(login, secret));
     return json(res, 200, { user: { login, role: 'admin' } });

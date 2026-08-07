@@ -148,11 +148,17 @@ async function runSmoke() {
   const diagramsIndex = vercelConfig.routes.findIndex(
     (route) => route.src === "^/diagrams/(.*)$" && route.continue === true,
   );
-  const legacyShellRouteIndex = vercelConfig.routes.findIndex(
-    (route) => route.src === "^/admin$" && route.dest === "/admin.html",
-  );
   const apiRouteIndex = vercelConfig.routes.findIndex(
     (route) => route.src === "^/api(?:/(.*))?/?$" && route.dest === "/api/router?route=$1",
+  );
+  const adminIndexRouteIndex = vercelConfig.routes.findIndex(
+    (route) => route.src === "^/admin$"
+      && route.status === 302
+      && route.headers?.Location === "/admin/overview"
+      && route.headers?.["Cache-Control"] === "private, no-store, max-age=0"
+      && route.headers?.Vary === "Cookie"
+      && route.headers?.["X-Content-Type-Options"] === "nosniff"
+      && route.headers?.["X-Robots-Tag"] === "noindex",
   );
   const merchantIndexRouteIndex = vercelConfig.routes.findIndex(
     (route) => route.src === "^/merchant$"
@@ -173,6 +179,8 @@ async function runSmoke() {
     ["^/venue(?:/([^/#?]+?))[/#?]?$", "venue/:venueSlug"],
     ["^/merchant(?:/([^/#?]+?))\\.data[/#?]?$", "merchant/:view.data"],
     ["^/merchant(?:/([^/#?]+?))[/#?]?$", "merchant/:view"],
+    ["^/admin(?:/([^/#?]+?))\\.data[/#?]?$", "admin/:view.data"],
+    ["^/admin(?:/([^/#?]+?))[/#?]?$", "admin/:view"],
   ].map(([src, dest]) => vercelConfig.routes.findIndex(
     (route) => route.src === src && route.dest === dest,
   ));
@@ -187,11 +195,14 @@ async function runSmoke() {
   invariant(legacyHtmlAliasIndex >= 0, "Vercel legacy .html canonical redirects are missing");
   invariant(trailingSlashAliasIndex >= 0, "Vercel trailing-slash canonical redirects are missing");
   invariant(diagramsIndex >= 0, "Vercel diagrams headers route is missing");
-  invariant(legacyShellRouteIndex >= 0, "Vercel admin legacy route is missing");
   invariant(apiRouteIndex >= 0, "Vercel API rewrite is missing");
+  invariant(adminIndexRouteIndex >= 0, "Vercel exact /admin private redirect is missing");
   invariant(merchantIndexRouteIndex >= 0, "Vercel exact /merchant private redirect is missing");
-  invariant(filesystemIndex > legacyShellRouteIndex, "Vercel SSR must not intercept the legacy admin shell");
   invariant(filesystemIndex > apiRouteIndex, "Vercel filesystem must not intercept /api/*");
+  invariant(
+    filesystemIndex > adminIndexRouteIndex,
+    "Vercel exact /admin route must precede filesystem to avoid admin.html shadowing",
+  );
   invariant(
     filesystemIndex > merchantIndexRouteIndex,
     "Vercel exact /merchant route must precede filesystem to avoid merchant.html shadowing",
@@ -295,6 +306,37 @@ async function runSmoke() {
       "Merchant redirect must remain private and no-store",
     );
 
+    const adminRedirect = await fetch(`${origin}/admin`, { redirect: "manual" });
+    invariant(adminRedirect.status === 302, `/admin must redirect, got ${adminRedirect.status}`);
+    invariant(
+      adminRedirect.headers.get("location") === "/admin/overview",
+      "/admin must redirect to /admin/overview",
+    );
+    invariant(
+      adminRedirect.headers.get("cache-control") === "private, no-store, max-age=0",
+      "Admin redirect must remain private and no-store",
+    );
+
+    const adminDocument = await fetch(`${origin}/admin/overview`);
+    const adminHtml = await adminDocument.text();
+    // This isolated SSR smoke intentionally starts no legacy API process. The
+    // admin route therefore returns its controlled 503 shell here; Phase 8
+    // Playwright covers the authenticated 200 path through the fixture gateway.
+    invariant(
+      adminDocument.status === 200 || adminDocument.status === 503,
+      `/admin/overview returned ${adminDocument.status}`,
+    );
+    invariant(
+      adminDocument.headers.get("content-type")?.startsWith("text/html"),
+      "React /admin/overview must return HTML",
+    );
+    invariant(
+      adminDocument.headers.get("cache-control") === "private, no-store, max-age=0",
+      "React admin document must remain private and no-store",
+    );
+    invariant(adminHtml.includes('data-react-route="admin"'), "React admin document is missing its SSR marker");
+    invariant(!adminHtml.includes('src="admin.js'), "React admin runtime must not load legacy admin.js");
+
     for (const path of ["/__react/not-found", "/api/phase2-unknown", "/api/auth/yandex/callback"]) {
       const response = await fetch(`${origin}${path}`, { redirect: "manual" });
       const body = await response.text();
@@ -317,6 +359,6 @@ async function runSmoke() {
   }
 
   process.stdout.write(
-    `Phase 7 smoke passed: ${manifest.files.length} staged legacy files unchanged, React SSR owns public/catalog/account/merchant routes, admin remains legacy, and unknown routes return 404.\n`,
+    `Phase 8 smoke passed: ${manifest.files.length} staged legacy files unchanged, React SSR owns public/catalog/account/merchant/admin routes, and unknown routes return 404.\n`,
   );
 }

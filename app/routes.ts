@@ -14,5 +14,9 @@ export default [
     index("routes/merchant-index.tsx"),
     route(":view", "routes/merchant-view.tsx"),
   ]),
+  route("admin", "routes/admin-layout.tsx", [
+    index("routes/admin-index.tsx"),
+    route(":view", "routes/admin-view.tsx"),
+  ]),
   route("__react/health", "routes/react-health.tsx"),
 ] satisfies RouteConfig;

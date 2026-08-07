@@ -47,12 +47,19 @@
       "continue": true
     },
     {
-      "src": "^/admin$",
-      "dest": "/admin.html"
-    },
-    {
       "src": "^/api(?:/(.*))?/?$",
       "dest": "/api/router?route=$1"
+    },
+    {
+      "src": "^/admin$",
+      "headers": {
+        "Location": "/admin/overview",
+        "Cache-Control": "private, no-store, max-age=0",
+        "Vary": "Cookie",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex"
+      },
+      "status": 302
     },
     {
       "src": "^/merchant$",
@@ -91,6 +98,14 @@
     {
       "src": "^/merchant(?:/([^/#?]+?))[/#?]?$",
       "dest": "merchant/:view"
+    },
+    {
+      "src": "^/admin(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "admin/:view.data"
+    },
+    {
+      "src": "^/admin(?:/([^/#?]+?))[/#?]?$",
+      "dest": "admin/:view"
     },
     {
       "src": ".*",

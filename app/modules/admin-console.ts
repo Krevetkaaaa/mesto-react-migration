@@ -101,7 +101,11 @@ export type AdminCommandResult =
   | { type: "completed" }
   | { type: "venue.saved"; venue: Venue }
   | { type: "merchant.created"; value: CreatedMerchant }
-  | { type: "merchant.password.reset"; credentials: OneTimeCredentials };
+  | {
+      type: "merchant.password.reset";
+      credentials: OneTimeCredentials;
+      warning?: "PASSWORD_RESET_METADATA_PENDING";
+    };
 
 export interface AdminConsole {
   currentSession(): Promise<AdminSessionState>;
