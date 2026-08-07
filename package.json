@@ -21,7 +21,8 @@
     "check:phase8": "node --check e2e/phase8-fixture.spec.js && node --check e2e/phase8-playwright.config.js && node --check e2e/phase8-admin.spec.js",
     "check:phase9": "node --check lib/image-dimensions.js && node --check lib/public-cache.js && node --check test/image-dimensions.test.js && node --check test/public-cache.test.js && node --check test/rate-limit.test.js",
     "check:phase10": "node --check lib/security-headers.js && node --check scripts/check-client-bundle-secrets.mjs && node --check scripts/check-public-js-budget.mjs && node --check test/frontend-security.test.js && node --check test/public-js-budget.test.js && node --check test/security-headers.test.js && node -e \"JSON.parse(require('node:fs').readFileSync('config/security-headers.json','utf8'))\"",
-    "check": "npm run check:legacy && npm run check:phase6 && npm run check:phase7 && npm run check:phase8 && npm run check:phase9 && npm run check:phase10 && npm run typecheck && npm run lint",
+    "check:phase11": "node --check scripts/phase11-load.mjs && node --check scripts/run-phase11-local.mjs && node --check test/load-harness.test.js",
+    "check": "npm run check:legacy && npm run check:phase6 && npm run check:phase7 && npm run check:phase8 && npm run check:phase9 && npm run check:phase10 && npm run check:phase11 && npm run typecheck && npm run lint",
     "test:server": "node --test \"test/*.test.js\"",
     "test:unit": "vitest run",
     "test": "npm run test:server && npm run test:unit",
@@ -31,6 +32,7 @@
     "test:e2e:phase6": "playwright test --config e2e/phase6-playwright.config.js",
     "test:e2e:phase7": "playwright test --config e2e/phase7-playwright.config.js",
     "test:e2e:phase8": "playwright test --config e2e/phase8-playwright.config.js",
+    "test:load:local": "npm run build && node scripts/run-phase11-local.mjs",
     "smoke": "npm run build && node scripts/check-public-js-budget.mjs && node scripts/check-client-bundle-secrets.mjs && node scripts/phase2-build-smoke.mjs"
   },
   "dependencies": {
