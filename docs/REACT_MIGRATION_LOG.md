@@ -40,7 +40,8 @@
 | 7. Merchant workspace | complete | `2c79e24db2930c20d57b9f09f39bd4174f06aac7`, Preview routing fixes `35abda67f17b55ec259b75e03e7df49f98b27b3b`, `e1e173772fc71ded709ee808a9a76c4dee3e6b49` | 60 server + 98 unit, strict check, production smoke, fixture contracts, Phase 4-6 regressions, Phase 7 functional/accessibility и 48-snapshot visual matrix, protected Preview route/cache matrix | Post-commit observability/idempotency deferred; production deploy remains forbidden |
 | 8. Admin console | local complete; Preview blocked | `3b46732e8e5829f789b35276649165c06f3d2589` | 65 server + 107 unit, strict check, production smoke, Phase 4-7 regressions, 12 functional/fixture scenarios и 45-snapshot Visual Freeze matrix | Preview `TEAM_ACCESS_REQUIRED`; multi-store merchant update не транзакционен; strong typed/revocable admin session остаётся Phase 10 blocker; production deploy forbidden |
 | 9. Backend scale | local checkpoint; production criteria blocked | `dc8c9fbb4f4cdda46c343feb7d98d65f09889377` | 86 server + 107 unit, strict check и production smoke прошли | Shared limiter/provider, CDN purge/Preview headers, representative EXPLAIN и direct media upload требуют внешнего environment |
-| 10-11. Security, observability and load | pending | pending | pending | Production-like environment и отдельные release gates не предоставлены |
+| 10. Performance, security and accessibility | local checkpoint; production criteria blocked | `ddff8daff8d702bb6c6cebaad7e810a5e26b2d03` | 99 server + 113 unit, strict check, production smoke, public JS/client-secret gates и Phase 4-8 Chromium regressions прошли | p75 Web Vitals, contrast remediation, nonce/hash CSP, shared admin revocation, dependency audit decision и production telemetry не закрыты; Preview `TEAM_ACCESS_REQUIRED` |
+| 11. Load testing | pending | pending | pending | Production-like environment, shared limiter provider и согласованный SLO gate не предоставлены |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
 ### Этап 0. Требования и показатели
@@ -209,6 +210,20 @@
 - Database migrations, external provider provisioning, merge, production deployment и aliases отсутствуют.
 - Подробный контракт: `docs/PHASE9_BACKEND_SCALE.md`.
 - Откат: `git revert dc8c9fbb4f4cdda46c343feb7d98d65f09889377`; внешние secrets/data/storage Git не восстанавливает.
+
+### Этап 10. Производительность, безопасность и доступность
+
+- Локальный checkpoint создан: `2026-08-07`; implementation commit `ddff8daff8d702bb6c6cebaad7e810a5e26b2d03`.
+- Public JS gate считает production manifest, общий `/theme.js` и home-only `/app.js`: базовый бюджет `580/160 KiB` raw/gzip, переходный home override `680/185 KiB`; фактический максимум `/` — `621,4/166,7 KiB`, остальных маршрутов `/venue/:slug` — `538,6/149,2 KiB`.
+- Canonical security headers применяются Vercel edge, API и React SSR: CSP без `unsafe-eval`, nosniff, strict-origin referrer и отключённые sensitive browser capabilities. Google Fonts connect origins исправлены после фактического browser CSP failure. `unsafe-inline` и широкие HTTPS images остаются явным compatibility debt.
+- Admin session получила typed audience/version claims, случайный `jti`, строгие time/subject/role bounds, strong isolated secret и ограниченную legacy compatibility. Немедленного shared server-side revocation пока нет.
+- Client source запрещает raw HTML/executable-string sinks. Production bundle scanner проверяет имена и фактические значения server secrets без печати значений; 43 assets чисты. Независимый review нашёл и закрыл пропуск `/app.js` в бюджете и value-only секретов в scanner.
+- Local checks: `npm.cmd run check`; `npm.cmd test` — `99/99` server и `113/113` unit/contract/component; `npm.cmd run smoke`; Phase 8 — `57/105`, Phase 7 — `58/98`, Phase 6 — `19/59`, Phase 5 — `28/52`, Phase 4 — `16/24` passed/skipped. Snapshots не обновлялись.
+- Accessibility audit подтвердил keyboard/focus/dialog/label/reduced-motion seams и существующее Axe coverage. Frozen `color-contrast` debt требует отдельного согласованного визуального изменения.
+- Dependency audit: `5 high`, `3 moderate`, `0 critical`; React Router high относится к неиспользуемому RSC mode, но fix требует incompatible `8.3.0`; AJV moderate через Vercel tooling fix не имеет. Production cutover с нерешённым audit запрещён.
+- Критерий Phase 10 не объявлен выполненным: нет production-like p75 LCP/INP/CLS, correlation telemetry, nonce/hash CSP, shared admin revocation, stored-XSS E2E и согласованного audit resolution. Preview остаётся заблокирован `TEAM_ACCESS_REQUIRED`.
+- Database migrations, merge, production deployment и aliases отсутствуют. Подробный контракт: `docs/PHASE10_QUALITY_SECURITY.md`.
+- Откат: `git revert ddff8daff8d702bb6c6cebaad7e810a5e26b2d03`; внешние settings/secrets/sessions Git не восстанавливает.
 
 ## GenericAgent
 
