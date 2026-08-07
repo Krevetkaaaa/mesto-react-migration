@@ -8,15 +8,17 @@ const merchantsHandler = require('../handlers/admin/merchants');
 const reviewsHandler = require('../handlers/admin/reviews');
 const venuesHandler = require('../handlers/admin/venues');
 const { configurePublicCacheInvalidation } = require('../lib/public-cache');
-const { signSession } = require('../lib/security');
+const { ADMIN_SESSION_TYPE, hashPassword, signSession, verifySession } = require('../lib/security');
 
-const ADMIN_SECRET = 'phase-8-admin-secret';
+const ADMIN_SECRET = 'phase-8-admin-secret-that-is-at-least-32-characters';
 const PUBLIC_ORIGIN = 'https://mesto.example';
 const ADMIN_ID = '10000000-0000-4000-8000-000000000001';
 const MERCHANT_ID = '20000000-0000-4000-8000-000000000001';
 const VENUE_ID = '30000000-0000-4000-8000-000000000001';
 const originalFetch = global.fetch;
 const originalEnvironment = {
+  MESTO_ADMIN_LOGIN: process.env.MESTO_ADMIN_LOGIN,
+  MESTO_ADMIN_PASSWORD_HASH: process.env.MESTO_ADMIN_PASSWORD_HASH,
   MESTO_ADMIN_SESSION_SECRET: process.env.MESTO_ADMIN_SESSION_SECRET,
   MESTO_PUBLIC_ORIGIN: process.env.MESTO_PUBLIC_ORIGIN,
   SUPABASE_URL: process.env.SUPABASE_URL,
@@ -107,6 +109,25 @@ test('admin endpoints are private and unsafe requests fail closed before mutatio
     assertPrivate(res);
   }
   assert.equal(fetchCalls, 0);
+});
+
+test('admin login preserves its response contract while issuing a scoped current session', async () => {
+  process.env.MESTO_ADMIN_LOGIN = 'phase8-admin';
+  process.env.MESTO_ADMIN_PASSWORD_HASH = hashPassword('Strong-Admin-Password-7');
+  const res = responseRecorder();
+
+  await loginHandler(request('POST', {
+    login: 'phase8-admin',
+    password: 'Strong-Admin-Password-7'
+  }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { user: { login: 'phase8-admin', role: 'admin' } });
+  const token = decodeURIComponent(res.headers['set-cookie'].match(/^mesto_admin=([^;]+)/)[1]);
+  const session = verifySession(token, ADMIN_SECRET);
+  assert.equal(session.typ, ADMIN_SESSION_TYPE);
+  assert.equal(session.sub, 'phase8-admin');
+  assertPrivate(res);
 });
 
 test('admin body and identifiers are rejected strictly before storage access', async () => {

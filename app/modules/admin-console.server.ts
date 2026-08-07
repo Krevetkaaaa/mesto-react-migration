@@ -4,11 +4,12 @@ import { createHttpAdminConsole } from "../adapters/admin-console-http";
 import { createServerHttpClient } from "../adapters/http";
 import { isApplicationError } from "../lib/application-error";
 import type { MembershipRole, MerchantAccount, OneTimeCredentials } from "../lib/domain";
+import { SECURITY_HEADERS } from "../lib/security-headers";
 import type { AdminVenueDraft, AdminWorkspaceSnapshot } from "./admin-console";
 
 const PRIVATE_HEADERS = {
+  ...SECURITY_HEADERS,
   "Cache-Control": "private, no-store, max-age=0",
-  "X-Content-Type-Options": "nosniff",
   "X-Robots-Tag": "noindex",
   Vary: "Cookie",
 } as const;

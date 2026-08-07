@@ -1,4 +1,5 @@
 import type { Route } from "./+types/merchant-view";
+import { SECURITY_HEADERS } from "../lib/security-headers";
 
 const MERCHANT_VIEWS = new Set(["overview", "venue", "menu", "promotions", "reviews"]);
 
@@ -9,6 +10,7 @@ export function loader({ params }: Route.LoaderArgs) {
     throw new Response("Not Found", {
       status: 404,
       headers: {
+        ...SECURITY_HEADERS,
         "Cache-Control": "private, no-store, max-age=0",
         "X-Content-Type-Options": "nosniff",
         "X-Robots-Tag": "noindex",

@@ -16,6 +16,8 @@ describe("React health route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(response.headers.get("content-security-policy")).toContain("default-src 'self'");
+    expect(response.headers.get("permissions-policy")).toContain("geolocation=()");
     await expect(response.json()).resolves.toEqual(HEALTH_PAYLOAD);
   });
 

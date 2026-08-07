@@ -1,3 +1,5 @@
+import { SECURITY_HEADERS } from "./security-headers";
+
 export const PUBLIC_CATALOG_DESCRIPTION =
   "Каталог опубликованных ресторанов, кафе, кофеен и баров Крыма в городском гиде «Место».";
 
@@ -19,7 +21,7 @@ export function publicCatalogLinks() {
 
 export function publicCatalogHeaders() {
   return {
+    ...SECURITY_HEADERS,
     "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
-    "X-Content-Type-Options": "nosniff",
   };
 }

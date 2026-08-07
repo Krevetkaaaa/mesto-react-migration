@@ -6,6 +6,7 @@ function fontFace(origin, family, slug, weights) {
 
 const test = base.extend({
   colorTheme: ['light', { option: true }],
+  allowedHttpErrors: [[], { option: true }],
   expectedConsolePatterns: [[], { option: true }],
   expectedHttpErrors: [[], { option: true }],
   fixtureApi: async ({ baseURL }, use) => {
@@ -25,7 +26,7 @@ const test = base.extend({
       set: (patch) => request('/__e2e/state', { method: 'POST', body: JSON.stringify(patch) })
     });
   },
-  page: async ({ page, baseURL, colorTheme, expectedConsolePatterns, expectedHttpErrors, fixtureApi: _fixtureApi }, use, testInfo) => {
+  page: async ({ page, baseURL, colorTheme, allowedHttpErrors, expectedConsolePatterns, expectedHttpErrors, fixtureApi: _fixtureApi }, use, testInfo) => {
     const browserErrors = [];
     const expectedMatches = new Set();
     const origin = new URL(baseURL).origin;
@@ -43,11 +44,12 @@ const test = base.extend({
       const source = message.location().url || '';
       const anonymousSessionProbe = message.text().includes('401 (Unauthorized)')
         && ['/api/auth/session', '/api/admin/session'].some((path) => source.includes(path));
+      const allowedHttpError = allowedHttpErrors.find(({ path, status }) => source.includes(path) && message.text().includes(`${status}`));
       const expectedHttpError = expectedHttpErrors.find(({ path, status }) => source.includes(path) && message.text().includes(`${status}`));
       const expectedPattern = expectedConsolePatterns.find((pattern) => message.text().includes(pattern));
       if (expectedHttpError) expectedMatches.add(`http:${expectedHttpError.status}:${expectedHttpError.path}`);
       if (expectedPattern) expectedMatches.add(`console:${expectedPattern}`);
-      if (!anonymousSessionProbe && !expectedHttpError && !expectedPattern) browserErrors.push(`console: ${message.text()}${source ? ` @ ${source}` : ''}`);
+      if (!anonymousSessionProbe && !allowedHttpError && !expectedHttpError && !expectedPattern) browserErrors.push(`console: ${message.text()}${source ? ` @ ${source}` : ''}`);
     });
     page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.stack || error.message}`));
 

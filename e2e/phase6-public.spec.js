@@ -119,7 +119,13 @@ test.describe("Phase 6 public account routes", () => {
 
   test.describe("account route outage UI", () => {
     test.describe("session outage", () => {
-      test.use({ expectedHttpErrors: [{ path: "/login", status: 500 }] });
+      // The hydrated account provider repeats the same controlled session
+      // probe after the SSR boundary renders; the fixture deliberately keeps
+      // that endpoint unavailable for the whole scenario.
+      test.use({
+        allowedHttpErrors: [{ path: "/api/auth/session", status: 503 }],
+        expectedHttpErrors: [{ path: "/login", status: 500 }],
+      });
 
       test("auth outage renders a controlled retry boundary", async ({ page, fixtureApi }, testInfo) => {
         functionalOnly(testInfo);

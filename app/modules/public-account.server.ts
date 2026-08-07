@@ -5,11 +5,12 @@ import { createServerHttpClient } from "../adapters/http";
 import { createHttpSession } from "../adapters/session-http";
 import { isApplicationError } from "../lib/application-error";
 import type { Favorite, User } from "../lib/domain";
+import { SECURITY_HEADERS } from "../lib/security-headers";
 import type { AuthProviders } from "./session";
 
 const PRIVATE_HEADERS = {
+  ...SECURITY_HEADERS,
   "Cache-Control": "private, no-store, max-age=0",
-  "X-Content-Type-Options": "nosniff",
   Vary: "Cookie",
 } as const;
 

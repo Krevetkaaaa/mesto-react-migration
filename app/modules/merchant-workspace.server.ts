@@ -5,6 +5,7 @@ import { createHttpMerchantWorkspace } from "../adapters/merchant-workspace-http
 import { createHttpSession } from "../adapters/session-http";
 import { isApplicationError } from "../lib/application-error";
 import type { MerchantWorkspaceSnapshot } from "../lib/domain";
+import { SECURITY_HEADERS } from "../lib/security-headers";
 import type {
   MenuItemDraft,
   PromotionDraft,
@@ -12,8 +13,8 @@ import type {
 } from "./merchant-workspace";
 
 const PRIVATE_HEADERS = {
+  ...SECURITY_HEADERS,
   "Cache-Control": "private, no-store, max-age=0",
-  "X-Content-Type-Options": "nosniff",
   "X-Robots-Tag": "noindex",
   Vary: "Cookie",
 } as const;

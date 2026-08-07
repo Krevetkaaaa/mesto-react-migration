@@ -1,4 +1,5 @@
 const { json } = require('../lib/http');
+const { setSecurityHeaders } = require('../lib/security-headers');
 const venueBySlug = require('../handlers/venue');
 
 const routes = new Map([
@@ -33,6 +34,7 @@ const routes = new Map([
 ]);
 
 module.exports = async function handler(req, res) {
+  setSecurityHeaders(res);
   const value = req.query?.route;
   const key = (Array.isArray(value) ? value.join('/') : String(value || '')).replace(/^\/+|\/+$/g, '');
   if (key.startsWith('venues/')) {

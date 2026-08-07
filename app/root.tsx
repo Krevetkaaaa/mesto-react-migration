@@ -11,6 +11,7 @@ import {
 
 import type { Route } from "./+types/root";
 import { PublicAccountProvider } from "./components/public/account/PublicAccountProvider";
+import { SECURITY_HEADERS } from "./lib/security-headers";
 
 function isInteractivePublicPath(pathname: string) {
   return pathname === "/catalog"
@@ -73,6 +74,10 @@ export default function App() {
       <Outlet />
     </PublicAccountProvider>
   );
+}
+
+export function headers() {
+  return SECURITY_HEADERS;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {

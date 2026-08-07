@@ -2,6 +2,7 @@ import type { Route } from "./+types/public-home";
 
 import { PublicHomeMarkup } from "../components/public/PublicHomeMarkup";
 import { resolvePublicOrigin } from "../lib/public-origin.server";
+import { SECURITY_HEADERS } from "../lib/security-headers";
 
 const DESCRIPTION =
   "Место — городской гид по ресторанам, кафе, барам и новым гастрономическим впечатлениям.";
@@ -53,8 +54,8 @@ export function links() {
 
 export function headers() {
   return {
+    ...SECURITY_HEADERS,
     "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
-    "X-Content-Type-Options": "nosniff",
   };
 }
 

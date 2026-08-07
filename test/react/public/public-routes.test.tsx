@@ -12,6 +12,7 @@ import {
   loader as homeLoader,
   meta as homeMeta,
 } from "../../../app/routes/public-home";
+import { SECURITY_HEADERS } from "../../../app/lib/security-headers";
 
 function argsFor<T extends (args: never) => unknown>(
   _handler: T,
@@ -102,8 +103,8 @@ describe("public route server contracts", () => {
     "returns public cache and MIME-sniffing policy for %s",
     (_name, headers) => {
       expect(headers()).toEqual({
+        ...SECURITY_HEADERS,
         "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
-        "X-Content-Type-Options": "nosniff",
       });
     },
   );

@@ -2,6 +2,7 @@ import type { Route } from "./+types/public-help";
 
 import { PublicHelpMarkup } from "../components/public/PublicHelpMarkup";
 import { resolvePublicOrigin } from "../lib/public-origin.server";
+import { SECURITY_HEADERS } from "../lib/security-headers";
 
 const DESCRIPTION =
   "Помощь, ответы на вопросы и правила городского ресторанного гида «Место».";
@@ -49,8 +50,8 @@ export function links() {
 
 export function headers() {
   return {
+    ...SECURITY_HEADERS,
     "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
-    "X-Content-Type-Options": "nosniff",
   };
 }
 

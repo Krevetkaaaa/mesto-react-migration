@@ -1,4 +1,5 @@
 import type { Route } from "./+types/react-health";
+import { SECURITY_HEADERS } from "../lib/security-headers";
 
 export const HEALTH_PAYLOAD = Object.freeze({
   service: "mesto-react",
@@ -16,6 +17,7 @@ export function loader() {
   return Response.json(HEALTH_PAYLOAD, {
     status: 200,
     headers: {
+      ...SECURITY_HEADERS,
       "Cache-Control": "no-store, max-age=0",
       "X-Robots-Tag": "noindex, nofollow",
     },
