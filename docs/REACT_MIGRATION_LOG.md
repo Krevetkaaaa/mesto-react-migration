@@ -39,7 +39,8 @@
 | 6. Customer auth and profile | complete | `88940e6194a0bb70dfac34b0ad6754f6a8784c19`, Preview fixes `57b0c82c9526ff9470a1a8a558dc407df654c7e8`, `be6c265e93bf821289273e0358e6d922ba413c0d` | 51 server + 92 unit, strict check, production smoke, Phase 4/5 regression, Phase 6 functional/accessibility, 11-snapshot visual matrix and protected Preview route/cache matrix passed | Known frozen-palette contrast debt is deferred to an approved accessibility task; production deploy remains forbidden |
 | 7. Merchant workspace | complete | `2c79e24db2930c20d57b9f09f39bd4174f06aac7`, Preview routing fixes `35abda67f17b55ec259b75e03e7df49f98b27b3b`, `e1e173772fc71ded709ee808a9a76c4dee3e6b49` | 60 server + 98 unit, strict check, production smoke, fixture contracts, Phase 4-6 regressions, Phase 7 functional/accessibility и 48-snapshot visual matrix, protected Preview route/cache matrix | Post-commit observability/idempotency deferred; production deploy remains forbidden |
 | 8. Admin console | local complete; Preview blocked | `3b46732e8e5829f789b35276649165c06f3d2589` | 65 server + 107 unit, strict check, production smoke, Phase 4-7 regressions, 12 functional/fixture scenarios и 45-snapshot Visual Freeze matrix | Preview `TEAM_ACCESS_REQUIRED`; multi-store merchant update не транзакционен; strong typed/revocable admin session остаётся Phase 10 blocker; production deploy forbidden |
-| 9-11. Scale and quality | pending | pending | pending | Distributed limiter требует внешнего shared-state provider |
+| 9. Backend scale | local checkpoint; production criteria blocked | `dc8c9fbb4f4cdda46c343feb7d98d65f09889377` | 86 server + 107 unit, strict check и production smoke прошли | Shared limiter/provider, CDN purge/Preview headers, representative EXPLAIN и direct media upload требуют внешнего environment |
+| 10-11. Security, observability and load | pending | pending | pending | Production-like environment и отдельные release gates не предоставлены |
 | 12. Cutover preparation | pending | pending | pending | Merge и production deploy требуют отдельного разрешения |
 
 ### Этап 0. Требования и показатели
@@ -195,6 +196,19 @@
 - Database migrations, merge, production deployment и aliases отсутствуют.
 - Подробный контракт: `docs/PHASE8_ADMIN_CONSOLE.md`.
 - Откат: `git revert 3b46732e8e5829f789b35276649165c06f3d2589`; внешние deployments и данные удаляются/восстанавливаются отдельно.
+
+### Этап 9. Backend-подготовка к росту
+
+- Локальный checkpoint создан: `2026-08-07`; implementation commit `dc8c9fbb4f4cdda46c343feb7d98d65f09889377`.
+- Cache: успешные настроенные public catalog/venue/content responses получили согласованный `s-maxage=60`, SWR 120, weak ETag и `304`; ошибки/unconfigured/private responses остаются `no-store`. Post-commit invalidation seam добавлен, но внешний CDN purge adapter не настроен.
+- Rate limit: единый async contract, local/test memory adapter и atomic Upstash Redis REST adapter; production запрещает memory и без distributed configuration fail closed с controlled `503`. Политики разделены для public/auth/OAuth/upload/mutations, `429` содержит Retry-After/RateLimit headers, raw identifiers не логируются.
+- Data: каталог выбирает только используемые поля и сортирует `created_at desc, id desc`; exact count сохранён из-за UI-контракта. Подготовлен non-mutating EXPLAIN script, но без representative Supabase snapshot он не запускался; speculative index/pg_trgm/cursor migration отсутствуют.
+- Media: ранний encoded-size gate, 6 MiB, 8192×8192/40 MP, MIME/container/dimension validation для JPEG/PNG/WebP и UUID object path. Base64 всё ещё проходит через функцию; direct signed upload, derivatives и подтверждённый immutable CDN cache отсутствуют.
+- Local verification: `npm.cmd run check`; `npm.cmd test` — 86/86 server и 107/107 unit/contract/component; `npm.cmd run smoke` — production build и 43-file legacy freeze прошли. UI/CSS/snapshots не менялись.
+- Критерий Phase 9 не объявлен выполненным: shared limiter не проверен между instances, public CDN headers не подтверждены новым Preview, DB queries не измерены на representative data. Vercel Preview по-прежнему заблокирован `TEAM_ACCESS_REQUIRED` для Git author.
+- Database migrations, external provider provisioning, merge, production deployment и aliases отсутствуют.
+- Подробный контракт: `docs/PHASE9_BACKEND_SCALE.md`.
+- Откат: `git revert dc8c9fbb4f4cdda46c343feb7d98d65f09889377`; внешние secrets/data/storage Git не восстанавливает.
 
 ## GenericAgent
 
