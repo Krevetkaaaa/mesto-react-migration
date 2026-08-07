@@ -1,12 +1,55 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { open, readFile, unlink } from "node:fs/promises";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { runLoadTest } from "./phase11-load.mjs";
 
 const projectRoot = resolve(import.meta.dirname, "..");
 const host = "127.0.0.1";
+const lockName = createHash("sha256").update(projectRoot.toLowerCase()).digest("hex").slice(0, 16);
+const lockPath = resolve(tmpdir(), `mesto-phase11-${lockName}.lock`);
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function acquireLock() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(lockPath, "wx");
+      try {
+        await handle.writeFile(String(process.pid));
+      } finally {
+        await handle.close();
+      }
+      return;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const owner = Number(await readFile(lockPath, "utf8").catch(() => ""));
+      if (Number.isSafeInteger(owner) && processExists(owner)) {
+        throw new Error(`Another Phase 11 load run owns this workspace (PID ${owner})`);
+      }
+      await unlink(lockPath).catch(() => undefined);
+    }
+  }
+  throw new Error("Unable to acquire the Phase 11 workspace lock");
+}
+
+async function releaseLock() {
+  const owner = Number(await readFile(lockPath, "utf8").catch(() => ""));
+  if (owner === process.pid) await unlink(lockPath).catch(() => undefined);
+}
+
+await acquireLock();
 async function reservePort() {
   const reservation = createServer();
   await new Promise((resolveListen, rejectListen) => {
@@ -108,13 +151,20 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
 try {
   await waitUntilReady();
-  const matrix = [
-    ["smoke", "public-read"],
-    ["smoke", "popular-venue"],
-    ["smoke", "auth-safe"],
-    ["smoke", "merchant-admin"],
-    ["baseline", "mixed"],
-  ];
+  const stageIndex = process.argv.indexOf("--stage");
+  const scenarioIndex = process.argv.indexOf("--scenario");
+  if ((stageIndex === -1) !== (scenarioIndex === -1)) {
+    throw new Error("--stage and --scenario must be supplied together");
+  }
+  const matrix = stageIndex === -1
+    ? [
+        ["smoke", "public-read"],
+        ["smoke", "popular-venue"],
+        ["smoke", "auth-safe"],
+        ["smoke", "merchant-admin"],
+        ["baseline", "mixed"],
+      ]
+    : [[process.argv[stageIndex + 1], process.argv[scenarioIndex + 1]]];
   const results = [];
   for (const [stageName, scenario] of matrix) {
     const result = await runLoadTest({ baseUrl, stageName, scenario });
@@ -129,6 +179,7 @@ try {
       latencyMs: result.summary.latencyMs,
       statuses: result.summary.statuses,
       failures: result.slo.failures,
+      ...(result.slo.passed ? {} : { byLabel: result.summary.byLabel }),
     }));
   }
   const failed = results.filter((result) => !result.slo.passed);
@@ -136,4 +187,5 @@ try {
   console.log("Phase 11 local smoke/baseline matrix passed. This is fixture evidence, not production capacity evidence.");
 } finally {
   await stopServer();
+  await releaseLock();
 }

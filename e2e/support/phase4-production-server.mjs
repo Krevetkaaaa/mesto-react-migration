@@ -32,12 +32,17 @@ function start(command, args, childPort) {
   return spawn(command, args, {
     cwd: projectRoot,
     env: { ...process.env, HOST: host, PORT: String(childPort) },
-    stdio: ["ignore", "pipe", "pipe"],
+    // @react-router/serve writes one access-log line per request. Keeping an
+    // unread stdout pipe eventually blocks the child once the OS buffer fills,
+    // which looks like SSR saturation under sustained local load.
+    stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
   });
 }
 
 function proxy(request, response, targetPort) {
+  let activeUpstreamResponse;
+  let completed = false;
   const upstream = requestHttp({
     host,
     port: targetPort,
@@ -45,14 +50,29 @@ function proxy(request, response, targetPort) {
     path: request.url,
     headers: { ...request.headers, host: request.headers.host || `${host}:${targetPort}` },
   }, (upstreamResponse) => {
+    activeUpstreamResponse = upstreamResponse;
     response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
+    upstreamResponse.once("end", () => {
+      completed = true;
+    });
     upstreamResponse.pipe(response);
   });
+  const cancelUpstream = () => {
+    if (completed) return;
+    activeUpstreamResponse?.destroy();
+    upstream.destroy();
+  };
+  request.once("aborted", cancelUpstream);
+  response.once("close", () => {
+    if (!response.writableEnded) cancelUpstream();
+  });
   upstream.on("error", (error) => {
-    if (!response.headersSent) {
+    if (!response.headersSent && !response.destroyed) {
       response.writeHead(503, { "Content-Type": "application/json; charset=utf-8" });
     }
-    response.end(JSON.stringify({ message: `Phase 4 upstream is unavailable: ${error.message}` }));
+    if (!response.destroyed) {
+      response.end(JSON.stringify({ message: `Phase 4 upstream is unavailable: ${error.message}` }));
+    }
   });
   request.pipe(upstream);
 }
@@ -70,7 +90,9 @@ for (const child of children) {
 async function upstreamReady(targetPort, pathname) {
   try {
     const response = await fetch(`http://${host}:${targetPort}${pathname}`);
-    return response.ok;
+    const ready = response.ok;
+    await response.arrayBuffer();
+    return ready;
   } catch {
     return false;
   }
