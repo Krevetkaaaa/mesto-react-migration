@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createRoutesStub } from "react-router";
 
 import { AdminWorkspace } from "../../../app/components/admin/AdminWorkspace";
+import { formatAdminDate } from "../../../app/components/admin/admin-ui";
 import { ApplicationError } from "../../../app/lib/application-error";
 import type { AdminWorkspaceSnapshot } from "../../../app/modules/admin-console";
 import {
@@ -93,6 +94,17 @@ describe("AdminWorkspace", () => {
     HTMLDialogElement.prototype.close = function close() {
       this.removeAttribute("open");
     };
+  });
+
+  it("formats SSR text in the product timezone instead of the server timezone", () => {
+    const previousTimeZone = process.env.TZ;
+    process.env.TZ = "UTC";
+    try {
+      expect(formatAdminDate("2026-08-01T21:30:00.000Z")).toBe("02 авг., 00:30");
+    } finally {
+      if (previousTimeZone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimeZone;
+    }
   });
 
   it("keeps the rest of the dashboard usable when merchants fail", () => {

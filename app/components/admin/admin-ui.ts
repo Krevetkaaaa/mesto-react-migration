@@ -1,4 +1,5 @@
 import type { MembershipRole, MerchantAccount, Venue } from "../../lib/domain";
+import { MESTO_TIME_ZONE } from "../../lib/locale";
 
 export type AdminView = "overview" | "submissions" | "reviews" | "venues" | "merchants";
 
@@ -34,6 +35,7 @@ export function formatAdminDate(value: string | null) {
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: MESTO_TIME_ZONE,
   }).format(date);
 }
 

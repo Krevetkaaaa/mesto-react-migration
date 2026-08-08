@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 
+import { MESTO_TIME_ZONE } from "../../lib/locale";
+
 export type MerchantView = "overview" | "venue" | "menu" | "promotions" | "reviews";
 export type MerchantPermission = "venue" | "menu" | "promotions" | "reviews" | "analytics";
 
@@ -54,7 +56,12 @@ export function formatDate(value: string | null | undefined) {
   if (!value) return "Не указано";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Не указано";
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", year: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: MESTO_TIME_ZONE,
+  }).format(date);
 }
 
 export function toLocalInput(value: string | null | undefined) {
