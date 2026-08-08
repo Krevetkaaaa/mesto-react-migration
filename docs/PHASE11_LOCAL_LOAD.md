@@ -2,7 +2,7 @@
 
 Дата partial checkpoint: 8 августа 2026 года.
 
-Implementation commits: `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, isolation fix `ea542198675b03917f0aa19429dab20012a0a7a5`.
+Implementation commits: `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, isolation fix `ea542198675b03917f0aa19429dab20012a0a7a5`, safety hardening `5b733153b85f07e54ef03fff83a04e96c0add924`.
 
 Статус: безопасный локальный harness, smoke и mixed baseline на 25 VU прошли. Expected mixed на 100 VU вернул только HTTP 200 и не имел transport errors, но провалил заранее заданный p95 SLO: `1159,35 ms` при пределе `1000 ms`. Phase 11 не завершён; burst и soak не запускались после провала expected gate.
 
@@ -12,12 +12,14 @@ Implementation commits: `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, isolation fi
 
 Target safety fail closed:
 
-- разрешён только credential-free loopback origin;
+- разрешён только credential-free loopback IP literal (`127.0.0.1` или `::1`), без DNS/hosts-разрешения `localhost`;
 - `/__phase4/health` обязан доказать одновременно React и legacy child processes;
 - `/__e2e/state` и reset обязаны вернуть `X-E2E-Fixture: legacy-safety-net`;
 - тот же sentinel проверяется на login и каждом `/api/*` response;
+- все setup/workload fetch используют `redirect: manual`, поэтому локальный redirect не может увести нагрузку на другой origin;
 - remote/staging/production URL текущий harness не принимает вообще;
-- runner использует workspace-exclusive PID lock и динамические loopback ports, а при завершении останавливает gateway и проверенные child PIDs.
+- runner использует OS-owned workspace lock (Windows named pipe, Linux abstract socket, безопасный loopback fallback) и динамические loopback ports;
+- private IPC сообщает child identity, HTTP health обязан совпасть с ним, а завершение выполняет сам gateway с IPC acknowledgement. Runner не посылает сигналы сырым PID, которые ОС могла переиспользовать.
 
 Нагрузочные операции read-only, кроме входа в hardcoded fixture accounts (`anna`, `merchant.owner`, `editor` с `fixture-password`), который меняет только in-memory fixture session state. Реальные аккаунты, пароли, mutations и внешние системы не используются.
 
@@ -29,7 +31,7 @@ Target safety fail closed:
 - `mixed`: 90% public reads, 6% customer favorites reads, 3% merchant dashboard и 1% admin dashboard.
 - `merchant-admin`: 70% merchant dashboard и 30% admin dashboard.
 
-Harness измеряет p50/p95/p99, attempted и successful throughput, bytes, HTTP status classes, отдельный 429, 5xx, transport errors, cache headers и per-label latency/status/transport. Длинные прогоны используют bounded reservoir вместо сохранения только первых samples. Abort criteria: пять последовательных transport errors, более 5% 5xx после 100 запросов или отсутствие успешного response 10 секунд.
+Harness измеряет p50/p95/p99, attempted и successful throughput, bytes, HTTP status classes, отдельный 429, 5xx, transport errors, cache headers и per-label latency/status/transport. Длинные прогоны используют deterministic bounded reservoir как для aggregate, так и для каждого label вместо сохранения только первых samples. CLI отклоняет неизвестные, дублированные и неполные параметры до запуска gateway. Abort criteria: пять последовательных transport errors, более 5% 5xx после 100 запросов или отсутствие успешного response 10 секунд.
 
 Local fixture SLO заданы до прогона: public/auth/mixed p95 не выше 1000 ms и p99 не выше 2500 ms; merchant/admin p95 не выше 1500 ms и p99 не выше 3000 ms; 5xx, transport и неожиданные statuses равны нулю; минимальный successful throughput для smoke — 5 RPS, baseline — 20 RPS.
 
@@ -54,6 +56,8 @@ Mixed baseline, 25 VU:
 
 Первоначальный baseline с 25 transport timeouts признан недействительным: production gateway запускал `@react-router/serve` с непрочитанным stdout pipe, а сервер пишет access-log на каждый SSR request. После заполнения Windows pipe React child блокировался. Isolation fix отключил этот stdout, добавил отмену upstream при разрыве клиента, потребление health-response body, exclusive lock и явный выбор одного stage/scenario. Это был дефект harness, а не доказанная деградация приложения.
 
+Последующий safety review закрыл redirect escape, PID reuse/process-group risk, stale lock, silent CLI fallback и неполный upstream response. Proxy теперь уничтожает оборванный response после уже отправленных headers, возвращает 503 только до headers и отменяет upstream при разрыве downstream. Реальный lifecycle smoke подтвердил gateway-owned shutdown acknowledgement; после завершения project-owned Node processes не остались.
+
 Expected mixed, 100 VU:
 
 - 4891 attempts, 4891 HTTP 200;
@@ -77,7 +81,8 @@ Expected mixed, 100 VU:
 ## Проверки
 
 - `npm.cmd run check`: Phase 6–11 syntax, typegen, strict TypeScript и ESLint прошли.
-- `npm.cmd test`: `102/102` server и `113/113` unit/contract/component tests прошли. Один существующий jsdom admin-dialog test ранее сфлапал один раз, затем прошёл три isolated runs и финальный полный suite.
+- `npm.cmd test`: `114/114` server и `113/113` unit/contract/component tests прошли. Один существующий jsdom admin-dialog test ранее сфлапал один раз, затем прошёл три isolated runs и финальный полный suite.
+- Targeted Phase 11 safety suite: `15/15`; отдельный real smoke подтвердил корректный IPC shutdown и освобождение OS-owned lock без orphan project processes.
 - `npm.cmd run test:load:local`: четыре smoke profile и baseline mixed прошли.
 - `node scripts/run-phase11-local.mjs --stage expected --scenario mixed`: все 4891 responses получили HTTP 200, команда ожидаемо завершилась с exit 1 только из-за p95 SLO.
 - `git diff --check`: чисто, кроме штатных CRLF notices Windows.
@@ -92,4 +97,4 @@ Expected mixed, 100 VU:
 
 Database migrations, provider provisioning, Preview/production load, merge, deployment и aliases отсутствуют.
 
-Кодовый откат isolation fix: `git revert ea542198675b03917f0aa19429dab20012a0a7a5`. Полный откат Phase 11 после этого: `git revert 6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`.
+Кодовый откат safety hardening: `git revert 5b733153b85f07e54ef03fff83a04e96c0add924`; затем isolation fix: `git revert ea542198675b03917f0aa19429dab20012a0a7a5`. Полный откат Phase 11 после этого: `git revert 6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`.
