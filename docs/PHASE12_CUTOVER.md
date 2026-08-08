@@ -54,7 +54,7 @@ Memory rate limiter запрещён в production. Отсутствие shared 
 Проверено 8 августа 2026 года на Node.js 24 и exact Chrome for Testing `151.0.7922.72` с SHA-256 архива `F77DFDF2978865CD1B8B98BD6FF72839E91650B9CBF43051F54C1A0811C183E5`:
 
 - `npm.cmd run check` прошёл: syntax gates, React Router typegen, strict TypeScript и ESLint;
-- `npm.cmd test` прошёл: `148/148` server и `188/188` unit/contract/component tests;
+- `npm.cmd test` прошёл: `148/148` server и `189/189` unit/contract/component tests;
 - `npm.cmd run smoke` прошёл: production SSR/client build, 49-asset secret scan, route ownership и public JavaScript budget;
 - главная занимает `508,4 KiB raw / 152,1 KiB gzip` при общем лимите `580/160 KiB`; максимальный public route занимает `522,9/156,4 KiB`, отдельный legacy override удалён;
 - Phase 4: `23 passed / 52 expected skipped`; Phase 5: `35/80`; Phase 6: `28/104`; Phase 7: `64/128`; Phase 8: `57/105`;
@@ -64,7 +64,7 @@ Memory rate limiter запрещён в production. Отсутствие shared 
 - CommonJS Vercel gate с `--no-experimental-require-module` прошёл;
 - production dependency audit: `0 high`, `0 critical`, `3 moderate` в транзитивном AJV через `@vercel/static-config`, доступного исправления нет.
 
-Release-candidate опубликован без переписывания истории: основной commit `398c4d8446d593e2976f1590275f4851d09c3fdf`, Vercel navigation fix `0b8f9e6a8675e09842479ea57f3c7113052e91b8`, переносимый Visual Freeze gate `562e55f1932d1c53cf72bb27f86351baa20bff87`, Phase 4 CI helper fix `68575fbc659163cc853053ac6ff59e9a32e8d1dd` и единый Phase 4–8 visual contract `f00ee7afd40107a5a8d6d3ecf10bd7d330951e98`. READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q` доступен по `https://mesto-city-guide-c8yeinpgi-krevetkaaaas-projects.vercel.app`. React Router включает полный initial route manifest, поэтому клиентская навигация не зависит от недоступного в явной Vercel route table `/__manifest`. Frozen snapshots не перезаписывались; cross-host допуск `3 000` пикселей документирует только подтверждённую субпиксельную растеризацию Windows 11/Windows Server (максимум `2 615` пикселей), а размеры и полный документ проверяются отдельно.
+Release-candidate опубликован без переписывания истории: основной commit `398c4d8446d593e2976f1590275f4851d09c3fdf`, Vercel navigation fix `0b8f9e6a8675e09842479ea57f3c7113052e91b8`, переносимый Visual Freeze gate `562e55f1932d1c53cf72bb27f86351baa20bff87`, Phase 4 CI helper fix `68575fbc659163cc853053ac6ff59e9a32e8d1dd`, единый Phase 4–8 visual contract `f00ee7afd40107a5a8d6d3ecf10bd7d330951e98` и timezone-stable SSR fix `3fb5b760f71833f83d04c1a6689519f3df9147b7`. READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q` доступен по `https://mesto-city-guide-c8yeinpgi-krevetkaaaas-projects.vercel.app`. React Router включает полный initial route manifest, поэтому клиентская навигация не зависит от недоступного в явной Vercel route table `/__manifest`. Frozen snapshots не перезаписывались; cross-host допуск `3 000` пикселей документирует только подтверждённую субпиксельную растеризацию Windows 11/Windows Server (максимум `2 615` пикселей), а размеры и полный документ проверяются отдельно. Admin/merchant date text форматируется в явной product timezone `Europe/Simferopol`, поэтому Node SSR в UTC и браузер гидратируют один и тот же текст.
 
 Главная теперь полностью hydrated React route: featured venues, search, mobile navigation, favorites, reviews и venue submission не зависят от runtime `/app.js`. Безопасный `returnTo`, восстановление фокуса, canonical image URLs, стабильные legacy venue keys и pending single-flight формы покрыты unit и browser regressions.
 
@@ -87,7 +87,7 @@ API router выдаёт/сохраняет UUID `X-Request-ID`. JSON body limit 
 ## Откат
 
 - До production cutover безопасная точка платформенного отката — READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q`; production alias на него не переключался.
-- Phase 12 откатывается новыми revert-коммитами в обратном порядке: `f00ee7afd40107a5a8d6d3ecf10bd7d330951e98`, `68575fbc659163cc853053ac6ff59e9a32e8d1dd`, `562e55f1932d1c53cf72bb27f86351baa20bff87`, `0b8f9e6a8675e09842479ea57f3c7113052e91b8`, затем `398c4d8446d593e2976f1590275f4851d09c3fdf`. Force push не используется. Более глубокий откат возможен на baseline tag `pre-react-migration-20260805-1916`.
+- Phase 12 откатывается новыми revert-коммитами в обратном порядке: `3fb5b760f71833f83d04c1a6689519f3df9147b7`, `f00ee7afd40107a5a8d6d3ecf10bd7d330951e98`, `68575fbc659163cc853053ac6ff59e9a32e8d1dd`, `562e55f1932d1c53cf72bb27f86351baa20bff87`, `0b8f9e6a8675e09842479ea57f3c7113052e91b8`, затем `398c4d8446d593e2976f1590275f4851d09c3fdf`. Force push не используется. Более глубокий откат возможен на baseline tag `pre-react-migration-20260805-1916`.
 - Vercel deployment/alias откатывается отдельно от Git. Environment variables и provider credentials возвращаются по сохранённому environment snapshot.
 - Git не откатывает Supabase rows, Storage objects, Redis counters, sessions или OAuth/provider state. Database rollback/compensation описан рядом с migration и требует отдельного backup/restore решения.
 - Legacy files удаляются только после стабильного периода. До этого откат route ownership не зависит от восстановления удалённых source files.
