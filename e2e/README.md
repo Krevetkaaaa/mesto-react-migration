@@ -17,6 +17,8 @@
 
 `playwright.config.js` сначала использует `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, затем установленный Playwright browser. На Windows fallback на системный Chrome разрешён только при наличии `chrome.exe`, но он подходит лишь для диагностики/functional checks: Visual Freeze считается воспроизводимым только на exact baseline binary. CI скачивает архив выше, проверяет hash и версию до запуска полного `npm run test:e2e`.
 
+Даже exact binary не унифицирует субпиксельную растеризацию текста между Windows 11 и Windows Server GitHub Actions. Legacy full-page и interactive снимки поэтому используют ограниченный cross-host допуск `3 000` пикселей: подтверждённый максимум CI составляет `2 427` пикселей (`0.01` в округлённом отчёте Playwright), при этом размеры PNG и полный документ проверяются отдельно. Снимки при таком расхождении не обновляются; геометрические сдвиги по-прежнему превышают этот предел на порядки.
+
 ## Команды
 
 Обычная проверка, включая функциональные, axe smoke и visual regression:
