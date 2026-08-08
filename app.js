@@ -32,6 +32,43 @@ const venueData = {
   'coffee-85': { title: 'Кофейня 85°С', type: 'Кофейня · Симферополь', rating: '5.0', reviews: '50 оценок на Картах', price: 'Капучино от 150 ₽', image: 'assets/venue-coffee-unsplash.jpg', mapsUrl: 'https://yandex.ru/maps/org/kofeynya_85_s/183092255405/', text: 'Кофейня и кафе на бульваре Ленина, 10. В карточке Яндекс Карт отмечены кофе с собой, доставка, еда навынос и возможность прийти с собакой.', features: ['Можно с собакой', 'Кофе с собой', 'Еда навынос'] }
 };
 
+const venueCategoryByType = {
+  'Банкетный зал': 'Банкетные залы',
+  Бар: 'Бары',
+  Гастробар: 'Гастробары',
+  'Кальян-бар': 'Кальян-бары',
+  'Караоке-клуб': 'Караоке-клубы',
+  Кафе: 'Кафе',
+  Кондитерская: 'Кондитерские',
+  Кофейня: 'Кофейни',
+  Пиццерия: 'Пиццерии',
+  Ресторан: 'Рестораны',
+  'Суши-бар': 'Суши-бары',
+  'Фаст-кэжуал': 'Фаст-кэжуал'
+};
+
+const venueInventoryOverrides = {
+  'coffee-85': { pet: '0' },
+  pristan: { pet: '1' }
+};
+
+const staticVenueInventory = Object.entries(venueData).map(([id, venue]) => {
+  const [type, city = ''] = venue.type.split('·').map((part) => part.trim());
+  const search = [venue.title, venue.type, venue.text, ...venue.features].join(' ').toLowerCase();
+  const overrides = venueInventoryOverrides[id] || {};
+  return {
+    dataset: {
+      category: venueCategoryByType[type] || type,
+      city,
+      parking: /парков/i.test(search) ? '1' : '0',
+      pet: overrides.pet || (/питом|собак/i.test(search) ? '1' : '0'),
+      score: venue.rating,
+      search,
+      venue: id
+    }
+  };
+});
+
 const venueExtras = {
   marea: { hours: '12:00–00:00', wifi: true, menu: [['Тартар из тунца', 'с авокадо и цитрусом', '890 ₽'], ['Черноморская рыба', 'на гриле, сезонные овощи', '1 240 ₽'], ['Павлова с инжиром', 'воздушный крем и ягоды', '620 ₽']] },
   zerno: { hours: '08:00–22:00', wifi: true, menu: [['Фильтр-кофе', 'свежеобжаренное зерно', '260 ₽'], ['Сырники', 'с фермерской сметаной', '420 ₽'], ['Круассан с миндалём', 'выпечка из печи', '290 ₽']] },
@@ -553,6 +590,7 @@ function renderCatalog() {
 }
 
 function syncCatalogHeading() {
+  if (!catalogEyebrow || !catalogTitle || !catalogCopy) return;
   const category = catalogFilter;
   catalogEyebrow.textContent = category === 'all' ? 'Каталог мест' : `Категория · ${category}`;
   catalogTitle.textContent = category === 'all' ? 'Все места города' : category;
@@ -795,7 +833,7 @@ async function loadMoreCatalogVenues() {
 function inventoryCards() {
   const result = [];
   const titles = new Set();
-  [...cards, ...homeStoredVenueCards].forEach((card) => {
+  [...staticVenueInventory, ...homeStoredVenueCards].forEach((card) => {
     const title = normalizedVenueTitle(card);
     if (!title || titles.has(title)) return;
     titles.add(title);
@@ -806,7 +844,7 @@ function inventoryCards() {
 
 function renderHomepageStoredVenues(items, city) {
   venueGrid.querySelectorAll('.home-stored-card').forEach((card) => card.remove());
-  const staticTitles = new Set(cards.map(normalizedVenueTitle));
+  const staticTitles = new Set(staticVenueInventory.map(normalizedVenueTitle));
   homeStoredVenueCards = createStoredVenueCards(items, city)
     .filter((card) => !staticTitles.has(normalizedVenueTitle(card)));
   homeStoredVenueCards.slice(0, 3).forEach((card) => {

@@ -274,7 +274,7 @@ async function runSmoke() {
       invariant(body.includes(contentMarker), `React ${path} is missing its main content`);
       invariant(body.includes('src="/theme.js?v=theme-1"'), `React ${path} is missing the synchronous theme bootstrap`);
       invariant(
-        body.includes('src="app.js?v=ui-motion-2"') === expectsLegacyApp,
+        body.includes('src="app.js?v=ui-motion-3"') === expectsLegacyApp,
         `React ${path} has the wrong legacy app.js ownership`,
       );
       invariant(!body.includes('type="module"'), `React ${path} unexpectedly enabled hydration`);

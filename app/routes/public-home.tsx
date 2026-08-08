@@ -63,7 +63,7 @@ export function PublicHomeView() {
   return (
     <>
       <PublicHomeMarkup />
-      <script src="app.js?v=ui-motion-2" />
+      <script src="app.js?v=ui-motion-3" />
     </>
   );
 }

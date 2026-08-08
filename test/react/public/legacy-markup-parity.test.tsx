@@ -62,11 +62,48 @@ async function legacyDocument(filename: string) {
 
 describe("public JSX structural parity", () => {
   it.each([
-    ["home", "index.html", PublicHomeView, ["#guide", "#categories", "#popular", "#site-footer", "#venue-search", "#venue-dialog"], ["#guide-title", "#categories-title", "#popular-title"]],
-    ["help", "help.html", PublicHelpView, ["#content", "#faq", "#partners", "#rules", "#privacy", "#terms"], ["#page-title", "#faq-title", "#partners-title", "#rules-title", "#privacy-title", "#terms-title"]],
-  ])("keeps the ordered legacy DOM contract for %s", async (_name, legacyFile, Markup, selectors, textSelectors) => {
+    ["home", "index.html", PublicHomeView, ["#guide", "#categories", "#popular", "#site-footer", "#venue-search", "#venue-dialog"], ["#guide-title", "#categories-title", "#popular-title"], ["#platform"]],
+    ["help", "help.html", PublicHelpView, ["#content", "#faq", "#partners", "#rules", "#privacy", "#terms"], ["#page-title", "#faq-title", "#partners-title", "#rules-title", "#privacy-title", "#terms-title"], []],
+  ])("keeps the ordered legacy DOM contract for %s", async (_name, legacyFile, Markup, selectors, textSelectors, retiredSelectors) => {
     const legacy = await legacyDocument(legacyFile);
     const rendered = documentFor(renderToStaticMarkup(<Markup />));
+
+    for (const selector of retiredSelectors) {
+      const retired = legacy.querySelector(selector);
+      expect(retired, `${selector} must exist in the legacy source before retirement`).not.toBeNull();
+      expect(retired?.hasAttribute("hidden"), `${selector} must already be hidden in the legacy source`).toBe(true);
+      expect(rendered.querySelector(selector), `${selector} must not be serialized by React SSR`).toBeNull();
+      retired?.remove();
+    }
+
+    if (_name === "home") {
+      const legacyExtraVenueCards = [...legacy.querySelectorAll("#popular .venue-card.is-extra")];
+      expect(legacyExtraVenueCards, "the characterized hidden inventory must stay explicit").toHaveLength(28);
+      expect(legacyExtraVenueCards.every((card) => card.hasAttribute("hidden")), "retired venue inventory must already be hidden").toBe(true);
+      expect(rendered.querySelectorAll("#popular .venue-card.is-extra"), "hidden venue inventory must not be serialized by React SSR").toHaveLength(0);
+      legacyExtraVenueCards.forEach((card) => card.remove());
+
+      const legacyAppScript = legacy.querySelector('script[src^="app.js?v="]');
+      const renderedAppScript = rendered.querySelector('script[src^="app.js?v="]');
+      expect(legacyAppScript?.getAttribute("src"), "the frozen legacy document keeps its original asset version").toBe("app.js?v=ui-motion-2");
+      expect(renderedAppScript?.getAttribute("src"), "the migrated home must invalidate the changed legacy asset").toBe("app.js?v=ui-motion-3");
+      legacyAppScript?.setAttribute("src", renderedAppScript?.getAttribute("src") || "");
+
+      const legacyCatalog = legacy.querySelector("#catalog-view");
+      const renderedCatalog = rendered.querySelector("#catalog-view");
+      expect(legacyCatalog, "legacy catalog fallback must exist before retirement").not.toBeNull();
+      expect(renderedCatalog, "home must retain the sentinel required by legacy view switching").not.toBeNull();
+      if (!legacyCatalog || !renderedCatalog) throw new Error("Catalog retirement contract is incomplete");
+      expect(legacyCatalog.hasAttribute("hidden"), "legacy catalog fallback must already be hidden").toBe(true);
+      expect(renderedCatalog.hasAttribute("hidden"), "home catalog sentinel must remain hidden").toBe(true);
+      expect(renderedCatalog.hasAttribute("aria-labelledby"), "empty sentinel must not reference a retired title").toBe(false);
+      expect(renderedCatalog.childElementCount, "retired in-page catalog UI must not be serialized").toBe(0);
+      for (const selector of ["#catalog-hero", "#catalog-title", ".catalog-controls", "#catalog-grid", "#catalog-load-more"]) {
+        expect(rendered.querySelector(selector), `${selector} belongs only to a React catalog document`).toBeNull();
+      }
+      legacyCatalog.replaceChildren();
+      legacyCatalog.removeAttribute("aria-labelledby");
+    }
 
     expect(inventory(rendered)).toEqual(inventory(legacy));
     expect(landmarkInventory(rendered)).toEqual(landmarkInventory(legacy));

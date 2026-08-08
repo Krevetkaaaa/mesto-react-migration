@@ -50,7 +50,7 @@ test.describe("Phase 4 public routes on the production React server", () => {
     await expect(page.locator("header.site-header")).toHaveCount(1);
     await expect(page.locator("main #guide")).toHaveCount(1);
     await expect(page.locator("#categories, #popular, #collections, #cities, #site-footer")).toHaveCount(5);
-    await expect(page.locator('script[src="app.js?v=ui-motion-2"]')).toHaveCount(1);
+    await expect(page.locator('script[src="app.js?v=ui-motion-3"]')).toHaveCount(1);
     await expect(page.locator('script[type="module"]')).toHaveCount(0);
     await expect(page.locator("link[rel=canonical]")).toHaveAttribute("href", /\/$/);
     await expect(page.locator('meta[property="og:url"]')).toHaveAttribute("content", /\/$/);
@@ -96,6 +96,30 @@ test.describe("Phase 4 public routes on the production React server", () => {
     await expect(page.locator(".mobile-nav")).toBeVisible();
     await waitForStableUi(page);
     await expect(page).toHaveScreenshot("interactive-mobile-menu.png");
+  });
+
+  test("home keeps an empty legacy catalog sentinel and navigates into the React catalog", async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "catalog ownership is characterized at the desktop baseline");
+    const pageErrors = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await gotoHome(page);
+
+    const sentinel = page.locator("#catalog-view");
+    await expect(sentinel).toBeHidden();
+    expect(await sentinel.getAttribute("aria-labelledby")).toBeNull();
+    expect(await sentinel.locator(":scope > *").count()).toBe(0);
+    await expect(page.locator("#popular .venue-card.is-extra")).toHaveCount(0);
+    await expect(page.locator("#popular .venue-grid > .venue-card:not(.home-stored-card)")).toHaveCount(3);
+
+    await page.locator("[data-open-categories]").first().click();
+    await expect(page.locator("#categories-view")).toBeVisible();
+    await page.locator("#categories-view [data-home-link]").click();
+    await expect(page.locator("#guide")).toBeVisible();
+
+    await page.locator('#categories [data-filter-category="Рестораны"]').click();
+    await expect(page).toHaveURL(/\/catalog\?category=/);
+    await expect(page.locator('main[data-react-route="catalog"]')).toBeVisible();
+    expect(pageErrors).toEqual([]);
   });
 });
 

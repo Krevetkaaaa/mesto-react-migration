@@ -16,6 +16,16 @@ function routeHelpers() {
   return context.helpers;
 }
 
+function staticInventory() {
+  const start = appSource.indexOf('const venueData =');
+  const end = appSource.indexOf('const venueExtras', start);
+  assert.notEqual(start, -1, 'venue inventory source must exist in app.js');
+  assert.notEqual(end, -1, 'venue inventory source must have a stable end');
+  const context = {};
+  vm.runInNewContext(`${appSource.slice(start, end)}\nthis.inventory = staticVenueInventory;`, context);
+  return JSON.parse(JSON.stringify(context.inventory));
+}
+
 test('legacy home builds canonical catalog URLs without default parameters', () => {
   const { catalogHref } = routeHelpers();
   assert.equal(catalogHref(), '/catalog');
@@ -64,6 +74,56 @@ test('catalog entry listeners navigate instead of taking legacy catalog DOM owne
   assert.match(listeners, /navigateToCatalog\(\{ query, city \}\)/);
   assert.match(listeners, /navigateToCatalog\(\{ city: button\.dataset\.cityFilter \}\)/);
   assert.doesNotMatch(listeners, /openCatalog\(/);
+  assert.match(appSource, /function syncCatalogHeading\(\) \{\s*if \(!catalogEyebrow \|\| !catalogTitle \|\| !catalogCopy\) return;/);
+});
+
+test('retired hidden venue cards keep their counter metadata without home DOM serialization', () => {
+  const inventory = staticInventory();
+  const byId = Object.fromEntries(inventory.map((item) => [item.dataset.venue, item.dataset]));
+  assert.equal(inventory.length, 31);
+  assert.equal(new Set(Object.keys(byId)).size, 31);
+  assert.equal(byId.pristan.pet, '1');
+  assert.equal(byId['coffee-85'].pet, '0');
+
+  const counts = inventory.reduce((result, item) => {
+    result[item.dataset.category] = (result[item.dataset.category] || 0) + 1;
+    return result;
+  }, {});
+  assert.deepEqual(counts, {
+    Рестораны: 7,
+    Кофейни: 7,
+    Бары: 2,
+    Кафе: 5,
+    'Фаст-кэжуал': 1,
+    Кондитерские: 1,
+    Пиццерии: 1,
+    Гастробары: 1,
+    'Караоке-клубы': 2,
+    'Банкетные залы': 2,
+    'Суши-бары': 1,
+    'Кальян-бары': 1
+  });
+
+  const cityCounts = inventory.reduce((result, item) => {
+    result[item.dataset.city] = (result[item.dataset.city] || 0) + 1;
+    return result;
+  }, {});
+  assert.deepEqual(cityCounts, {
+    Севастополь: 8,
+    Симферополь: 14,
+    Ялта: 7,
+    Алушта: 1,
+    Евпатория: 1
+  });
+
+  const collectionCounts = {
+    breakfast: inventory.filter((item) => /Кофейни|Кафе|Кондитерские|Пекарни/.test(item.dataset.category) || /завтрак|кофе|выпеч/.test(item.dataset.search)).length,
+    sea: inventory.filter((item) => ['Ялта', 'Севастополь', 'Алушта', 'Феодосия', 'Судак', 'Балаклава', 'Гурзуф'].includes(item.dataset.city)).length,
+    date: inventory.filter((item) => Number(item.dataset.score) >= 4.8 && /Рестораны|Бары|Гастробары/.test(item.dataset.category)).length,
+    pet: inventory.filter((item) => item.dataset.pet === '1').length
+  };
+  assert.deepEqual(collectionCounts, { breakfast: 13, sea: 16, date: 9, pet: 6 });
+  assert.match(appSource, /new Set\(staticVenueInventory\.map\(normalizedVenueTitle\)\)/);
 });
 
 test('database-backed home cards preserve an API slug and use it before the editorial dialog fallback', () => {
