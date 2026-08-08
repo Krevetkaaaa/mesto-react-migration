@@ -255,6 +255,12 @@
 - Финальный goal-driven browser smoke после fixture reset использовал явные URL/text/forbidden-state oracles: home `3`, coffee `1`, catalog `1 из 1`, venue URL и Back; midnight сохранилась на трёх состояниях; weak password оставил dialog открытым и `register=0`; mobile focus sequence замкнулась на close + 7 controls, фон восстановился; merchant открыл `/merchant/overview`, admin — `/admin/overview`, затем обе test sessions завершены. Browser console: 0 warn/error.
 - Содержательные home baseline изменения просмотрены вручную, но это не заменяет явное одобрение владельца Preview. Production cutover, merge, database apply, remote load и production alias по-прежнему запрещены.
 
+### QA-hardening publication
+
+- Implementation commit `7d15a9165f428d110c20e82896693c1ee6c0e167` опубликован в `migration-origin/codex/react-migration`; удалённый ref после push совпал с локальным SHA.
+- Vercel CLI создал Preview deployment `dpl_Dj1gWRkpBCqbDDC52HSw3jREVCfG` для этого exact SHA: `https://mesto-city-guide-cl2tcx9ij-krevetkaaaas-projects.vercel.app`. Build не запускался: deployment сразу получил `BLOCKED` / `TEAM_ACCESS_REQUIRED` с причиной `Git author 176798612+Krevetkaaaa@users.noreply.github.com must have access to the team krevetkaaaa's projects on Vercel to create deployments.`
+- Заблокированный deployment не считается Preview verification: route, header, cache и browser checks на нём не выполнялись. Git identity/metadata не подменялись для обхода team policy; production alias, production deployment, Supabase state и remote load не изменялись.
+
 ## GenericAgent
 
 Основная установка GenericAgent в `C:\Users\kir21\GenericAgent` проверена повторно. В isolated `.venv` был установлен отсутствовавший `psutil`, а `ga.cmd` получил `PYTHONUTF8=1`; теперь `ga status` и `ga --help` запускаются в Windows без dependency/Unicode crash. `mykey.py`, локальный OpenAI-compatible backend и поддерживаемая авторизация через Codex subscription по-прежнему отсутствуют, поэтому реальные LLM-задачи через GenericAgent заблокированы и не имитировались. Подключение выполняется владельцем локально через `C:\Users\kir21\GenericAgent\ga.cmd configure`; секрет не должен передаваться в чат или Git.
