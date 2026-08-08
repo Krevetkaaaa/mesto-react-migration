@@ -1,9 +1,12 @@
-const { json } = require('../lib/http');
+const { randomUUID } = require('node:crypto');
+
+const { json, uuid } = require('../lib/http');
 const { setSecurityHeaders } = require('../lib/security-headers');
 const venueBySlug = require('../handlers/venue');
 
 const routes = new Map([
   ['venues', require('../handlers/venues')],
+  ['venue-sitemap', require('../handlers/venue-sitemap')],
   ['venue-content', require('../handlers/venue-content')],
   ['submissions', require('../handlers/submissions')],
   ['reviews', require('../handlers/reviews')],
@@ -33,8 +36,17 @@ const routes = new Map([
   ['merchant/venue', require('../handlers/merchant/venue')]
 ]);
 
+function requestHeader(req, name) {
+  const headers = req?.headers || {};
+  const value = headers[String(name).toLowerCase()] ?? headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 module.exports = async function handler(req, res) {
   setSecurityHeaders(res);
+  const requestId = uuid(requestHeader(req, 'x-request-id')) || randomUUID();
+  req.requestId = requestId;
+  res.setHeader('X-Request-ID', requestId);
   const value = req.query?.route;
   const key = (Array.isArray(value) ? value.join('/') : String(value || '')).replace(/^\/+|\/+$/g, '');
   if (key.startsWith('venues/')) {

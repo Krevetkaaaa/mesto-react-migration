@@ -22,9 +22,6 @@ async function fixture() {
   };
   await Promise.all(Object.entries(files).map(([name, source]) => writeFile(join(assets, name), source)));
   await writeFile(join(root, 'theme.js'), 'window.mestoTheme = true;');
-  await writeFile(join(root, 'app.js'), 'window.mestoLegacyHome = true;');
-  await writeFile(join(root, 'password-policy-core.js'), 'window.mestoPasswordPolicyCore = true;');
-  await writeFile(join(root, 'password-policy.mjs'), 'export const passwordPolicy = true;');
   const manifest = {
     entry: { module: '/assets/entry.js', imports: ['/assets/shared.js'] },
     routes: {
@@ -49,13 +46,10 @@ test('measures unique initial JavaScript for public routes only', async (context
   const home = measurements.find(({ routeId }) => routeId === 'routes/public-home');
   const help = measurements.find(({ routeId }) => routeId === 'routes/public-help');
   assert.deepEqual(home.assets, [
-    '/app.js',
     '/assets/entry.js',
     '/assets/public.js',
     '/assets/root.js',
     '/assets/shared.js',
-    '/password-policy-core.js',
-    '/password-policy.mjs',
     '/theme.js',
   ]);
   assert.equal(home.rawBytes, Object.values({
@@ -63,9 +57,6 @@ test('measures unique initial JavaScript for public routes only', async (context
     shared: 'export const shared = true;',
     root: 'export const root = true;',
     route: 'export const route = true;',
-    app: 'window.mestoLegacyHome = true;',
-    passwordPolicyCore: 'window.mestoPasswordPolicyCore = true;',
-    passwordPolicy: 'export const passwordPolicy = true;',
     theme: 'window.mestoTheme = true;',
   }).reduce((total, source) => total + Buffer.byteLength(source), 0));
   assert.ok(home.gzipBytes > 0);

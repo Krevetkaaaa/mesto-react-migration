@@ -284,9 +284,9 @@ async function runSmoke() {
     invariant(healthHtml.includes('data-react-health="ok"'), "Health response is missing its React marker");
     invariant(healthHtml.includes('name="robots" content="noindex,nofollow"'), "Health HTML is missing robots noindex");
 
-    for (const [path, routeMarker, contentMarker, expectsLegacyApp] of [
-      ["/", 'data-react-route="home"', "Лучшие места", true],
-      ["/help", 'data-react-route="help"', "Всё важное", false],
+    for (const [path, routeMarker, contentMarker, expectsLegacyApp, expectsHydration] of [
+      ["/", 'data-react-route="home"', "Лучшие места", false, true],
+      ["/help", 'data-react-route="help"', "Всё важное", false, false],
     ]) {
       const response = await fetch(`${origin}${path}`);
       const body = await response.text();
@@ -302,7 +302,10 @@ async function runSmoke() {
         body.includes('src="app.js?v=ui-motion-3"') === expectsLegacyApp,
         `React ${path} has the wrong legacy app.js ownership`,
       );
-      invariant(!body.includes('type="module"'), `React ${path} unexpectedly enabled hydration`);
+      invariant(
+        body.includes('type="module"') === expectsHydration,
+        `React ${path} has the wrong hydration ownership`,
+      );
     }
 
     for (const [path, marker] of [

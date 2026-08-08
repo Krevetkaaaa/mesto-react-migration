@@ -16,6 +16,7 @@ export interface HttpRequest<T> {
   path: string;
   query?: Readonly<Record<string, QueryValue>>;
   body?: unknown;
+  maxResponseBytes?: number;
   signal?: AbortSignal;
   schema: ZodType<T>;
 }
@@ -123,6 +124,29 @@ function responseCookies(headers: Headers) {
   return cookie ? [cookie] : [];
 }
 
+async function responseText(response: Response, maxBytes?: number) {
+  if (maxBytes === undefined || !response.body) return response.text();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let body = "";
+  let bytes = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    bytes += chunk.value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      const requestId = responseRequestId(response);
+      throw new ApplicationError("unavailable", "HTTP response body exceeds its byte limit", {
+        status: response.status,
+        ...(requestId === undefined ? {} : { requestId }),
+      });
+    }
+    body += decoder.decode(chunk.value, { stream: true });
+  }
+  return body + decoder.decode();
+}
+
 class FetchHttpClient implements HttpClient {
   constructor(private readonly options: ClientOptions) {}
 
@@ -140,6 +164,7 @@ class FetchHttpClient implements HttpClient {
       method: request.method ?? "GET",
       credentials: this.options.credentials,
       headers,
+      redirect: "manual",
       ...(request.signal ? { signal: request.signal } : {}),
     };
     if (request.body !== undefined) {
@@ -153,6 +178,10 @@ class FetchHttpClient implements HttpClient {
           cause: error,
         });
       }
+    }
+    if (request.maxResponseBytes !== undefined
+      && (!Number.isSafeInteger(request.maxResponseBytes) || request.maxResponseBytes <= 0)) {
+      throw new ApplicationError("validation", "HTTP response byte limit is invalid");
     }
 
     let response: Response;
@@ -173,8 +202,9 @@ class FetchHttpClient implements HttpClient {
 
     let body: string;
     try {
-      body = await response.text();
+      body = await responseText(response, request.maxResponseBytes);
     } catch (error) {
+      if (isApplicationError(error)) throw error;
       const requestId = responseRequestId(response);
       throw new ApplicationError("unavailable", "HTTP response body could not be read", {
         status: response.status,

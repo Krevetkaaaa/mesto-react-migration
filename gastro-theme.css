@@ -256,6 +256,10 @@ body.is-catalog-view .venue-card-action svg { width:16px; }
 }
 .venue-card[hidden] { display:none!important; }
 .venue-card:hover { border-color:#d8c2a6; box-shadow:0 25px 55px rgba(63,44,25,.14); transform:translateY(-7px); }
+.home-featured-venue-card { position:relative; }
+.home-venue-card-link { position:absolute; z-index:6; inset:0; display:block; color:inherit; border-radius:inherit; }
+.home-venue-card-link:focus-visible { outline:3px solid var(--g-gold); outline-offset:4px; }
+.home-featured-venue-card .fav { z-index:7; }
 .venue-image { position:relative; height:300px; overflow:hidden; border-radius:0; }
 .venue-image::after { content:""; position:absolute; inset:42% 0 0; background:linear-gradient(transparent,rgba(10,9,7,.42)); pointer-events:none; }
 .venue-image img { width:100%; height:100%; object-fit:cover; transition:transform .7s cubic-bezier(.2,.7,.2,1),filter .4s ease; }
@@ -267,9 +271,11 @@ body.is-catalog-view .venue-card-action svg { width:16px; }
 .card-rating-badge { position:absolute; z-index:4; left:17px; bottom:16px; min-height:34px; display:inline-flex!important; align-items:center; gap:7px; padding:0 11px; color:#fff; border-radius:8px; background:rgba(15,14,12,.8); box-shadow:0 8px 18px rgba(0,0,0,.18); backdrop-filter:blur(8px); }
 .card-rating-badge svg { width:15px; height:15px; color:#d7b277; fill:#d7b277; }
 .card-rating-badge b { font-size:13px; font-weight:650; }
+main[data-react-route="home"] .card-rating-badge b { position:relative; top:-1px; }
 .branch-badge { top:auto; bottom:16px; left:auto; right:17px; color:#3f3428; border-color:rgba(255,255,255,.8); background:rgba(255,251,246,.92); }
 .venue-body { min-height:365px; display:flex; flex:1; flex-direction:column; padding:23px 23px 20px; }
 .venue-body > strong { color:var(--g-ink); font-family:var(--g-serif)!important; font-size:28px; font-weight:600; line-height:1.08; letter-spacing:-.025em; }
+.venue-body > strong a { color:inherit; text-decoration:none; }
 .venue-body > small { margin-top:6px; color:#77716c; font-size:12px; }
 .venue-card-description { min-height:62px; display:-webkit-box!important; margin-top:18px; overflow:hidden; color:#77716c; font-size:12px; line-height:1.7; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
 .venue-meta { margin-top:16px; color:#8b8176; font-size:11px; }
@@ -895,6 +901,13 @@ body.is-catalog-view .venue-card-action svg { width:16px; }
 .form-dialog .primary-action { color:#fff; background:var(--g-black); }
 .social-grid button { color:#4d4741; border-color:#e3dad0; background:#f8f3ed; }
 .toast { color:#fff; background:#292725; box-shadow:0 16px 40px rgba(31,26,21,.2); }
+.home-favorite-toast { width:min(560px,calc(100vw - 32px)); display:flex; align-items:center; justify-content:space-between; gap:16px; line-height:1.45; }
+.home-favorite-toast.is-actionable { pointer-events:auto; }
+.home-favorite-toast-actions { display:flex!important; flex:0 0 auto; gap:8px; }
+.home-favorite-toast-actions :is(a,button) { padding:6px 9px; color:#fff; border:1px solid rgba(255,255,255,.38); border-radius:999px; background:transparent; font:800 10px/1.2 Manrope,Arial,sans-serif; text-decoration:none; }
+.home-favorite-toast-actions :is(a,button):focus-visible { outline:2px solid #fff; outline-offset:2px; }
+.form-field-note { color:var(--theme-muted,#77716c); font-size:9px; font-weight:500; line-height:1.45; }
+.form-grid > .form-field { display:grid; gap:6px; }
 
 @media (max-width:1100px) {
   .site-header { width:calc(100% - 42px); gap:18px; }

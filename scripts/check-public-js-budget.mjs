@@ -6,24 +6,18 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // Evidence: the 2026-08-07 production build peaked on routes/public-venue at
-// 551,499 raw bytes and 152,798 gzip bytes, excluding the home-only legacy
-// script. These limits retain about 8% and 7% headroom respectively.
+// 551,499 raw bytes and 152,798 gzip bytes. The React-owned home now follows
+// the same release budget; legacy app.js is deliberately not a runtime asset.
 export const PUBLIC_JS_BUDGET = Object.freeze({
   rawBytes: 580 * 1024,
   gzipBytes: 160 * 1024,
 });
 
-// Home still owns /app.js during Visual Freeze. Its measured total is 636,313
-// raw bytes and 170,695 gzip bytes, so this explicit transitional budget keeps
-// about 9% and 11% headroom without weakening every other public route.
-export const PUBLIC_JS_BUDGET_OVERRIDES = Object.freeze({
-  "routes/public-home": Object.freeze({ rawBytes: 680 * 1024, gzipBytes: 185 * 1024 }),
-});
+export const PUBLIC_JS_BUDGET_OVERRIDES = Object.freeze({});
 
 const PUBLIC_ROUTE_PATTERN = /^routes\/public-/;
 const PUBLIC_STATIC_JAVASCRIPT = Object.freeze({
   all: ["/theme.js"],
-  "routes/public-home": ["/app.js", "/password-policy-core.js", "/password-policy.mjs"],
 });
 
 function invariant(condition, message) {

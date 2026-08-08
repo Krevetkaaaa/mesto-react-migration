@@ -1,0 +1,58 @@
+name: React migration gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/react-migration
+
+permissions:
+  contents: read
+
+concurrency:
+  group: react-migration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Types, tests, and production smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run audit:production
+      - run: npm run check
+      - run: npm test
+      - run: npm run smoke
+
+  browser-freeze:
+    name: Exact-browser functional and Visual Freeze
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install and verify the frozen Chrome baseline
+        shell: powershell
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'chrome-win64.zip'
+          $destination = Join-Path $env:RUNNER_TEMP 'chrome-baseline'
+          Invoke-WebRequest -Uri 'https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.72/win64/chrome-win64.zip' -OutFile $archive -UseBasicParsing
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
+          $expectedHash = 'F77DFDF2978865CD1B8B98BD6FF72839E91650B9CBF43051F54C1A0811C183E5'
+          if ($actualHash -ne $expectedHash) { throw "Frozen Chrome archive hash mismatch: $actualHash" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $browser = Join-Path $destination 'chrome-win64\chrome.exe'
+          if ((Get-Item -LiteralPath $browser).VersionInfo.ProductVersion -ne '151.0.7922.72') { throw 'Frozen Chrome version mismatch' }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$browser"
+      - run: npm run test:e2e

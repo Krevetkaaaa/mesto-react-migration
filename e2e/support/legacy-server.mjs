@@ -764,6 +764,19 @@ async function handleApi(request, response, url) {
     }
   }
 
+  if (path === '/api/venue-sitemap' && request.method === 'GET') {
+    await wait(fixtureState.scenario.catalogDelayMs);
+    if (fixtureState.scenario.catalogError) return json(response, 503, { message: 'Sitemap fixture is temporarily unavailable.' });
+    const slugs = fixtureState.publicVenueDetails
+      .filter((venue) => venue.status === 'published')
+      .map((venue) => venue.slug)
+      .sort((left, right) => left.localeCompare(right, 'ru'));
+    return json(response, 200, {
+      databaseConfigured: true,
+      complete: true,
+      slugs
+    });
+  }
   if (path === '/api/venues' && request.method === 'GET') {
     fixtureState.requestCounters.venueList += 1;
     await wait(fixtureState.scenario.catalogDelayMs);
@@ -822,7 +835,7 @@ async function handleApi(request, response, url) {
     const session = fixtureUserSession(requestCookies);
     return session.user
       ? json(response, 200, { authenticated: true, user: session.user, favorites: structuredClone(fixtureState.favorites) })
-      : json(response, 401, { authenticated: false, ...(session.code ? { code: session.code } : {}) });
+      : json(response, 200, { authenticated: false, ...(session.code ? { code: session.code } : {}) });
   }
   if (path === '/api/auth/login' && request.method === 'POST') {
     const body = await readJson(request);

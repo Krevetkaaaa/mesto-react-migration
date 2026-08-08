@@ -83,7 +83,8 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
     }
 
     const session = await request.get('/api/auth/session');
-    expect(session.status()).toBe(401);
+    expect(session.status()).toBe(200);
+    await expect(session.json()).resolves.toEqual({ authenticated: false });
     expect((await fixtureApi.read()).authRequestCounters).toMatchObject({ register: 3, session: 1 });
   });
 
@@ -202,21 +203,25 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
     expect(activeFavorites.map((response) => response.status())).toEqual([200, 201, 200]);
 
     await fixtureApi.set({ customerSessionMode: 'expired' });
-    const expiredResponses = [
-      await page.request.get('/api/auth/session'),
-      ...await favoriteRequests()
-    ];
-    for (const response of expiredResponses) {
+    const expiredSession = await page.request.get('/api/auth/session');
+    expect(expiredSession.status()).toBe(200);
+    await expect(expiredSession.json()).resolves.toMatchObject({
+      authenticated: false,
+      code: 'SESSION_EXPIRED'
+    });
+    for (const response of await favoriteRequests()) {
       expect(response.status()).toBe(401);
       await expect(response.json()).resolves.toMatchObject({ code: 'SESSION_EXPIRED' });
     }
 
     await fixtureApi.set({ customerSessionMode: 'revoked' });
-    const revokedResponses = [
-      await page.request.get('/api/auth/session'),
-      ...await favoriteRequests()
-    ];
-    for (const response of revokedResponses) {
+    const revokedSession = await page.request.get('/api/auth/session');
+    expect(revokedSession.status()).toBe(200);
+    await expect(revokedSession.json()).resolves.toMatchObject({
+      authenticated: false,
+      code: 'SESSION_REVOKED'
+    });
+    for (const response of await favoriteRequests()) {
       expect(response.status()).toBe(401);
       await expect(response.json()).resolves.toMatchObject({ code: 'SESSION_REVOKED' });
     }
@@ -227,11 +232,10 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
       domain: '127.0.0.1',
       path: '/'
     }]);
-    const unknownResponses = [
-      await page.request.get('/api/auth/session'),
-      ...await favoriteRequests()
-    ];
-    for (const response of unknownResponses) {
+    const unknownSession = await page.request.get('/api/auth/session');
+    expect(unknownSession.status()).toBe(200);
+    await expect(unknownSession.json()).resolves.toEqual({ authenticated: false });
+    for (const response of await favoriteRequests()) {
       expect(response.status()).toBe(401);
     }
 

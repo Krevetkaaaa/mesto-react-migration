@@ -40,10 +40,11 @@ const test = base.extend({
     await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
 
     page.on('console', (message) => {
-      if (message.type() !== 'error') return;
+      const hydrationMismatch = /hydration|did not match|server rendered/iu.test(message.text());
+      if (message.type() !== 'error' && !hydrationMismatch) return;
       const source = message.location().url || '';
       const anonymousSessionProbe = message.text().includes('401 (Unauthorized)')
-        && ['/api/auth/session', '/api/admin/session'].some((path) => source.includes(path));
+        && source.includes('/api/admin/session');
       const allowedHttpError = allowedHttpErrors.find(({ path, status }) => source.includes(path) && message.text().includes(`${status}`));
       const expectedHttpError = expectedHttpErrors.find(({ path, status }) => source.includes(path) && message.text().includes(`${status}`));
       const expectedPattern = expectedConsolePatterns.find((pattern) => message.text().includes(pattern));

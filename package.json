@@ -23,6 +23,7 @@
     "check:phase10": "node --check lib/security-headers.js && node --check scripts/check-client-bundle-secrets.mjs && node --check scripts/check-public-js-budget.mjs && node --check test/frontend-security.test.js && node --check test/public-js-budget.test.js && node --check test/security-headers.test.js && node -e \"JSON.parse(require('node:fs').readFileSync('config/security-headers.json','utf8'))\"",
     "check:phase11": "node --check scripts/phase11-load.mjs && node --check scripts/phase11-runner-contract.mjs && node --check scripts/phase11-workspace-lock.mjs && node --check scripts/run-phase11-local.mjs && node --check test/load-harness.test.js",
     "check": "npm run check:legacy && npm run check:phase6 && npm run check:phase7 && npm run check:phase8 && npm run check:phase9 && npm run check:phase10 && npm run check:phase11 && npm run typecheck && npm run lint",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
     "test:server": "node --test \"test/*.test.js\"",
     "test:unit": "vitest run",
     "test": "npm run test:server && npm run test:unit",

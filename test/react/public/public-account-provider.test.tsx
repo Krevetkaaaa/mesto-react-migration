@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLayoutEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 
 const mocks = vi.hoisted(() => ({
   completeOAuth: vi.fn(),
@@ -74,6 +75,31 @@ function renderProvider() {
   );
 }
 
+function NavigationProbe({ observations }: { observations: string[] }) {
+  const account = usePublicAccount();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useLayoutEffect(() => {
+    observations.push(`${location.pathname}:${account.status}`);
+  }, [account.status, location.pathname, observations]);
+
+  return (
+    <>
+      <output>{account.status}:{location.pathname}</output>
+      <button type="button" onClick={() => { void navigate("/profile"); }}>profile</button>
+    </>
+  );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
+}
+
 describe("PublicAccountProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -92,6 +118,29 @@ describe("PublicAccountProvider", () => {
     mocks.current.mockRejectedValueOnce(new Error("network unavailable"));
     renderProvider();
     await screen.findByText("unavailable:");
+  });
+
+  it("exposes restoring synchronously instead of stale anonymous after pathname changes", async () => {
+    const nextSession = deferred<{ status: "authenticated"; user: typeof user; favoriteKeys: string[] }>();
+    const observations: string[] = [];
+    mocks.current
+      .mockResolvedValueOnce({ status: "anonymous" })
+      .mockReturnValueOnce(nextSession.promise);
+
+    render(
+      <MemoryRouter initialEntries={["/catalog"]}>
+        <PublicAccountProvider><NavigationProbe observations={observations} /></PublicAccountProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText("anonymous:/catalog");
+
+    await userEvent.click(screen.getByRole("button", { name: "profile" }));
+
+    await screen.findByText("restoring:/profile");
+    expect(observations).not.toContain("/profile:anonymous");
+
+    nextSession.resolve({ status: "authenticated", user, favoriteKeys: [] });
+    await screen.findByText("authenticated:/profile");
   });
 
   it("owns optimistic favorite state for all descendant routes", async () => {

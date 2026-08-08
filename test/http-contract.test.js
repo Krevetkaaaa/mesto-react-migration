@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { once } = require('node:events');
+const { createServer } = require('node:http');
 const { Readable } = require('node:stream');
 
 const router = require('../api/router');
@@ -36,7 +38,30 @@ test('API router returns a JSON 404 for an unknown route', async () => {
   assert.equal(res.statusCode, 404);
   assert.equal(res.headers['content-type'], 'application/json; charset=utf-8');
   assert.equal(res.headers['cache-control'], 'no-store, max-age=0');
+  assert.match(res.headers['x-request-id'], /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(typeof res.body.message, 'string');
+});
+
+test('API router preserves a valid incoming request id', async () => {
+  const requestId = '10000000-0000-4000-8000-000000000009';
+  const req = { method: 'GET', query: { route: 'missing' }, headers: { 'x-request-id': requestId } };
+  const res = responseRecorder();
+
+  await router(req, res);
+
+  assert.equal(req.requestId, requestId);
+  assert.equal(res.headers['x-request-id'], requestId);
+});
+
+test('API router replaces an invalid incoming request id', async () => {
+  const req = { method: 'GET', query: { route: 'missing' }, headers: { 'x-request-id': 'not-a-uuid' } };
+  const res = responseRecorder();
+
+  await router(req, res);
+
+  assert.notEqual(req.requestId, 'not-a-uuid');
+  assert.match(req.requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(res.headers['x-request-id'], req.requestId);
 });
 
 test('API router accepts the Vercel array form of a nested route', async () => {
@@ -112,10 +137,114 @@ test('readJson enforces the byte limit for a streamed request', async () => {
   await assert.rejects(readJson(request, 8), (error) => error.statusCode === 413);
 });
 
-test('readJson currently trusts a pre-parsed body without applying maxBytes', async () => {
+test('readJson lets an HTTP handler return 413 without resetting the client socket', async (t) => {
+  const server = createServer(async (request, response) => {
+    try {
+      await readJson(request, 32);
+      response.writeHead(204).end();
+    } catch (error) {
+      response.writeHead(error.statusCode || 500, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ code: error.message }));
+    }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  const response = await fetch(`http://127.0.0.1:${address.port}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: 'x'.repeat(256_000) })
+  });
+
+  assert.equal(response.status, 413);
+  assert.deepEqual(await response.json(), { code: 'PAYLOAD_TOO_LARGE' });
+});
+
+test('readJson consumes a Vercel lazy-body stream without invoking its getter', async () => {
+  const payload = '{"name":"Mesto","city":"Симферополь"}';
+  const request = Readable.from([payload]);
+  request.headers = { 'content-length': String(Buffer.byteLength(payload)) };
+  let getterCalls = 0;
+  Object.defineProperty(request, 'body', {
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error('lazy body getter must not be invoked');
+    }
+  });
+
+  assert.deepEqual(await readJson(request, 200), { name: 'Mesto', city: 'Симферополь' });
+  assert.equal(getterCalls, 0);
+  for (const event of ['data', 'end', 'error', 'aborted']) {
+    assert.equal(request.listenerCount(event), 0, `${event} listener must be cleaned up`);
+  }
+});
+
+test('readJson measures authoritative rawBody bytes before JSON normalization', async () => {
+  const raw = '  { "role": "user", "role": "\\u0061dmin" }  ';
+  const parsed = { role: 'admin' };
+  const normalizedBytes = Buffer.byteLength(JSON.stringify(parsed));
+  assert.ok(Buffer.byteLength(raw) > normalizedBytes);
+
+  await assert.rejects(readJson({
+    rawBody: raw,
+    body: parsed,
+    headers: { 'content-length': String(Buffer.byteLength(raw)) }
+  }, normalizedBytes), (error) => error.statusCode === 413);
+});
+
+test('readJson rejects invalid and mismatched Content-Length with authoritative bytes', async () => {
+  const raw = Buffer.from('{"ok":true}');
+
+  await assert.rejects(readJson({
+    rawBody: raw,
+    headers: { 'content-length': 'not-a-number' }
+  }, 100), (error) => error.statusCode === 400 && error.message === 'INVALID_CONTENT_LENGTH');
+
+  await assert.rejects(readJson({
+    rawBody: new Uint8Array(raw),
+    headers: { 'content-length': String(raw.length - 1) }
+  }, 100), (error) => error.statusCode === 400 && error.message === 'CONTENT_LENGTH_MISMATCH');
+
+  const streamed = Readable.from([raw]);
+  streamed.body = undefined;
+  streamed.headers = { 'content-length': String(raw.length + 1) };
+  await assert.rejects(readJson(streamed, 100), (error) => (
+    error.statusCode === 400 && error.message === 'CONTENT_LENGTH_MISMATCH'
+  ));
+});
+
+test('readJson gives actual oversized bytes precedence over a forged small Content-Length', async () => {
+  const raw = Buffer.from('{"value":"1234567890"}');
+
+  await assert.rejects(readJson({
+    rawBody: raw,
+    headers: { 'content-length': '2' }
+  }, 8), (error) => error.statusCode === 413);
+});
+
+test('readJson enforces the byte limit for a pre-parsed runtime body', async () => {
   const oversized = { body: { value: 'x'.repeat(100) } };
 
-  // Characterization of a known boundary gap. Phase 9 must replace this
-  // behavior with a runtime-level and application-level size guarantee.
-  assert.deepEqual(await readJson(oversized, 8), oversized.body);
+  await assert.rejects(readJson(oversized, 8), (error) => error.statusCode === 413);
+  assert.deepEqual(await readJson(oversized, 200), oversized.body);
+});
+
+test('readJson keeps serialized size as a conservative fallback for pre-parsed bodies', async () => {
+  const request = {
+    body: { value: 'x'.repeat(100) },
+    headers: { 'content-length': '2' }
+  };
+
+  await assert.rejects(readJson(request, 8), (error) => error.statusCode === 413);
+  await assert.rejects(readJson({
+    body: { ok: true },
+    headers: { 'content-length': 'invalid' }
+  }, 100), (error) => error.statusCode === 400);
 });

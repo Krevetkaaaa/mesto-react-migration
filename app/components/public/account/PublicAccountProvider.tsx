@@ -47,9 +47,9 @@ function accountClients() {
 
 export function PublicAccountProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  const restoredPath = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
   const pendingFavoriteKeysRef = useRef(new Set<string>());
+  const [restoredPath, setRestoredPath] = useState<string | null>(null);
   const [status, setStatus] = useState<PublicAccountStatus>("restoring");
   const [user, setUser] = useState<User | null>(null);
   const [favoriteKeys, setFavoriteKeys] = useState<ReadonlySet<string>>(new Set());
@@ -57,10 +57,12 @@ export function PublicAccountProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     const generation = ++refreshGeneration.current;
+    setRestoredPath(pathname);
     setStatus("restoring");
     try {
       const current = await accountClients().session.current();
       if (generation !== refreshGeneration.current) return;
+      setRestoredPath(pathname);
       if (current.status === "anonymous") {
         setUser(null);
         setFavoriteKeys(new Set());
@@ -72,15 +74,35 @@ export function PublicAccountProvider({ children }: { children: ReactNode }) {
       setStatus("authenticated");
     } catch {
       if (generation !== refreshGeneration.current) return;
+      setRestoredPath(pathname);
       setStatus("unavailable");
     }
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
-    if (restoredPath.current === pathname) return;
-    restoredPath.current = pathname;
-    void refresh();
-  }, [pathname, refresh]);
+    const generation = ++refreshGeneration.current;
+    void accountClients().session.current().then((current) => {
+      if (generation !== refreshGeneration.current) return;
+      setRestoredPath(pathname);
+      if (current.status === "anonymous") {
+        setUser(null);
+        setFavoriteKeys(new Set());
+        setStatus("anonymous");
+        return;
+      }
+      setUser(current.user);
+      setFavoriteKeys(new Set(current.favoriteKeys));
+      setStatus("authenticated");
+    }, () => {
+      if (generation !== refreshGeneration.current) return;
+      setRestoredPath(pathname);
+      setStatus("unavailable");
+    });
+  }, [pathname]);
+
+  const effectiveStatus: PublicAccountStatus = restoredPath === pathname
+    ? status
+    : "restoring";
 
   const signOut = useCallback(async () => {
     await accountClients().session.signOut();
@@ -96,7 +118,7 @@ export function PublicAccountProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const toggleFavorite = useCallback(async (command: SaveFavoriteCommand) => {
-    if (status !== "authenticated") {
+    if (effectiveStatus !== "authenticated") {
       throw new Error("Authentication required");
     }
     if (pendingFavoriteKeysRef.current.has(command.venueKey)) {
@@ -127,7 +149,7 @@ export function PublicAccountProvider({ children }: { children: ReactNode }) {
       pendingFavoriteKeysRef.current.delete(command.venueKey);
       setPendingFavoriteKeys(new Set(pendingFavoriteKeysRef.current));
     }
-  }, [favoriteKeys, status]);
+  }, [effectiveStatus, favoriteKeys]);
 
   const oauthStartUrl = useCallback((provider: OAuthProvider, returnTo?: string) => (
     accountClients().session.oauthStartUrl(provider, returnTo)
@@ -140,10 +162,10 @@ export function PublicAccountProvider({ children }: { children: ReactNode }) {
     pendingFavoriteKeys,
     refresh,
     signOut,
-    status,
+    status: effectiveStatus,
     toggleFavorite,
     user,
-  }), [completeOAuth, favoriteKeys, oauthStartUrl, pendingFavoriteKeys, refresh, signOut, status, toggleFavorite, user]);
+  }), [completeOAuth, effectiveStatus, favoriteKeys, oauthStartUrl, pendingFavoriteKeys, refresh, signOut, toggleFavorite, user]);
 
   return (
     <PublicAccountContext.Provider value={value}>

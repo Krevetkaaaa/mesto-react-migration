@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useInRouterContext } from "react-router";
 
 import {
   PASSWORD_ERROR_MESSAGE,
@@ -6,7 +7,10 @@ import {
   PASSWORD_MIN_LENGTH,
   PASSWORD_PATTERN,
 } from "../../../password-policy.mjs";
-import type { User } from "../../lib/domain";
+import type { EditorialVenue } from "../../data/editorial-venues";
+import { HOME_FEATURED_VENUES } from "../../data/home-featured-venues";
+import type { CatalogVenue, User } from "../../lib/domain";
+import { publicAssetUrl } from "../../lib/public-asset";
 import {
   catalogHref,
   defaultCatalogUrlState,
@@ -14,6 +18,15 @@ import {
 } from "../../modules/catalog-url-state";
 import type { HomeCatalogSummary } from "../../modules/home-catalog-summary";
 import { useOptionalPublicAccount } from "./account/PublicAccountProvider";
+import { HomePresentationEffects } from "./home/HomePresentationEffects";
+import { PrettySelect } from "./home/PrettySelect";
+
+export type HomeFeaturedVenue = Omit<CatalogVenue, "coordinates">;
+
+interface HomeFavoriteFeedback {
+  readonly guest: boolean;
+  readonly message: string;
+}
 
 const EMPTY_HOME_CATALOG_SUMMARY: HomeCatalogSummary = {
   total: 0,
@@ -22,6 +35,14 @@ const EMPTY_HOME_CATALOG_SUMMARY: HomeCatalogSummary = {
   source: "editorial-fallback",
   databaseConfigured: false,
 };
+
+const HOME_CITIES = [
+  "Симферополь", "Ялта", "Севастополь", "Алушта", "Евпатория", "Феодосия",
+  "Судак", "Керчь", "Бахчисарай", "Балаклава", "Саки", "Гурзуф",
+].map((city) => ({ label: city, value: city }));
+
+const HOME_VISIT_TIMES = ["Сегодня", "Сегодня вечером", "На выходных"]
+  .map((when) => ({ label: when, value: when }));
 
 function placeWord(count: number) {
   const remainder = Math.abs(count) % 100;
@@ -54,6 +75,272 @@ function catalogLink(state: Partial<CatalogUrlState> = {}) {
   return catalogHref({ ...defaultCatalogUrlState(), ...state });
 }
 
+function shortenedCardDescription(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 138 ? `${normalized.slice(0, 135).trim()}…` : normalized;
+}
+
+function reviewWord(count: number) {
+  const remainder = Math.abs(count) % 100;
+  const lastDigit = remainder % 10;
+  if (remainder > 10 && remainder < 20) return "отзывов";
+  if (lastDigit === 1) return "отзыв";
+  if (lastDigit >= 2 && lastDigit <= 4) return "отзыва";
+  return "отзывов";
+}
+
+function isEditorialVenue(venue: HomeFeaturedVenue): venue is EditorialVenue {
+  return "presentation" in venue && "card" in venue && "filters" in venue && "extras" in venue;
+}
+
+function homeCardView(venue: HomeFeaturedVenue) {
+  if (isEditorialVenue(venue)) {
+    return {
+      image: publicAssetUrl(venue.presentation.image),
+      imageAlt: venue.card.imageAlt,
+      tag: venue.card.tag,
+      subtitle: venue.card.subtitle,
+      rating: venue.presentation.rating,
+      reviews: venue.card.reviews,
+      price: venue.presentation.price,
+      pet: venue.filters.pet,
+      parking: venue.filters.parking,
+      wifi: venue.extras.wifi,
+      isNew: venue.filters.isNew,
+      search: venue.filters.search,
+    };
+  }
+  const features = venue.features.join(" ");
+  return {
+    image: publicAssetUrl(venue.photos[0] || "assets/venue-restaurant-unsplash.jpg"),
+    imageAlt: venue.name,
+    tag: venue.source === "mesto" ? "Место" : "Опубликовано",
+    subtitle: `${venue.category} · ${venue.city}`,
+    rating: venue.rating === null ? "—" : String(venue.rating),
+    reviews: venue.reviewCount ? `${venue.reviewCount} ${reviewWord(venue.reviewCount)}` : "карточка каталога",
+    price: venue.averageCheck || "Уточнить в заведении",
+    pet: /питомц|с собак|животн/iu.test(features),
+    parking: /парков/iu.test(features),
+    wifi: /wi-?fi|вай-?фай/iu.test(features),
+    isNew: true,
+    search: `${venue.name} ${venue.categories.join(" ")} ${venue.address} ${venue.city}`.toLocaleLowerCase("ru-RU"),
+  };
+}
+
+function HomeRouteLink({
+  ariaLabel,
+  children,
+  className,
+  id,
+  to,
+}: {
+  ariaLabel?: string;
+  children: ReactNode;
+  className?: string;
+  id?: string;
+  to: string;
+}) {
+  const inRouter = useInRouterContext();
+  if (inRouter) {
+    return <Link aria-label={ariaLabel} className={className} id={id} to={to}>{children}</Link>;
+  }
+  return <a aria-label={ariaLabel} className={className} href={to} id={id}>{children}</a>;
+}
+
+function animateFavorite(source: HTMLElement) {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const destination = document.querySelector<HTMLElement>(".favorites-button");
+  if (!destination) return;
+  const start = source.getBoundingClientRect();
+  const end = destination.getBoundingClientRect();
+  const startX = start.left + start.width / 2;
+  const startY = start.top + start.height / 2;
+  const endX = end.left + end.width / 2;
+  const endY = end.top + end.height / 2;
+  const flying = document.createElement("span");
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  flying.className = "flying-heart";
+  flying.setAttribute("aria-hidden", "true");
+  use.setAttribute("href", "#heart");
+  icon.appendChild(use);
+  flying.appendChild(icon);
+  flying.style.left = `${startX}px`;
+  flying.style.top = `${startY}px`;
+  document.body.appendChild(flying);
+
+  const remove = () => flying.remove();
+  if (typeof flying.animate !== "function") {
+    window.setTimeout(remove, 900);
+    return;
+  }
+  const flight = flying.animate([
+    { left: `${startX}px`, top: `${startY}px`, transform: "translate(-50%, -50%) scale(1)", opacity: 1 },
+    { offset: 0.58, left: `${startX + (endX - startX) * 0.52}px`, top: `${Math.min(startY, endY) - 76}px`, transform: "translate(-50%, -50%) scale(1.22) rotate(-13deg)", opacity: 1 },
+    { left: `${endX}px`, top: `${endY}px`, transform: "translate(-50%, -50%) scale(.4) rotate(18deg)", opacity: 0 },
+  ], { duration: 760, easing: "cubic-bezier(.17,.82,.28,1)", fill: "forwards" });
+  void flight.finished.then(remove).catch(remove);
+  window.setTimeout(remove, 900);
+  destination.animate?.([
+    { transform: "scale(1)" },
+    { offset: 0.5, transform: "scale(1.18)" },
+    { transform: "scale(1)" },
+  ], { duration: 330, easing: "ease-out" });
+}
+
+function HomeFeaturedVenueGrid({ venues }: { venues: readonly HomeFeaturedVenue[] }) {
+  const account = useOptionalPublicAccount();
+  const guestFavoritePromptedRef = useRef(false);
+  const [feedback, setFeedback] = useState<HomeFavoriteFeedback | null>(null);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const timeout = window.setTimeout(() => setFeedback(null), feedback.guest ? 8_000 : 3_200);
+    return () => window.clearTimeout(timeout);
+  }, [feedback]);
+
+  const toggleFavorite = async (venue: HomeFeaturedVenue, source: HTMLElement) => {
+    const view = homeCardView(venue);
+    if (!account || account.status !== "authenticated") {
+      const isGuest = !account || account.status === "anonymous";
+      if (isGuest && guestFavoritePromptedRef.current && typeof window !== "undefined") {
+        guestFavoritePromptedRef.current = false;
+        const registrationLink = document.querySelector<HTMLAnchorElement>(".home-favorite-toast-register");
+        if (registrationLink) registrationLink.click();
+        else window.location.assign(`/register?${new URLSearchParams({ returnTo: "/" }).toString()}`);
+        return;
+      }
+      guestFavoritePromptedRef.current = isGuest;
+      setFeedback({
+        guest: isGuest,
+        message: account?.status === "restoring"
+          ? "Проверяем авторизацию…"
+          : account?.status === "unavailable"
+            ? "Сервис аккаунта временно недоступен. Попробуйте ещё раз."
+            : "Войдите или зарегистрируйтесь, чтобы сохранять места. Нажмите на сердце ещё раз — откроем регистрацию.",
+      });
+      return;
+    }
+    guestFavoritePromptedRef.current = false;
+    if (!account.favoriteKeys.has(venue.key)) animateFavorite(source);
+    try {
+      const outcome = await account.toggleFavorite({
+        venueKey: venue.key,
+        venueId: venue.databaseId,
+        externalVenueId: venue.databaseId ? null : venue.key,
+        snapshot: {
+          slug: venue.slug,
+          title: venue.name,
+          type: `${venue.category} · ${venue.city}`,
+          rating: view.rating,
+          image: view.image,
+          text: venue.description,
+        },
+      });
+      setFeedback({ guest: false, message: outcome === "removed" ? "Место удалено из избранного." : "Место сохранено в избранном." });
+    } catch {
+      setFeedback({ guest: false, message: "Не удалось изменить избранное. Изменение отменено — попробуйте ещё раз." });
+    }
+  };
+
+  return (
+    <>
+      <div className="venue-grid">
+        {venues.map((venue) => {
+          const view = homeCardView(venue);
+          const detailHref = `/venue/${venue.slug}?from=${encodeURIComponent("/")}`;
+          const isDatabaseVenue = venue.databaseId !== null;
+          const isSaved = account?.status === "authenticated" && account.favoriteKeys.has(venue.key);
+          const isPending = account?.pendingFavoriteKeys.has(venue.key) ?? false;
+          const amenities = [
+            ...(view.pet ? [{ icon: "paw", label: "Можно с питомцами", kind: "pet" }] : []),
+            ...(view.wifi ? [{ icon: "wifi", label: "Wi‑Fi", kind: "wifi" }] : []),
+            ...(view.parking ? [{ icon: "park", label: "Парковка", kind: "parking" }] : []),
+            { icon: "clock", label: venue.hours, kind: "hours" },
+          ];
+          return (
+            <article
+              className={`venue-card home-featured-venue-card${isDatabaseVenue ? " catalog-venue-card home-stored-card home-database-venue-card" : ""}`}
+              data-venue={venue.key}
+              data-category={venue.category}
+              data-city={venue.city}
+              data-cuisine={venue.cuisine}
+              data-source={venue.source}
+              data-pet={view.pet ? "1" : "0"}
+              data-parking={view.parking ? "1" : "0"}
+              data-score={venue.rating ?? 0}
+              data-new={view.isNew ? "1" : "0"}
+              data-branch-count={isDatabaseVenue ? "1" : undefined}
+              data-search={view.search}
+              key={venue.key}
+            >
+              <HomeRouteLink className="home-venue-card-link" to={detailHref} ariaLabel={`Открыть карточку ${venue.name}`}>
+                <span className="sr-only">Открыть карточку {venue.name}</span>
+              </HomeRouteLink>
+              <span className="venue-image">
+                <img src={view.image} alt={view.imageAlt} loading="lazy" decoding="async" width={720} height={585} />
+                <button
+                  className={`fav${isSaved ? " is-saved" : ""}`}
+                  type="button"
+                  aria-label={isSaved ? "Удалить из избранного" : "Добавить в избранное"}
+                  aria-pressed={isSaved}
+                  data-tooltip={isSaved ? "Убрать из избранного" : "Добавить в избранное"}
+                  disabled={isPending}
+                  onClick={(event) => { void toggleFavorite(venue, event.currentTarget); }}
+                ><svg aria-hidden="true"><use href="#heart" /></svg></button>
+                {!isDatabaseVenue ? <span className="tag">{view.tag}</span> : null}
+                <span className="card-rating-badge"><svg aria-hidden="true"><use href={venue.rating === null ? "#logo-star" : "#star"} /></svg><b>{venue.rating === null ? "Проверяем" : view.rating}</b></span>
+                {view.pet ? <span className="pet-badge" data-tooltip="Можно с питомцами" aria-label="Можно с питомцами"><svg aria-hidden="true"><use href="#paw" /></svg></span> : null}
+              </span>
+              <span className="venue-body">
+                <strong>{venue.name}</strong>
+                <small>{view.subtitle}</small>
+                {isDatabaseVenue ? <>
+                  <span className="venue-card-description">{shortenedCardDescription(venue.description || `${venue.address || `${venue.city}, адрес уточняется`}. ${venue.hours}.`)}</span>
+                  <span className="venue-meta venue-meta--source"><svg aria-hidden="true"><use href="#pin" /></svg>{" "}{venue.address || `${venue.city}, адрес уточняется`}</span>
+                  <span className="venue-source-note">Опубликовано в каталоге «Места»</span>
+                  <span className="venue-amenities">
+                    {amenities.map((amenity) => (
+                      <span className={`venue-amenity venue-amenity--${amenity.kind}`} key={`${venue.key}-${amenity.kind}`}>
+                        <i className="venue-amenity-icon" aria-hidden="true"><svg><use href={`#${amenity.icon}`} /></svg></i>
+                        <span>{amenity.label}</span>
+                      </span>
+                    ))}
+                  </span>
+                  <span className="venue-card-action">Подробнее <svg aria-hidden="true"><use href="#arrow" /></svg></span>
+                </> : <>
+                  <span className="venue-card-description">{shortenedCardDescription(venue.description)}</span>
+                  <span className="venue-meta"><b>{view.rating}</b><i></i>{" "}{view.reviews}</span>
+                  <span className="venue-price">{view.price}</span>
+                  <span className="venue-amenities">
+                    {amenities.map((amenity) => (
+                      <span className={`venue-amenity venue-amenity--${amenity.kind}`} key={`${venue.key}-${amenity.kind}`}>
+                        <i className="venue-amenity-icon" aria-hidden="true"><svg><use href={`#${amenity.icon}`} /></svg></i>
+                        <span>{amenity.label}</span>
+                      </span>
+                    ))}
+                  </span>
+                  <span className="venue-card-action">Подробнее <svg aria-hidden="true"><use href="#arrow" /></svg></span>
+                </>}
+              </span>
+            </article>
+          );
+        })}
+      </div>
+      {feedback ? (
+        <div className={`toast home-favorite-toast is-visible${feedback.guest ? " is-actionable" : ""}`} role="status">
+          <span>{feedback.message}</span>
+          {feedback.guest ? <span className="home-favorite-toast-actions">
+            <HomeRouteLink to={`/login?${new URLSearchParams({ returnTo: "/" }).toString()}`}>Войти</HomeRouteLink>
+            <HomeRouteLink className="home-favorite-toast-register" to={`/register?${new URLSearchParams({ returnTo: "/" }).toString()}`}>Регистрация</HomeRouteLink>
+          </span> : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export interface PublicHomeMarkupProps {
   accountDialogContent?: ReactNode;
   accountUser?: User | null;
@@ -62,9 +349,12 @@ export interface PublicHomeMarkupProps {
   catalogSummary?: HomeCatalogSummary;
   homeBackdrop?: boolean;
   favoriteCount?: number;
+  featuredVenues?: readonly HomeFeaturedVenue[];
+  interactiveHome?: boolean;
   profileContent?: ReactNode;
   routeKind?: "catalog" | "favorites" | "login" | "profile" | "register";
   standalone?: boolean;
+  submissionDialogContent?: ReactNode;
   venueDialogContent?: ReactNode;
 }
 
@@ -81,12 +371,16 @@ export function PublicHomeMarkup({
   catalogSummary = EMPTY_HOME_CATALOG_SUMMARY,
   homeBackdrop = false,
   favoriteCount = 0,
+  featuredVenues = HOME_FEATURED_VENUES,
+  interactiveHome = false,
   profileContent,
   routeKind = "catalog",
   standalone = false,
+  submissionDialogContent,
   venueDialogContent,
 }: PublicHomeMarkupProps = {}) {
   const account = useOptionalPublicAccount();
+  const managedPublicShell = standalone || interactiveHome;
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileMenuToggleRef = useRef<HTMLButtonElement>(null);
   const mobileNavRef = useRef<HTMLDivElement>(null);
@@ -103,15 +397,16 @@ export function PublicHomeMarkup({
     .join("")
     .toLocaleUpperCase("ru-RU") || "М";
   const bridgeToAccount = (action: "favorites" | "login" | "profile" | "register") => {
-    if (!standalone || typeof window === "undefined") return;
+    if (!managedPublicShell || typeof window === "undefined") return;
     window.location.assign(`/${action}`);
   };
 
   useEffect(() => {
-    if (!standalone || !mobileOpen) return;
+    if (!managedPublicShell || !mobileOpen) return;
     const mobileNav = mobileNavRef.current;
     if (!mobileNav) return;
 
+    document.body.classList.add("has-mobile-menu");
     const activeElement = document.activeElement;
     mobileMenuReturnFocusRef.current = activeElement instanceof HTMLElement && !mobileNav.contains(activeElement)
       ? activeElement
@@ -153,6 +448,7 @@ export function PublicHomeMarkup({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.classList.remove("has-mobile-menu");
       backgroundState.forEach(({ element, inert, ariaHidden }) => {
         if (inert === null) element.removeAttribute("inert");
         else element.setAttribute("inert", inert);
@@ -163,7 +459,7 @@ export function PublicHomeMarkup({
       mobileMenuReturnFocusRef.current = null;
       if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
     };
-  }, [mobileOpen, standalone]);
+  }, [managedPublicShell, mobileOpen]);
 
   return (
     <>
@@ -205,7 +501,7 @@ export function PublicHomeMarkup({
         <a href={standalone ? "/catalog?category=Рестораны" : "#popular"}>Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"}>Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"}>О проекте</a><a href="#site-footer">Контакты</a>
       </nav>
       <div className="header-actions">
-        <button ref={mobileMenuToggleRef} className="mobile-menu-toggle" type="button" aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"} aria-expanded={standalone ? mobileOpen : false} onClick={() => { if (standalone) setMobileOpen(true); }}><span></span><span></span></button>
+        <button ref={mobileMenuToggleRef} className="mobile-menu-toggle" type="button" aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"} aria-expanded={managedPublicShell ? mobileOpen : false} onClick={() => { if (managedPublicShell) setMobileOpen((open) => !open); }}><span></span><span></span></button>
         <button className="theme-toggle" type="button" data-theme-toggle="" aria-label="Сменить цветовую тему" suppressHydrationWarning>
           <span className="theme-toggle-glyph" aria-hidden="true"><i className="theme-sun"></i><i className="theme-moon"></i><i className="theme-star">✦</i></span>
           <span className="sr-only" data-theme-status="" aria-live="polite" suppressHydrationWarning>Включена светлая тема</span>
@@ -224,23 +520,23 @@ export function PublicHomeMarkup({
           <p className="eyebrow hero-eyebrow">Ресторанный гид · Крым</p>
           <h1 id="guide-title">Лучшие места<br />в вашем городе</h1>
           <p className="hero-lead">Открывайте атмосферные рестораны, авторскую кухню и незабываемые впечатления.</p>
-          <form className="search-panel" id="venue-search">
+          <form className="search-panel" id="venue-search" action="/catalog" method="get">
             <label className="search-field">
               <svg><use href="#search" /></svg>
-              <input name="query" type="search" placeholder="Куда хотите сходить?" autoComplete="off" />
+              <input name="q" type="search" placeholder="Куда хотите сходить?" autoComplete="off" />
             </label>
             <label className="city-field">
               <svg><use href="#pin" /></svg>
-              <select name="city" aria-label="Город"><option>Симферополь</option><option>Ялта</option><option>Севастополь</option><option>Алушта</option><option>Евпатория</option><option>Феодосия</option><option>Судак</option><option>Керчь</option><option>Бахчисарай</option><option>Балаклава</option><option>Саки</option><option>Гурзуф</option></select>
+              <PrettySelect ariaLabel="Город" defaultValue="Симферополь" name="city" options={HOME_CITIES} />
             </label>
             <label className="date-field">
               <svg><use href="#clock" /></svg>
-              <select name="when" aria-label="Когда"><option>Сегодня</option><option>Сегодня вечером</option><option>На выходных</option></select>
+              <PrettySelect ariaLabel="Когда" defaultValue="Сегодня" options={HOME_VISIT_TIMES} />
             </label>
             <button className="search-button" type="submit">Найти <svg><use href="#arrow" /></svg></button>
           </form>
           <div className="quick-filters" aria-label="Быстрые фильтры">
-            <a href={catalogLink({ category: "Рестораны" })} data-filter="Рестораны">Рестораны</a><a href={catalogLink({ category: "Кафе" })} data-filter="Кафе">Кафе</a><a href={catalogLink({ category: "Кофейни" })} data-filter="Кофейни">Кофейни</a><a href={catalogLink({ category: "Кондитерские" })} data-filter="Кондитерские">Кондитерские</a><a href={catalogLink({ category: "Бары" })} data-filter="Бары">Бары</a><a href={catalogLink({ category: "Фаст-кэжуал" })} data-filter="Фаст-кэжуал">Фаст-кэжуал</a>
+            <a href={catalogLink({ category: "Рестораны" })} data-filter="Рестораны"><svg aria-hidden="true"><use href="#restaurant" /></svg>Рестораны</a><a href={catalogLink({ category: "Кафе" })} data-filter="Кафе"><svg aria-hidden="true"><use href="#coffee" /></svg>Кафе</a><a href={catalogLink({ category: "Кофейни" })} data-filter="Кофейни"><svg aria-hidden="true"><use href="#coffee" /></svg>Кофейни</a><a href={catalogLink({ category: "Кондитерские" })} data-filter="Кондитерские"><svg aria-hidden="true"><use href="#cake" /></svg>Кондитерские</a><a href={catalogLink({ category: "Бары" })} data-filter="Бары"><svg aria-hidden="true"><use href="#cocktail" /></svg>Бары</a><a href={catalogLink({ category: "Фаст-кэжуал" })} data-filter="Фаст-кэжуал"><svg aria-hidden="true"><use href="#bolt" /></svg>Фаст-кэжуал</a>
           </div>
         </div>
         <div className="hero-note" aria-live="polite"><span className="catalog-status" aria-hidden="true"></span><span className="catalog-total" data-venue-total-label="venues"><strong data-venue-count="" aria-label={String(catalogSummary.total)}>{catalogSummary.total}</strong>{` ${venueWord(catalogSummary.total)}`}</span><small>в каталоге онлайн</small></div>
@@ -268,20 +564,7 @@ export function PublicHomeMarkup({
           <div><p className="eyebrow">Выбор гостей</p><h2 id="popular-title">Популярные рестораны</h2></div>
           <a className="text-link" href="/catalog" data-show-all="">Смотреть всё <svg><use href="#arrow" /></svg></a>
         </div>
-        <div className="venue-grid">
-          <button className="venue-card" type="button" data-venue="marea" data-category="Рестораны" data-city="Севастополь" data-cuisine="Средиземноморская" data-source="yandex" data-pet="0" data-parking="1" data-score="4.9" data-new="0" data-search="баркас ресторан средиземноморская кухня море севастополь">
-            <span className="venue-image"><img src="assets/venue-restaurant-unsplash.jpg" alt="Тёплый интерьер ресторана" loading="lazy" /><span className="fav"><svg><use href="#heart" /></svg></span><span className="tag">Чёрное море</span></span>
-            <span className="venue-body"><strong>Баркас</strong><small>Черноморская и средиземноморская кухня</small><span className="venue-meta"><b>4.9</b><i></i> редакционная оценка</span><span className="venue-price">от 1 300 ₽</span></span>
-          </button>
-          <button className="venue-card" type="button" data-venue="zerno" data-category="Кофейни" data-city="Симферополь" data-cuisine="Кофе и десерты" data-pet="1" data-parking="1" data-score="4.8" data-new="1" data-search="зерно кофейня кофе завтраки симферополь">
-            <span className="venue-image"><img src="assets/venue-coffee-unsplash.jpg" alt="Интерьер спешелти-кофейни" loading="lazy" /><span className="fav"><svg><use href="#heart" /></svg></span><span className="tag">Завтраки</span></span>
-            <span className="venue-body"><strong>Зерно</strong><small>Спешелти-кофейня</small><span className="venue-meta"><b>4.8</b><i></i> 191 отзыв</span><span className="venue-price">от 450 ₽</span></span>
-          </button>
-          <button className="venue-card" type="button" data-venue="sova" data-category="Бары" data-city="Севастополь" data-cuisine="Европейская" data-source="yandex" data-pet="0" data-parking="1" data-score="4.7" data-new="0" data-search="gio restaurant bar коктейли вечер севастополь">
-            <span className="venue-image"><img src="assets/venue-cocktail-unsplash.jpg" alt="Авторский коктейль в баре" loading="lazy" /><span className="fav"><svg><use href="#heart" /></svg></span><span className="tag">До 02:00</span></span>
-            <span className="venue-body"><strong>Gio restaurant &amp; bar</strong><small>Европейская кухня и коктейли</small><span className="venue-meta"><b>4.7</b><i></i> редакционная оценка</span><span className="venue-price">от 800 ₽</span></span>
-          </button>
-        </div>
+        <HomeFeaturedVenueGrid venues={featuredVenues} />
       </section>
 
       <section className="content-section app-promo" aria-labelledby="app-promo-title" data-tilt-stage="">
@@ -296,7 +579,7 @@ export function PublicHomeMarkup({
             <span><svg aria-hidden="true"><use href="#pin" /></svg>Маршруты</span>
             <span><svg aria-hidden="true"><use href="#star" /></svg>Отзывы</span>
           </div>
-          <div className="app-promo-actions"><button type="button" data-open-profile="">Открыть профиль <svg><use href="#arrow" /></svg></button><div className="app-promo-meta"><span className="app-promo-live" data-venue-total-label="places"><i className="catalog-live-dot" aria-hidden="true"></i><b data-venue-count="">{catalogSummary.total}</b>{` ${placeWord(catalogSummary.total)} уже в каталоге`}</span><button className="app-demo-toggle" type="button" data-phone-demo-toggle="" aria-pressed="false" aria-label="Приостановить анимацию макетов"><span aria-hidden="true" data-phone-demo-icon="">Ⅱ</span></button></div></div>
+          <div className="app-promo-actions"><button type="button" data-open-profile="" onClick={() => bridgeToAccount(resolvedUser ? "profile" : "login")}>Открыть профиль <svg><use href="#arrow" /></svg></button><div className="app-promo-meta"><span className="app-promo-live" data-venue-total-label="places"><i className="catalog-live-dot" aria-hidden="true"></i><b data-venue-count="">{catalogSummary.total}</b>{` ${placeWord(catalogSummary.total)} уже в каталоге`}</span><button className="app-demo-toggle" type="button" data-phone-demo-toggle="" aria-pressed="false" aria-label="Приостановить анимацию макетов"><span aria-hidden="true" data-phone-demo-icon="">Ⅱ</span></button></div></div>
         </div>
         <div className="app-phones" aria-hidden="true" data-phone-scene="">
           <div className="phone phone-left" data-phone-depth="-1">
@@ -396,7 +679,7 @@ export function PublicHomeMarkup({
 
       <section className="place-stats" aria-label="Место в цифрах"><div><b data-venue-count="" aria-label={String(catalogSummary.total)}>{catalogSummary.total}</b><span data-venue-total-label="catalog-stat">{venueWord(catalogSummary.total)} в каталоге</span></div><div><b>150+</b><span>поводов найти новое</span></div><div><b>20+</b><span>категорий и фильтров</span></div><div><b>4.8</b><span>средняя оценка мест</span></div></section>
 
-      <section className="categories-view" id="categories-view" hidden aria-labelledby="all-categories-title">
+      {!interactiveHome ? <section className="categories-view" id="categories-view" hidden aria-labelledby="all-categories-title">
         <div className="categories-view-inner">
           <button className="back-link" type="button" data-home-link="">← Вернуться на главную</button>
           <h1 id="all-categories-title">Все категории</h1>
@@ -416,19 +699,19 @@ export function PublicHomeMarkup({
             <button className="category-tile dining" type="button" data-filter-category="Банкетные залы"><svg><use href="#restaurant" /></svg><span>Банкетные залы</span><small data-category-count="Банкетные залы">{placeCount(catalogSummary.byCategory["Банкетные залы"] ?? 0)}</small></button>
           </div>
         </div>
-      </section>
+      </section> : null}
       </>) : null}
 
-      <section
+      {!interactiveHome ? <section
         className="catalog-view"
         id="catalog-view"
         hidden={!catalogVisible}
         aria-labelledby={catalogContent != null ? "catalog-title" : undefined}
       >
         {catalogContent}
-      </section>
+      </section> : null}
 
-      {!standalone ? (<>
+      {!standalone && !interactiveHome ? (<>
       <section className="profile-view" id="profile-view" hidden aria-labelledby="profile-title">
         <div className="profile-inner"><button className="back-link" type="button" data-home-link="">← Вернуться на главную</button><div className="profile-heading"><span className="profile-large-avatar" data-profile-avatar="">М</span><div><p className="eyebrow">Личный кабинет</p><h1 id="profile-title" data-profile-name="">Ваш профиль</h1><p><span data-profile-email=""></span><br />Избранные места, отзывы и заявки — в одном кабинете.</p></div><div className="profile-actions"><a className="profile-action merchant-profile-link" href="/merchant" hidden>Кабинет ресторатора</a><button className="profile-action" type="button" data-open-submission=""><svg><use href="#plus" /></svg>Добавить заведение</button><button className="profile-action secondary" type="button" data-logout="">Выйти</button></div></div><div className="profile-grid"><section className="profile-card"><div><p className="eyebrow">Избранное</p><h2>Места, к которым хочется вернуться</h2></div><div className="saved-list" id="profile-saved-list"></div></section><section className="profile-card profile-review"><p className="eyebrow">Ваш голос</p><h2>Отзывы помогают выбирать лучше</h2><p>Откройте карточку заведения и поделитесь впечатлением — отзыв появится после модерации.</p><button className="black-action" type="button" data-home-link="">Найти место <svg><use href="#arrow" /></svg></button></section></div></div>
       </section>
@@ -436,11 +719,21 @@ export function PublicHomeMarkup({
       {profileContent}
     </main>
 
-    <footer className="site-footer" id="site-footer"><div className="footer-main"><div className="footer-brand"><a className="brand brand-mark" href={standalone ? "/" : "#guide"} data-home-link="" aria-label="Место — на главную"><svg className="brand-pin"><use href="#pin" /></svg><span className="brand-word">Место</span><span className="brand-orb" aria-hidden="true"><svg><use href="#logo-star" /></svg></span></a><p>Ваш гид по любимым ресторанам<br />и новым впечатлениям.</p></div><div className="footer-column"><h4>Навигация</h4><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#cities" : "#cities"} data-home-link="">Города</a></div><div className="footer-column"><h4>Помощь</h4><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">Как это работает</a><a href="/help#faq">Вопросы и ответы</a><a href="/help#partners">Партнёрам</a><a href="/help#rules">Правила сервиса</a></div><div className="footer-column footer-contacts"><h4>Для вас</h4><a href={standalone ? "/favorites" : "/?open=favorites#guide"}>Избранное</a><a href="/?open=submission#guide">Добавить заведение</a><a href={standalone ? "/profile" : "/?open=profile#guide"}>Личный кабинет</a><span>Республика Крым</span></div></div><div className="footer-bottom"><small>© 2026 Место. Все права защищены.</small><span><a href="/help#privacy">Политика конфиденциальности</a><a href="/help#terms">Пользовательское соглашение</a></span></div></footer>
+    <footer className="site-footer" id="site-footer"><div className="footer-main"><div className="footer-brand"><a className="brand brand-mark" href={standalone ? "/" : "#guide"} data-home-link="" aria-label="Место — на главную"><svg className="brand-pin"><use href="#pin" /></svg><span className="brand-word">Место</span><span className="brand-orb" aria-hidden="true"><svg><use href="#logo-star" /></svg></span></a><p>Ваш гид по любимым ресторанам<br />и новым впечатлениям.</p></div><div className="footer-column"><h4>Навигация</h4><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#cities" : "#cities"} data-home-link="">Города</a></div><div className="footer-column"><h4>Помощь</h4><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">Как это работает</a><a href="/help#faq">Вопросы и ответы</a><a href="/help#partners">Партнёрам</a><a href="/help#rules">Правила сервиса</a></div><div className="footer-column footer-contacts"><h4>Для вас</h4><a href={managedPublicShell ? "/favorites" : "/?open=favorites#guide"}>Избранное</a><HomeRouteLink id="home-submission-link" to="/?open=submission#guide">Добавить заведение</HomeRouteLink><a href={managedPublicShell ? "/profile" : "/?open=profile#guide"}>Личный кабинет</a><span>Республика Крым</span></div></div><div className="footer-bottom"><small>© 2026 Место. Все права защищены.</small><span><a href="/help#privacy">Политика конфиденциальности</a><a href="/help#terms">Пользовательское соглашение</a></span></div></footer>
 
-    <div ref={mobileNavRef} className="mobile-nav" role="dialog" aria-modal="true" aria-label="Навигация" hidden={!standalone || !mobileOpen}><div className="mobile-nav-panel"><button type="button" className="mobile-nav-close" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)}>×</button><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">О проекте</a><a href="/help#faq">Помощь</a><button type="button" className="mobile-nav-action" data-open-favorites="" onClick={() => bridgeToAccount("favorites")}>Избранное</button><button type="button" className="mobile-nav-action" data-open-auth="" onClick={() => bridgeToAccount("profile")}>Личный кабинет</button></div></div>
+    <div
+      ref={mobileNavRef}
+      className="mobile-nav"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Навигация"
+      hidden={!managedPublicShell || !mobileOpen}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) setMobileOpen(false);
+      }}
+    ><div className="mobile-nav-panel"><button type="button" className="mobile-nav-close" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)}>×</button><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="" onClick={() => setMobileOpen(false)}>Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="" onClick={() => setMobileOpen(false)}>Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="" onClick={() => setMobileOpen(false)}>Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="" onClick={() => setMobileOpen(false)}>О проекте</a><a href="/help#faq" onClick={() => setMobileOpen(false)}>Помощь</a><button type="button" className="mobile-nav-action" data-open-favorites="" onClick={() => { setMobileOpen(false); bridgeToAccount("favorites"); }}>Избранное</button><button type="button" className="mobile-nav-action" data-open-auth="" onClick={() => { setMobileOpen(false); bridgeToAccount(resolvedUser ? "profile" : "login"); }}>Личный кабинет</button></div></div>
 
-    {venueDialogContent ?? (!standalone ? (
+    {venueDialogContent ?? (!standalone && !interactiveHome ? (
     <dialog id="venue-dialog" aria-labelledby="venue-dialog-title">
       <button className="dialog-close" type="button" aria-label="Закрыть">×</button>
       <div className="dialog-gallery">
@@ -482,7 +775,7 @@ export function PublicHomeMarkup({
       </div>
     </dialog>
     ) : null)}
-    {!standalone ? (<>
+    {!standalone && !interactiveHome ? (<>
     <dialog id="auth-dialog" className="form-dialog" aria-labelledby="auth-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="form-dialog-inner"><p className="eyebrow">Добро пожаловать в Место</p><h2 id="auth-title">Войти в аккаунт</h2><p className="form-lead">Сохраняйте любимые места и оставляйте отзывы.</p><form id="auth-form"><label>Почта или логин<input name="login" type="text" autoComplete="username" placeholder="you@example.com" required /></label><label>Пароль<input name="password" type="password" autoComplete="current-password" placeholder="Введите пароль" required /></label><p className="auth-error" role="alert" hidden></p><button className="primary-action full" type="submit">Войти <svg><use href="#arrow" /></svg></button></form><div className="form-divider"><span>или</span></div><div className="social-grid"><button type="button" data-social="google"><b>G</b>Google</button><button type="button" data-social="yandex"><b>Я</b>Яндекс</button><button type="button" data-social="vk"><b>VK</b>ВКонтакте</button></div><p className="social-auth-note" aria-live="polite"></p><button className="form-link" type="button" data-open-register="">Регистрация</button></div></dialog>
     <dialog id="register-dialog" className="form-dialog" aria-labelledby="register-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="form-dialog-inner"><p className="eyebrow">Новый аккаунт</p><h2 id="register-title">Создать профиль</h2><p className="form-lead">Один профиль для избранного, отзывов и новых заведений.</p><form id="register-form"><label>Имя<input name="name" type="text" autoComplete="name" placeholder="Как вас зовут?" required /></label><label>Логин<input name="username" type="text" autoComplete="username" placeholder="Например, alex" pattern="[A-Za-z0-9._-]{3,48}" title="От 3 до 48 латинских букв, цифр, точек, дефисов или подчёркиваний" required /></label><label>Почта<input name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></label><label>Пароль<input name="password" type="password" autoComplete="new-password" placeholder={PASSWORD_HINT} minLength={PASSWORD_MIN_LENGTH} pattern={PASSWORD_PATTERN} title={PASSWORD_ERROR_MESSAGE} required /></label><p className="auth-error" role="alert" hidden></p><button className="primary-action full" type="submit">Создать аккаунт <svg><use href="#arrow" /></svg></button></form><div className="form-divider"><span>или</span></div><div className="social-grid"><button type="button" data-social="google"><b>G</b>Google</button><button type="button" data-social="yandex"><b>Я</b>Яндекс</button><button type="button" data-social="vk"><b>VK</b>ВКонтакте</button></div><p className="social-auth-note" aria-live="polite"></p><button className="form-link" type="button" data-open-auth="">Уже есть аккаунт</button></div></dialog>
     <dialog id="review-dialog" className="form-dialog review-dialog" aria-labelledby="review-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="form-dialog-inner"><p className="eyebrow">Ваше впечатление</p><h2 id="review-title">Добавить отзыв</h2><p className="form-lead">Оценка и текст появятся в карточке после проверки редакцией.</p><form id="review-form"><label>Ваше имя<input name="authorName" type="text" autoComplete="name" placeholder="Как вас представить?" required /></label><label>Оценка<select name="rating" required><option value="5">5 — отлично</option><option value="4">4 — хорошо</option><option value="3">3 — нормально</option><option value="2">2 — есть замечания</option><option value="1">1 — не понравилось</option></select></label><label>Отзыв<textarea name="review" rows={5} minLength={20} placeholder="Что вам понравилось: атмосфера, кухня, сервис?" required></textarea></label><label className="check-field"><input name="consent" type="checkbox" required /><span>Подтверждаю, что отзыв основан на моём посещении.</span></label><button className="primary-action full" type="submit">Отправить отзыв <svg><use href="#arrow" /></svg></button></form></div></dialog>
@@ -517,7 +810,9 @@ export function PublicHomeMarkup({
     <dialog id="favorites-dialog" className="favorites-dialog" aria-labelledby="favorites-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="favorites-inner"><p className="eyebrow">Личный список</p><h2 id="favorites-title">Избранные места</h2><p className="form-lead">Сохраняйте места — они останутся здесь для следующего выбора.</p><div className="favorites-list" id="favorites-list"></div><button className="black-action" type="button" data-home-link="">Найти ещё место <svg><use href="#arrow" /></svg></button></div></dialog>
     </>) : null}
     {accountDialogContent}
-    <div className="toast" role="status" aria-live="polite"></div>
+    {submissionDialogContent}
+    <HomePresentationEffects enabled={interactiveHome} />
+    {!interactiveHome ? <div className="toast" role="status" aria-live="polite"></div> : null}
     </>
   );
 }

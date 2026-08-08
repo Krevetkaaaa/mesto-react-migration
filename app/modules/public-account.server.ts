@@ -44,6 +44,17 @@ export function safeAccountReturnTo(value: string | null, fallback = "/profile")
   }
 }
 
+function authenticatedAccountReturnTo(value: string | null) {
+  const returnTo = safeAccountReturnTo(value);
+  try {
+    const pathname = decodeURIComponent(new URL(returnTo, "https://mesto.invalid").pathname)
+      .replace(/\/+$/u, "") || "/";
+    return pathname === "/login" || pathname === "/register" ? "/profile" : returnTo;
+  } catch {
+    return "/profile";
+  }
+}
+
 function clients(request: Request, responseHeaders?: Headers) {
   const http = createServerHttpClient({
     request,
@@ -77,18 +88,23 @@ function oauthErrorMessage(code: string | null) {
 
 export async function loadAuthRoute(request: Request) {
   const url = new URL(request.url);
+  const returnTo = safeAccountReturnTo(url.searchParams.get("returnTo"));
   const api = clients(request);
   const [session, providers] = await Promise.all([
     api.session.current(),
     api.session.providers(),
   ]);
-  if (session.status === "authenticated") return redirect("/profile", { headers: PRIVATE_HEADERS });
+  if (session.status === "authenticated") {
+    return redirect(authenticatedAccountReturnTo(url.searchParams.get("returnTo")), {
+      headers: PRIVATE_HEADERS,
+    });
+  }
   return {
     user: null,
     favorites: [],
     providers,
     oauthError: oauthErrorMessage(url.searchParams.get("oauthError")),
-    returnTo: safeAccountReturnTo(url.searchParams.get("returnTo")),
+    returnTo,
   };
 }
 

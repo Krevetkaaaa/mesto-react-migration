@@ -161,6 +161,13 @@ describe("HTTP module contracts", () => {
     );
   });
 
+  it("maps a successful anonymous session probe without relying on an HTTP error", async () => {
+    const http = new RecordingHttpClient([{ authenticated: false }]);
+
+    await expect(createHttpSession(http).current()).resolves.toEqual({ status: "anonymous" });
+    expect(http.requests).toHaveLength(1);
+  });
+
   it("rejects an empty OAuth access token before transport", async () => {
     const http = new RecordingHttpClient([]);
     await expect(createHttpSession(http).completeOAuth("   ")).rejects.toMatchObject({

@@ -1,4 +1,5 @@
 const {
+  authenticateFixture,
   expect,
   test,
   waitForFullPageStableUi,
@@ -41,17 +42,22 @@ async function gotoHelp(page) {
 }
 
 test.describe("Phase 4 public routes on the production React server", () => {
-  test("home preserves core landmarks, legacy boot script, and the frozen visual", async ({ page }) => {
+  test("home preserves core landmarks under React hydration and the approved visual", async ({ page }) => {
+    const legacyRequests = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/app.js") legacyRequests.push(request.url());
+    });
     const response = await gotoHome(page);
     expect(response?.status()).toBe(200);
     expect(response?.headers()["cache-control"]).toContain("s-maxage=60");
+    expect(await response.text()).toMatch(/<script[^>]+type="module"/u);
     expect(await response?.text()).toContain('data-react-route="home"');
 
     await expect(page.locator("header.site-header")).toHaveCount(1);
     await expect(page.locator("main #guide")).toHaveCount(1);
     await expect(page.locator("#categories, #popular, #collections, #cities, #site-footer")).toHaveCount(5);
-    await expect(page.locator('script[src="app.js?v=ui-motion-3"]')).toHaveCount(1);
-    await expect(page.locator('script[type="module"]')).toHaveCount(0);
+    await expect(page.locator('script[src*="app.js"]')).toHaveCount(0);
+    expect(legacyRequests).toEqual([]);
     await expect(page.locator("link[rel=canonical]")).toHaveAttribute("href", /\/$/);
     await expect(page.locator('meta[property="og:url"]')).toHaveAttribute("content", /\/$/);
 
@@ -113,6 +119,7 @@ test.describe("Phase 4 public routes on the production React server", () => {
     await toggle.focus();
     await page.keyboard.press("Enter");
     await expect(menu).toBeVisible();
+    await expect(page.locator("body")).toHaveClass(/has-mobile-menu/);
     await expect(close).toBeFocused();
     await expect(page.locator("header.site-header")).toHaveAttribute("inert", "");
     await expect(page.locator("main")).toHaveAttribute("aria-hidden", "true");
@@ -133,30 +140,72 @@ test.describe("Phase 4 public routes on the production React server", () => {
     await expect(page.locator("header.site-header")).not.toHaveAttribute("inert", "");
     await expect(page.locator("main")).not.toHaveAttribute("aria-hidden", "true");
     await expect(page.getByRole("banner")).toHaveCount(1);
+    await expect(page.locator("body")).not.toHaveClass(/has-mobile-menu/);
+
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeVisible();
+    await menu.click({ position: { x: 5, y: 5 } });
+    await expect(menu).toBeHidden();
+    await expect(toggle).toBeFocused();
+    await expect(page.locator("body")).not.toHaveClass(/has-mobile-menu/);
+
+    await page.keyboard.press("Enter");
+    await menu.getByRole("link", { name: "Рестораны" }).click();
+    await expect(page).toHaveURL(/\/#popular$/);
+    await expect(menu).toBeHidden();
+    await expect(page.locator("body")).not.toHaveClass(/has-mobile-menu/);
   });
 
-  test("home keeps an empty legacy catalog sentinel and navigates into the React catalog", async ({ page }) => {
+  test("home removes legacy sentinels and navigates into the React catalog", async ({ page }) => {
     test.skip((page.viewportSize()?.width || 0) !== 1440, "catalog ownership is characterized at the desktop baseline");
     const pageErrors = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await gotoHome(page);
 
-    const sentinel = page.locator("#catalog-view");
-    await expect(sentinel).toBeHidden();
-    expect(await sentinel.getAttribute("aria-labelledby")).toBeNull();
-    expect(await sentinel.locator(":scope > *").count()).toBe(0);
+    await expect(page.locator("#catalog-view, #categories-view, #profile-view")).toHaveCount(0);
     await expect(page.locator("#popular .venue-card.is-extra")).toHaveCount(0);
-    await expect(page.locator("#popular .venue-grid > .venue-card:not(.home-stored-card)")).toHaveCount(3);
+    await expect(page.locator("#popular .home-featured-venue-card")).toHaveCount(5);
+    await expect(page.locator('script[src*="app.js"]')).toHaveCount(0);
 
-    await page.locator("[data-open-categories]").first().click();
-    await expect(page.locator("#categories-view")).toBeVisible();
-    await page.locator("#categories-view [data-home-link]").click();
-    await expect(page.locator("#guide")).toBeVisible();
-
-    await page.locator('#categories [data-filter-category="Рестораны"]').click();
-    await expect(page).toHaveURL(/\/catalog\?category=/);
+    await page.locator("#categories .text-link").click();
+    await expect(page).toHaveURL(/\/catalog$/);
     await expect(page.locator('main[data-react-route="catalog"]')).toBeVisible();
     expect(pageErrors).toEqual([]);
+  });
+
+  test("home database metadata stays legacy-compatible and whole cards use client navigation", async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "card navigation is exercised once at desktop");
+    await gotoHome(page);
+
+    const databaseCards = page.locator("#popular .home-database-venue-card");
+    await expect(databaseCards).toHaveCount(2);
+    for (const card of await databaseCards.all()) {
+      await expect(card).toHaveClass(/catalog-venue-card/);
+      await expect(card).toHaveClass(/home-stored-card/);
+      await expect(card).toHaveAttribute("data-branch-count", "1");
+      await expect(card.locator(".venue-meta--source")).not.toBeEmpty();
+      await expect(card.locator(".venue-source-note")).toHaveText("Опубликовано в каталоге «Места»");
+      await expect(card.locator(".venue-card-description, .card-rating-badge, .venue-amenities, .venue-card-action")).toHaveCount(4);
+      await expect(card.locator(".venue-price")).toHaveCount(0);
+      await expect(card.locator("a.home-venue-card-link")).toHaveCount(1);
+      await expect(card.locator("a")).toHaveCount(1);
+    }
+
+    await page.evaluate(() => { window.__mestoClientNavigationMarker = "preserved"; });
+    const link = page.locator('[data-venue="marea"] .home-venue-card-link');
+    await link.focus();
+    await expect(link).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/venue\/barkas\?from=%2F$/);
+    expect(await page.evaluate(() => window.__mestoClientNavigationMarker)).toBe("preserved");
+    await expect(page.locator("#venue-dialog .dialog-media img")).toHaveAttribute("src", /^\/assets\//);
+
+    await page.locator("#venue-dialog > .dialog-close").click();
+    await expect(page).toHaveURL(/\/$/);
+    expect(await page.evaluate(() => window.__mestoClientNavigationMarker)).toBe("preserved");
+
+    await page.goto("/city/simferopol");
+    await expect(page.locator("#catalog-view .venue-card .venue-image img").first()).toHaveAttribute("src", /^\/assets\//);
   });
 
   test("home summary is identical in raw SSR and hydrated fixture DOM", async ({ page, fixtureApi }) => {
@@ -181,6 +230,48 @@ test.describe("Phase 4 public routes on the production React server", () => {
     expect(new URL(cityHref, "http://fixture").searchParams.get("city")).toBe("Ялта");
     expect((await fixtureApi.read()).requestCounters.venueList).toBe(2);
   });
+
+  test("home guards and submits the React venue form", async ({ page, fixtureApi }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "submission contract is exercised once at desktop");
+
+    await page.goto("/?open=submission#guide");
+    await expect(page).toHaveURL(/\/login\?returnTo=/);
+    const anonymousReturnTo = new URL(page.url()).searchParams.get("returnTo");
+    expect(anonymousReturnTo).toBe("/?open=submission#guide");
+
+    await page.getByLabel("Почта или логин").fill("anna@example.test");
+    await page.getByLabel("Пароль").fill("fixture-password");
+    await page.locator(".form-dialog-inner form").getByRole("button", { name: /^Войти/ }).click();
+    await expect(page).toHaveURL(/\/\?open=submission#guide$/);
+
+    const dialog = page.locator("#submission-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Закрыть" }).click();
+    await expect(page).toHaveURL(/\/#guide$/);
+
+    const submissionLink = page.locator("#home-submission-link");
+    await expect(submissionLink).toBeFocused();
+    await submissionLink.click();
+    await expect(page).toHaveURL(/\/\?open=submission#guide$/);
+    await expect(dialog).toBeVisible();
+
+    const form = dialog.locator("#submission-form");
+    await expect(form.locator('[name="contactName"]')).not.toHaveValue("");
+    await expect(form.locator('[name="contactEmail"]')).not.toHaveValue("");
+    await form.locator('[name="title"]').fill("React терраса");
+    await form.locator('[name="city"]').selectOption("Ялта");
+    await form.locator('[name="category"]').selectOption("Рестораны");
+    await form.locator('[name="description"]').fill("Тестовая заявка React с видом на море и сезонным меню.");
+    await form.locator('[name="consent"]').check();
+    const submitted = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === "/api/submissions"
+      && response.request().method() === "POST"
+    ));
+    await form.getByRole("button", { name: /Отправить на модерацию/ }).click();
+    expect((await submitted).status()).toBe(201);
+    await expect(dialog.getByRole("status")).toContainText("Заявка отправлена на модерацию");
+    expect((await fixtureApi.read()).submissions).toBe(2);
+  });
 });
 
 test.describe("Phase 4 home editorial fallback", () => {
@@ -197,6 +288,28 @@ test.describe("Phase 4 home editorial fallback", () => {
     await expect(page.locator('[data-venue-count]')).toHaveText(["7", "7", "7"]);
     await expect(page.locator('[data-category-count="Рестораны"]').first()).toHaveText("7 мест");
     await expect(page.locator('[data-city-count="Ялта"]')).toHaveText("2 места");
+  });
+});
+
+test.describe("Phase 4 submission session recovery", () => {
+  test.use({ allowedHttpErrors: [{ path: "/api/auth/session", status: 503 }] });
+
+  test("keeps the requested form recoverable when session restore fails", async ({ page, fixtureApi }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "session recovery is exercised once at desktop");
+    await fixtureApi.set({ authError: true });
+    await page.goto("/?open=submission#guide");
+
+    await expect(page).toHaveURL(/\?open=submission/);
+    const alert = page.getByRole("alert");
+    await expect(alert).toContainText("Не удалось проверить сессию");
+    await expect(page.locator("#submission-dialog")).toHaveCount(0);
+
+    await fixtureApi.set({ authError: false });
+    await authenticateFixture(page, "customer");
+    await alert.getByRole("button", { name: "Повторить" }).click();
+
+    await expect(page.locator("#submission-dialog")).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
   });
 });
 

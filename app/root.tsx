@@ -13,8 +13,11 @@ import type { Route } from "./+types/root";
 import { PublicAccountProvider } from "./components/public/account/PublicAccountProvider";
 import { SECURITY_HEADERS } from "./lib/security-headers";
 
+const FAVICON_DATA_URL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTYiIGZpbGw9IiMxMDIxMmIiLz48cGF0aCBkPSJNMzIgOWMtMTEgMC0yMCA5LTIwIDIwIDAgMTUgMjAgMjkgMjAgMjlzMjAtMTQgMjAtMjlDNTIgMTggNDMgOSAzMiA5WiIgZmlsbD0iIzM3ZDU5ZCIvPjxjaXJjbGUgY3g9IjMyIiBjeT0iMjkiIHI9IjgiIGZpbGw9IiMxMDIxMmIiLz48L3N2Zz4=";
+
 function isInteractivePublicPath(pathname: string) {
-  return pathname === "/catalog"
+  return pathname === "/"
+    || pathname === "/catalog"
     || pathname.startsWith("/city/")
     || pathname.startsWith("/venue/")
     || ["/login", "/register", "/profile", "/favorites"].includes(pathname);
@@ -49,6 +52,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href={FAVICON_DATA_URL} type="image/svg+xml" />
         <Meta />
         {loadsPublicTheme ? <script src="/theme.js?v=theme-1" /> : null}
         <Links />

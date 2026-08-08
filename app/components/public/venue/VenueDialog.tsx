@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { publicAssetUrl } from "../../../lib/public-asset";
 import type { PublicVenueDetail } from "../../../modules/public-catalog.server";
 import { usePublicAccount } from "../account/PublicAccountProvider";
+import { ReviewDialog } from "./ReviewDialog";
 
 function safeReturnPath(value: string | null) {
   if (!value) return "/catalog";
+  const isAllowed = (candidate: string) => candidate === "/"
+    || candidate === "/catalog"
+    || candidate.startsWith("/catalog?")
+    || candidate.startsWith("/city/");
+  if (isAllowed(value)) return value;
   try {
     const decoded = decodeURIComponent(value);
-    return decoded === "/catalog" || decoded.startsWith("/catalog?") || decoded.startsWith("/city/")
-      ? decoded
-      : "/catalog";
+    return isAllowed(decoded) ? decoded : "/catalog";
   } catch {
     return "/catalog";
   }
@@ -25,9 +30,13 @@ export function VenueDialog({ detail, returnTo }: {
   const account = usePublicAccount();
   const { venue, menuItems, promotions } = detail;
   const [favoriteMessage, setFavoriteMessage] = useState("");
-  const photos = venue.photos.length ? venue.photos : ["/assets/venue-restaurant-unsplash.jpg"];
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const photos = (venue.photos.length ? venue.photos : ["/assets/venue-restaurant-unsplash.jpg"])
+    .map(publicAssetUrl);
   const heroPhoto = photos[0] ?? "/assets/venue-restaurant-unsplash.jpg";
   const returnPath = safeReturnPath(returnTo);
+  const venuePath = `/venue/${encodeURIComponent(venue.slug)}?${new URLSearchParams({ from: returnPath }).toString()}`;
+  const reviewLoginPath = `/login?${new URLSearchParams({ returnTo: venuePath }).toString()}`;
 
   const isSaved = account.favoriteKeys.has(detail.venueKey);
 
@@ -35,7 +44,7 @@ export function VenueDialog({ detail, returnTo }: {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (!dialog.open) dialog.showModal();
-    const onClose = () => { void navigate(returnPath); };
+    const onClose = () => { void navigate(returnPath, { replace: true }); };
     dialog.addEventListener("close", onClose);
     return () => dialog.removeEventListener("close", onClose);
   }, [navigate, returnPath]);
@@ -50,10 +59,11 @@ export function VenueDialog({ detail, returnTo }: {
       return;
     }
     try {
+      const externalVenueId = detail.externalVenueId ? detail.venueKey : null;
       const outcome = await account.toggleFavorite({
         venueKey: detail.venueKey,
-        venueId: detail.externalVenueId ? null : venue.id,
-        externalVenueId: detail.externalVenueId,
+        venueId: externalVenueId ? null : venue.id,
+        externalVenueId,
         snapshot: {
           slug: venue.slug,
           title: venue.title,
@@ -70,17 +80,18 @@ export function VenueDialog({ detail, returnTo }: {
   };
 
   return (
-    <dialog
-      ref={dialogRef}
-      id="venue-dialog"
-      aria-labelledby="venue-dialog-title"
-      onClick={(event) => {
-        const box = event.currentTarget.getBoundingClientRect();
-        if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) {
-          event.currentTarget.close();
-        }
-      }}
-    >
+    <>
+      <dialog
+        ref={dialogRef}
+        id="venue-dialog"
+        aria-labelledby="venue-dialog-title"
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) {
+            event.currentTarget.close();
+          }
+        }}
+      >
       <button className="dialog-close" type="button" aria-label="Закрыть" onClick={() => dialogRef.current?.close()}>×</button>
       <div className="dialog-gallery">
         <div className="dialog-media"><img src={heroPhoto} alt={venue.title} width={1200} height={800} decoding="async" fetchPriority="high" /><span className="dialog-photo-action">Смотреть фото <svg><use href="#camera" /></svg></span></div>
@@ -110,7 +121,13 @@ export function VenueDialog({ detail, returnTo }: {
         <section className="dialog-detail-section dialog-reviews-panel" aria-labelledby="dialog-reviews-title">
           <div className="dialog-section-heading"><h3 id="dialog-reviews-title">Отзывы</h3></div>
           <div className="dialog-review-layout"><div className="dialog-review-score"><b>—</b><span>★★★★★</span><small>Оценка гостей</small></div><article><header><span className="dialog-review-avatar">М</span><p><b>Редакция «Место»</b><small>Опубликованная карточка</small></p></header><p className="dialog-review-copy">Расскажите о своём посещении после авторизации.</p></article></div>
-          <a className="dialog-review-action" href="/?open=profile#guide"><svg><use href="#star" /></svg>Добавить отзыв <svg><use href="#arrow" /></svg></a>
+          {account.status === "authenticated" ? (
+            <button className="dialog-review-action" type="button" onClick={() => setReviewOpen(true)}><svg><use href="#star" /></svg>Добавить отзыв <svg><use href="#arrow" /></svg></button>
+          ) : account.status === "anonymous" ? (
+            <a className="dialog-review-action" href={reviewLoginPath}><svg><use href="#star" /></svg>Войти, чтобы оставить отзыв <svg><use href="#arrow" /></svg></a>
+          ) : (
+            <button className="dialog-review-action" type="button" disabled><svg><use href="#star" /></svg>{account.status === "restoring" ? "Проверяем авторизацию…" : "Отзывы временно недоступны"}</button>
+          )}
         </section>
         <section className="dialog-detail-section dialog-map-panel" aria-labelledby="dialog-map-title">
           <div className="dialog-section-heading"><h3 id="dialog-map-title">На карте</h3></div>
@@ -118,6 +135,14 @@ export function VenueDialog({ detail, returnTo }: {
           <a className="dialog-route-action" href={venue.address ? `https://yandex.ru/maps/?rtext=~${encodeURIComponent(`${venue.city} ${venue.address}`)}` : "https://yandex.ru/maps/"} target="_blank" rel="noreferrer">Построить маршрут <svg><use href="#arrow" /></svg></a>
         </section>
       </div>
-    </dialog>
+      </dialog>
+      {reviewOpen ? (
+        <ReviewDialog
+          authorName={account.user?.name ?? ""}
+          detail={detail}
+          onClose={() => setReviewOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }

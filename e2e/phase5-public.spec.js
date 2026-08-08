@@ -117,6 +117,33 @@ test.describe("Phase 5 catalog routes", () => {
     expect((await fixtureApi.read()).favorites).toBe(1);
   });
 
+  test("venue review requires auth and submits through the React module", async ({ page, fixtureApi }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "review contract is exercised once at desktop");
+    await page.goto("/venue/tihiy-sad?from=%2Fcatalog");
+    const guestReview = page.getByRole("link", { name: /Войти, чтобы оставить отзыв/ });
+    await expect(guestReview).toBeVisible();
+    expect(new URL(await guestReview.getAttribute("href"), "http://fixture").pathname).toBe("/login");
+    expect((await fixtureApi.read()).reviews).toBe(1);
+
+    await authenticateFixture(page, "customer");
+    await page.reload();
+    await page.getByRole("button", { name: /Добавить отзыв/ }).click();
+    const dialog = page.locator("#review-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('[name="authorName"]')).not.toHaveValue("");
+    await dialog.locator('[name="rating"]').selectOption("4");
+    await dialog.locator('[name="review"]').fill("Очень приятная атмосфера, внимательный сервис и хорошее меню.");
+    await dialog.locator('[name="consent"]').check();
+    const submitted = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === "/api/reviews"
+      && response.request().method() === "POST"
+    ));
+    await dialog.getByRole("button", { name: /Отправить отзыв/ }).click();
+    expect((await submitted).status()).toBe(201);
+    await expect(dialog.getByRole("status")).toContainText("Отзыв отправлен на модерацию");
+    expect((await fixtureApi.read()).reviews).toBe(2);
+  });
+
   test("catalog exposes loading, fallback error and retry without stale overwrite", async ({ page, fixtureApi }) => {
     test.skip((page.viewportSize()?.width || 0) !== 1440, "functional contract is exercised once at desktop");
     await fixtureApi.set({ catalogDelayMs: 250 });

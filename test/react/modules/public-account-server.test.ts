@@ -53,7 +53,7 @@ describe("public account server orchestration", () => {
   it("loads anonymous auth metadata and sanitizes return targets", async () => {
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation((input) => {
       const path = new URL(requestUrl(input)).pathname;
-      if (path === "/api/auth/session") return Promise.resolve(json({ message: "Authentication required" }, 401));
+      if (path === "/api/auth/session") return Promise.resolve(json({ authenticated: false }));
       if (path === "/api/auth/providers") return Promise.resolve(json({ email: true, google: false, yandex: true, vk: true }));
       return Promise.resolve(json({ message: "Unexpected path" }, 404));
     }));
@@ -67,6 +67,38 @@ describe("public account server orchestration", () => {
     expect(safeAccountReturnTo("https://evil.example/path")).toBe("/profile");
     expect(safeAccountReturnTo("//evil.example/path")).toBe("/profile");
     expect(safeAccountReturnTo("/venue/tihiy-sad?from=%2Fcatalog")).toBe("/venue/tihiy-sad?from=%2Fcatalog");
+  });
+
+  it("redirects an authenticated auth route to a safe return target without auth loops", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation((input) => {
+      const path = new URL(requestUrl(input)).pathname;
+      if (path === "/api/auth/session") {
+        return Promise.resolve(json({ authenticated: true, user: rawUser, favorites: [] }));
+      }
+      if (path === "/api/auth/providers") {
+        return Promise.resolve(json({ email: true, google: false, yandex: true, vk: true }));
+      }
+      return Promise.resolve(json({ message: "Unexpected path" }, 404));
+    }));
+
+    const safe = await loadAuthRoute(new Request(
+      "https://mesto.example/login?returnTo=%2F%3Fopen%3Dsubmission%23guide",
+    ));
+    assertResponse(safe);
+    expect(safe.status).toBe(302);
+    expect(safe.headers.get("location")).toBe("/?open=submission#guide");
+
+    const authLoop = await loadAuthRoute(new Request(
+      "https://mesto.example/login?returnTo=%2Fregister%3FreturnTo%3D%252Ffavorites",
+    ));
+    assertResponse(authLoop);
+    expect(authLoop.headers.get("location")).toBe("/profile");
+
+    const unsafe = await loadAuthRoute(new Request(
+      "https://mesto.example/register?returnTo=https%3A%2F%2Fevil.example%2Fsteal",
+    ));
+    assertResponse(unsafe);
+    expect(unsafe.headers.get("location")).toBe("/profile");
   });
 
   it("forwards same-origin proof and propagates the session cookie through a login redirect", async () => {

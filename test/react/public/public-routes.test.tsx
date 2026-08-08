@@ -13,6 +13,7 @@ import {
   meta as homeMeta,
 } from "../../../app/routes/public-home";
 import { SECURITY_HEADERS } from "../../../app/lib/security-headers";
+import { loadPublicCatalog, loadPublicVenue } from "../../../app/modules/public-catalog.server";
 
 const fixtureSummary = {
   total: 3,
@@ -27,6 +28,14 @@ function argsFor<T extends (args: never) => unknown>(
   value: Record<string, unknown>,
 ): Parameters<T>[0] {
   return value as Parameters<T>[0];
+}
+
+async function loadHomeData(request: Request) {
+  const result = await homeLoader(argsFor(homeLoader, { request }));
+  if (result instanceof Response) {
+    throw new Error(`Expected home data, received redirect ${result.status}`);
+  }
+  return result;
 }
 
 describe("public route server contracts", () => {
@@ -45,15 +54,48 @@ describe("public route server contracts", () => {
   it("derives canonical URLs from the trusted request URL", async () => {
     const request = new Request("https://preview.example.test/source?ignored=true");
 
-    await expect(homeLoader(argsFor(homeLoader, { request }))).resolves.toEqual({
+    const homeData = await loadHomeData(request);
+    expect(homeData).toMatchObject({
       canonicalUrl: "https://preview.example.test/",
       openGraphImageUrl: "https://preview.example.test/assets/mesto-hero.png",
       catalogSummary: fixtureSummary,
     });
+    expect(homeData.featuredVenues.slice(0, 3).map(({ key, slug }) => ({ key, slug }))).toEqual([
+      { key: "marea", slug: "barkas" },
+      { key: "zerno", slug: "zerno" },
+      { key: "sova", slug: "gio-restaurant-bar" },
+    ]);
     expect(helpLoader(argsFor(helpLoader, { request }))).toEqual({
       canonicalUrl: "https://preview.example.test/help",
       openGraphImageUrl: "https://preview.example.test/assets/mesto-hero.png",
     });
+  });
+
+  it("keeps route slugs out of legacy editorial identity and roots detail assets", async () => {
+    const detail = await loadPublicVenue(
+      new Request("https://preview.example.test/venue/barkas"),
+      "barkas",
+    );
+
+    expect(detail).toMatchObject({
+      venueKey: "marea",
+      externalVenueId: "marea",
+      venue: {
+        slug: "barkas",
+        photos: ["/assets/venue-restaurant-unsplash.jpg"],
+      },
+    });
+  });
+
+  it("roots editorial catalog images before nested city routes render them", async () => {
+    const snapshot = await loadPublicCatalog(
+      new Request("https://preview.example.test/city/simferopol"),
+      "Симферополь",
+    );
+    const editorial = snapshot.items.filter(({ databaseId }) => databaseId === null);
+
+    expect(editorial.length).toBeGreaterThan(0);
+    expect(editorial.flatMap(({ photos }) => photos).every((photo) => photo.startsWith("/assets/"))).toBe(true);
   });
 
   it("uses only the origin portion of a valid configured public URL", () => {
@@ -65,18 +107,36 @@ describe("public route server contracts", () => {
     );
   });
 
+  it.each([
+    ["auth", "/login"],
+    ["login", "/login"],
+    ["register", "/register"],
+    ["profile", "/profile"],
+    ["favorites", "/favorites"],
+  ])("redirects the legacy open=%s entry without public caching", async (open, destination) => {
+    const result = await homeLoader(argsFor(homeLoader, {
+      request: new Request(`https://mesto.example.test/?open=${open}#guide`),
+    }));
+
+    expect(result).toBeInstanceOf(Response);
+    if (!(result instanceof Response)) throw new Error("Expected a redirect response");
+    expect(result.status).toBe(302);
+    expect(result.headers.get("location")).toBe(destination);
+    expect(result.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+  });
+
   it("rejects a non-HTTP configured origin and falls back to the request", async () => {
     vi.stubEnv("MESTO_PUBLIC_ORIGIN", "file:///tmp/not-public");
     const request = new Request("https://safe.example.test/");
 
-    expect((await homeLoader(argsFor(homeLoader, { request }))).canonicalUrl).toBe(
+    expect((await loadHomeData(request)).canonicalUrl).toBe(
       "https://safe.example.test/",
     );
   });
 
   it("publishes canonical and Open Graph metadata for both routes", async () => {
     const homeRequest = new Request("https://mesto.example.test/");
-    const homeData = await homeLoader(argsFor(homeLoader, { request: homeRequest }));
+    const homeData = await loadHomeData(homeRequest);
     const helpRequest = new Request("https://mesto.example.test/help");
     const helpData = helpLoader(argsFor(helpLoader, { request: helpRequest }));
 

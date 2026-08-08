@@ -31,7 +31,7 @@ describe("public routing root", () => {
   });
 
   it.each([
-    ["/", true, "is-home-view", false],
+    ["/", true, "is-home-view", true],
     ["/help", true, "", false],
     ["/catalog", true, "is-catalog-view", true],
     ["/city/simferopol", true, "is-catalog-view", true],
@@ -51,6 +51,9 @@ describe("public routing root", () => {
     );
 
     expect(html.includes('src="/theme.js?v=theme-1"')).toBe(hasTheme);
+    expect(html).toContain('rel="icon"');
+    expect(html).toContain('href="data:image/svg+xml;base64,');
+    expect(html).not.toContain('/favicon.ico');
     expect(html.includes(`<body${bodyClass ? ` class="${bodyClass}"` : ""}>`)).toBe(true);
     expect(html.includes('data-route-scripts="true"')).toBe(hydrates);
     expect(html.includes('data-scroll-restoration="true"')).toBe(hydrates);

@@ -6,7 +6,7 @@
 
 - `@playwright/test`: `1.62.1`.
 - Baseline browser: Google Chrome `151.0.7922.72` на Windows.
-- Playwright Chromium для `1.62.1`: revision `151.0.7922.34`; его CDN download в текущем регионе возвращает HTTP 403, поэтому локально используется явно проверенный системный Chrome patch `151.0.7922.72`.
+- Playwright Chromium для `1.62.1`: revision `151.0.7922.34`; его CDN download в текущем регионе возвращает HTTP 403. Для baseline используется официальный Chrome for Testing `151.0.7922.72` из `https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.72/win64/chrome-win64.zip`, SHA-256 `F77DFDF2978865CD1B8B98BD6FF72839E91650B9CBF43051F54C1A0811C183E5`.
 - `deviceScaleFactor`: `1`.
 - Locale: `ru-RU`.
 - Timezone: `Europe/Simferopol`.
@@ -15,7 +15,7 @@
 - Fonts: локальные WOFF2 из закреплённых `@fontsource/manrope@5.3.0` и `@fontsource/cormorant-garamond@5.3.0`.
 - API/data: stateful fixture server, reset перед каждым тестом, один worker.
 
-`playwright.config.js` сначала использует `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, затем установленный Playwright browser. На Windows fallback на системный Chrome разрешён только при наличии `chrome.exe`; после browser update visual baseline нельзя молча пересоздавать — версию нужно зафиксировать в этом файле и заново проверить baseline.
+`playwright.config.js` сначала использует `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, затем установленный Playwright browser. На Windows fallback на системный Chrome разрешён только при наличии `chrome.exe`, но он подходит лишь для диагностики/functional checks: Visual Freeze считается воспроизводимым только на exact baseline binary. CI скачивает архив выше, проверяет hash и версию до запуска полного `npm run test:e2e`.
 
 ## Команды
 
@@ -40,7 +40,7 @@ Phase 8 использует `e2e/phase8-playwright.config.js`: один Chromiu
 Явный воспроизводимый local override:
 
 ```powershell
-$env:PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH='C:\Program Files\Google\Chrome\Application\chrome.exe'
+$env:PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = Join-Path $env:USERPROFILE '.codex\tools\chrome-for-testing\151.0.7922.72\chrome-win64\chrome.exe'
 npm.cmd run test:e2e
 ```
 

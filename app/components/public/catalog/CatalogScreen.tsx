@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Form, Link, useLocation, useNavigate, useNavigation, useRevalidator } from "react-router";
 
 import type { CatalogVenue } from "../../../lib/domain";
+import { publicAssetUrl } from "../../../lib/public-asset";
 import { catalogHref, parseCatalogUrl } from "../../../modules/catalog-url-state";
 import type { PublicCatalogSnapshot } from "../../../modules/public-catalog-experience";
 import { usePublicAccount } from "../account/PublicAccountProvider";
@@ -28,7 +29,7 @@ const CUISINES = [
 ] as const;
 
 function imageFor(item: CatalogVenueView) {
-  return item.photos[0] || "/assets/venue-restaurant-unsplash.jpg";
+  return publicAssetUrl(item.photos[0] || "/assets/venue-restaurant-unsplash.jpg");
 }
 
 function useCatalogFavorites() {
@@ -48,7 +49,7 @@ function useCatalogFavorites() {
       const outcome = await account.toggleFavorite({
         venueKey: item.key,
         venueId: item.databaseId,
-        externalVenueId: item.databaseId ? null : item.slug,
+        externalVenueId: item.databaseId ? null : item.key,
         snapshot: {
           slug: item.slug,
           title: item.name,

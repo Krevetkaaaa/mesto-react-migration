@@ -45,6 +45,10 @@ const CITY_BY_SLUG = {
 
 export type CitySlug = keyof typeof CITY_BY_SLUG;
 
+export const PUBLIC_CITY_SLUGS = Object.freeze(
+  Object.keys(CITY_BY_SLUG) as CitySlug[],
+);
+
 const SLUG_BY_CITY: ReadonlyMap<string, CitySlug> = new Map(
   Object.entries(CITY_BY_SLUG).map(([slug, city]) => [city, slug as CitySlug]),
 );

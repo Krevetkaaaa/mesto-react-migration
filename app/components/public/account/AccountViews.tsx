@@ -8,6 +8,7 @@ import {
   PASSWORD_PATTERN,
 } from "../../../../password-policy.mjs";
 import type { Favorite, User } from "../../../lib/domain";
+import { publicAssetUrl } from "../../../lib/public-asset";
 import type { AuthProviders } from "../../../modules/session";
 import { usePublicAccount } from "./PublicAccountProvider";
 
@@ -17,10 +18,6 @@ interface AuthDialogProps {
   oauthCallbackError: string;
   providers: AuthProviders;
   returnTo: string;
-}
-
-function publicImage(value: string) {
-  return value.startsWith("assets/") ? `/${value}` : value || "/assets/venue-restaurant-unsplash.jpg";
 }
 
 function oauthLabel(provider: "google" | "yandex" | "vk") {
@@ -122,13 +119,13 @@ function FavoriteRows({ favorites, compact = false }: { favorites: readonly Favo
     const href = favorite.snapshot.slug ? `/venue/${favorite.snapshot.slug}` : "/catalog";
     return compact ? (
       <Link className="favorite-row" key={favorite.venueKey} to={href}>
-        <img src={publicImage(favorite.snapshot.image)} alt="" width={52} height={52} />
+        <img src={publicAssetUrl(favorite.snapshot.image)} alt="" width={52} height={52} />
         <span><b>{favorite.snapshot.title}</b><small>{favorite.snapshot.type}</small></span>
         <svg aria-hidden="true"><use href="#arrow" /></svg>
       </Link>
     ) : (
       <Link className="favorite-row" key={favorite.venueKey} to={href}>
-        <img src={publicImage(favorite.snapshot.image)} alt="" width={52} height={52} />
+        <img src={publicAssetUrl(favorite.snapshot.image)} alt="" width={52} height={52} />
         <span><b>{favorite.snapshot.title}</b><small>{favorite.snapshot.type}</small></span>
         <svg aria-hidden="true"><use href="#arrow" /></svg>
       </Link>

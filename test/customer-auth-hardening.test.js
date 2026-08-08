@@ -111,12 +111,13 @@ test('same-origin module fails closed for unsafe requests and rejects conflictin
   })), false);
 });
 
-test('GET auth/session returns 401 for absent or invalid customer sessions', async () => {
+test('GET auth/session represents absent or invalid customer sessions as a successful anonymous state', async () => {
   for (const cookie of [undefined, currentToken({ aud: 'wrong-audience' })]) {
     const res = responseRecorder();
     await sessionHandler(request('GET', { cookie }), res);
-    assert.equal(res.statusCode, 401);
+    assert.equal(res.statusCode, 200);
     assert.deepEqual(res.body, { authenticated: false });
+    assert.equal(res.headers['cache-control'], 'no-store, max-age=0');
   }
 });
 

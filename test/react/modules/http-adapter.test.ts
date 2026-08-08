@@ -47,6 +47,7 @@ describe("typed HTTP adapter", () => {
     expect(url.searchParams.get("city")).toBe("Ялта");
     expect(url.searchParams.getAll("tag")).toEqual(["a", "b"]);
     expect(init?.credentials).toBe("same-origin");
+    expect(init?.redirect).toBe("manual");
     expect(new Headers(init?.headers).get("authorization")).toBeNull();
     expect(init?.body).toBe(JSON.stringify({ title: "Место" }));
   });
@@ -222,6 +223,60 @@ describe("typed HTTP adapter", () => {
       kind: "unavailable",
       message: "HTTP response body could not be read",
     });
+  });
+
+  it("rejects oversized responses using actual UTF-8 bytes", async () => {
+    const client = createBrowserHttpClient({
+      origin: "https://mesto.example",
+      fetch: vi.fn<typeof fetch>().mockImplementation(() => (
+        Promise.resolve(jsonResponse({ value: "Я".repeat(20) }))
+      )),
+    });
+
+    await expect(client.request({
+      path: "/api/example",
+      maxResponseBytes: 20,
+      schema: z.object({ value: z.string() }),
+    })).rejects.toMatchObject({
+      kind: "unavailable",
+      message: "HTTP response body exceeds its byte limit",
+    });
+
+    await expect(client.request({
+      path: "/api/example",
+      maxResponseBytes: 0,
+      schema: z.object({ value: z.string() }),
+    })).rejects.toMatchObject({ kind: "validation" });
+  });
+
+  it("cancels an oversized response stream before buffering the remaining body", async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new TextEncoder().encode("1234567890"));
+        if (pulls >= 100) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const client = createBrowserHttpClient({
+      origin: "https://mesto.example",
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(body)),
+    });
+
+    await expect(client.request({
+      path: "/api/example",
+      maxResponseBytes: 25,
+      schema: z.unknown(),
+    })).rejects.toMatchObject({
+      kind: "unavailable",
+      message: "HTTP response body exceeds its byte limit",
+    });
+    expect(cancelled).toBe(true);
+    expect(pulls).toBeLessThan(100);
   });
 
   it("normalizes invalid URL/path and JSON serialization failures", async () => {

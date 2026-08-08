@@ -19,11 +19,17 @@ import type {
   OAuthProvider,
 } from "../modules/session";
 
-const currentResponseSchema = z.object({
-  authenticated: z.literal(true),
-  user: userWireSchema,
-  favorites: z.array(favoriteWireSchema),
-}).loose();
+const currentResponseSchema = z.discriminatedUnion("authenticated", [
+  z.object({
+    authenticated: z.literal(true),
+    user: userWireSchema,
+    favorites: z.array(favoriteWireSchema),
+  }).loose(),
+  z.object({
+    authenticated: z.literal(false),
+    code: z.string().optional(),
+  }).loose(),
+]);
 
 const authenticatedResponseSchema = z.object({
   authenticated: z.literal(true),
@@ -48,6 +54,7 @@ class HttpSession implements Session {
         path: "/api/auth/session",
         schema: currentResponseSchema,
       });
+      if (!response.authenticated) return { status: "anonymous" as const };
       return {
         status: "authenticated" as const,
         user: response.user,

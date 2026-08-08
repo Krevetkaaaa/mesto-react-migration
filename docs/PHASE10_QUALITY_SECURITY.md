@@ -93,3 +93,20 @@ Phase 6 controlled outage allowlist ограничен точной парой `
 Vercel Preview по-прежнему заблокирован `TEAM_ACCESS_REQUIRED` для Git author предыдущего deployment. Platform check не обходился. Database migrations, merge, production deployment и aliases отсутствуют.
 
 Кодовый откат: `git revert ddff8daff8d702bb6c6cebaad7e810a5e26b2d03`. Git не откатывает внешние provider settings, secrets, sessions или telemetry data.
+
+## Follow-up Phase 12 — 8 августа 2026 года
+
+Этот follow-up является текущим состоянием и заменяет только устаревшие численные показатели checkpoint выше, не переписывая его исторический контекст.
+
+- Главная больше не загружает `/app.js`; переходный `680/185 KiB` override удалён. Все public routes используют единый бюджет `580 KiB raw / 160 KiB gzip`.
+- Текущая главная: `508,4 KiB raw / 152,1 KiB gzip`; максимальный измеренный public route (`/venue/:venueSlug`) — `522,9/156,4 KiB`.
+- Secret scanner проверил 49 production client assets, включая фактические непустые sensitive environment values с redacted reporting.
+- API router создаёт или сохраняет валидный UUID `X-Request-ID`; server adapters пересылают только allowlisted same-origin correlation header.
+- Application JSON limit измеряет authoritative raw body или восстановленный Vercel stream, а не нормализованный объект. Oversize возвращает `413`, invalid/mismatched `Content-Length` — `400`; lazy `req.body` getter не уничтожает исходное byte evidence.
+- Внутренний typed HTTP seam использует `redirect: manual`; sitemap response ограничивается во время чтения фактического UTF-8 потока, отменяет остаток при overflow и валидируется Zod-контрактом до 50 000 canonical slug.
+- Oversize request stream дренируется после раннего отказа, поэтому handler возвращает контролируемый `413`, а не `ECONNRESET`; это подтверждено реальным loopback HTTP regression.
+- Нормальный anonymous customer session представлен успешным `200 {authenticated:false}`; защищённые операции и неверные credentials сохраняют `401`.
+- `npm audit --omit=dev --audit-level=high` проходит с `0 high / 0 critical`; остаются 3 moderate AJV `$data` ReDoS через `@vercel/static-config`, fix отсутствует.
+- Exact Chrome Visual Freeze без snapshot update: Phase 4 `23/52`, Phase 5 `35/80`, Phase 6 `28/104`, Phase 7 `64/128`, Phase 8 `57/105` (passed/expected skipped).
+
+Не закрыты production-критерии: реальные p75 LCP/INP/CLS, nonce/hash CSP, shared admin revocation, authenticated stored-XSS E2E и provider telemetry. Они остаются внешними/отдельными release blockers и не маскируются локальными тестами.

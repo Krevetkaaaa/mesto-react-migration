@@ -40,7 +40,6 @@ describe("home catalog summary markup", () => {
     ]);
     expect([...document.querySelectorAll('[data-category-count="Кофейни"]')].map((node) => node.textContent)).toEqual([
       "1 место",
-      "1 место",
     ]);
     expect(document.querySelector('[data-city-count="Ялта"]')?.textContent).toBe("1 место");
     expect(document.querySelector('[data-venue-total-label="venues"]')?.textContent).toBe("3 заведения");
