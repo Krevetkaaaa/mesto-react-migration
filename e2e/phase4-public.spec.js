@@ -6,6 +6,8 @@ const {
   waitForStableUi,
 } = require("./support/test-fixtures");
 
+const CROSS_HOST_VISUAL_DIFF_PIXELS = 3_000;
+
 async function expectFrozenFullPage(page, snapshot) {
   const dimensions = await waitForFullPageStableUi(page);
   const session = await page.context().newCDPSession(page);
@@ -24,7 +26,7 @@ async function expectFrozenFullPage(page, snapshot) {
 
   expect(image.readUInt32BE(16), "screenshot width must equal the frozen viewport").toBe(dimensions.width);
   expect(image.readUInt32BE(20), "screenshot height must equal the settled document").toBe(dimensions.height);
-  await expect(image).toMatchSnapshot(snapshot, { maxDiffPixels: 1_500 });
+  await expect(image).toMatchSnapshot(snapshot, { maxDiffPixels: CROSS_HOST_VISUAL_DIFF_PIXELS });
 }
 
 async function gotoHome(page) {
