@@ -2,9 +2,9 @@
 
 Дата partial checkpoint: 8 августа 2026 года.
 
-Implementation commits: `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, isolation fix `ea542198675b03917f0aa19429dab20012a0a7a5`, safety hardening `5b733153b85f07e54ef03fff83a04e96c0add924`.
+Implementation commits: `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, isolation fix `ea542198675b03917f0aa19429dab20012a0a7a5`, safety hardening `5b733153b85f07e54ef03fff83a04e96c0add924`, home SSR optimization `64a3c493b0b18ad280c74392f41a2ec9e23fbd05`.
 
-Статус: безопасный локальный harness, smoke и mixed baseline на 25 VU прошли. Expected mixed на 100 VU вернул только HTTP 200 и не имел transport errors, но провалил заранее заданный p95 SLO: `1159,35 ms` при пределе `1000 ms`. Phase 11 не завершён; burst и soak не запускались после провала expected gate.
+Статус: безопасный локальный harness, smoke, mixed baseline на 25 VU и три независимых expected mixed прогона на 100 VU прошли. После удаления недостижимого hidden DOM главная уменьшилась с `90 422` до `51 904` bytes; три expected p95 составили `857,49`, `704,20` и `699,00 ms` при пределе `1000 ms`. Формальный burst popular-venue на 300 VU провалил SLO и вернул 42 HTTP 503, поэтому soak не запускался. Phase 11 не завершён: локальный all-origin fixture не моделирует Vercel edge cache или production multi-instance capacity.
 
 ## Граница доказательства
 
@@ -33,7 +33,7 @@ Target safety fail closed:
 
 Harness измеряет p50/p95/p99, attempted и successful throughput, bytes, HTTP status classes, отдельный 429, 5xx, transport errors, cache headers и per-label latency/status/transport. Длинные прогоны используют deterministic bounded reservoir как для aggregate, так и для каждого label вместо сохранения только первых samples. CLI отклоняет неизвестные, дублированные и неполные параметры до запуска gateway. Abort criteria: пять последовательных transport errors, более 5% 5xx после 100 запросов или отсутствие успешного response 10 секунд.
 
-Local fixture SLO заданы до прогона: public/auth/mixed p95 не выше 1000 ms и p99 не выше 2500 ms; merchant/admin p95 не выше 1500 ms и p99 не выше 3000 ms; 5xx, transport и неожиданные statuses равны нулю; минимальный successful throughput для smoke — 5 RPS, baseline — 20 RPS.
+Local fixture SLO заданы до прогона: public/auth/mixed p95 не выше 1000 ms и p99 не выше 2500 ms; merchant/admin p95 не выше 1500 ms и p99 не выше 3000 ms; 5xx, transport и неожиданные statuses равны нулю; минимальный successful throughput для smoke — 5 RPS, baseline — 20 RPS, expected/burst/soak — 40 RPS.
 
 ## Финальный локальный прогон
 
@@ -58,15 +58,32 @@ Mixed baseline, 25 VU:
 
 Последующий safety review закрыл redirect escape, PID reuse/process-group risk, stale lock, silent CLI fallback и неполный upstream response. Proxy теперь уничтожает оборванный response после уже отправленных headers, возвращает 503 только до headers и отменяет upstream при разрыве downstream. Реальный lifecycle smoke подтвердил gateway-owned shutdown acknowledgement; после завершения project-owned Node processes не остались.
 
-Expected mixed, 100 VU:
+Первый expected mixed, 100 VU, до оптимизации главной:
 
 - 4891 attempts, 4891 HTTP 200;
 - attempted и successful 242,60 RPS;
 - p50 401,68 ms, p95 1159,35 ms, p99 1707,18 ms;
 - transport errors, 5xx и неожиданных statuses нет;
-- gate failed только по p95: `1159,35 ms > 1000 ms`; p99 остался ниже предела `2500 ms`.
+- gate failed только по p95: `1159,35 ms > 1000 ms`; home document был самым медленным label с p95 `1753,84 ms`.
 
-Самый медленный label — SSR home document: p50 `1083,39 ms`, p95 `1753,84 ms`, p99 `2329,88 ms`. Direct fixture API labels остались быстрыми: p95 `13,25–18,69 ms`. Порог не ослаблялся; burst 300 VU и soak не запускались после expected failure. Короткие локальные durations также не являются capacity, cold-start или leak evidence; отдельный production-like план должен иметь warmup, повторения/рандомизацию порядка и более длинный soak.
+Порог не ослаблялся. Из React home SSR удалены только три заранее скрытых и недостижимых слоя: `#platform`, in-page catalog fallback и 28 `hidden` editorial venue cards. Видимые три карточки, dialogs, counters и route navigation сохранены; компактный `staticVenueInventory` продолжает считать все 31 editorial records и предотвращает API-дубликаты. Legacy `index.html` не менялся. Фактический production-gateway response `/` уменьшился с `90 422` до `51 904` bytes (`-38 518`, `-42,6%`), `PublicHomeMarkup` client chunk — с `107,23` до `69,32 KiB`, server bundle — с `615,44` до `539,89 KiB`. `app.js` получил cache-buster `v=ui-motion-3` только на React home.
+
+Три независимых expected mixed прогона после оптимизации, каждый на свежем gateway:
+
+| Trial | Requests / HTTP 200 | Successful RPS | p95 | p99 | Результат |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 5672 / 5672 | 281,57 | 857,49 ms | 1272,34 ms | pass |
+| 2 | 6234 / 6234 | 309,31 | 704,20 ms | 891,98 ms | pass |
+| 3 | 6240 / 6240 | 310,12 | 699,00 ms | 948,61 ms | pass |
+
+Итого 18 146/18 146 HTTP 200, без transport errors, 4xx/5xx и неожиданных statuses. Expected gate считается устойчиво пройденным локально.
+
+Burst evidence, 300 VU:
+
+- дополнительный mixed stress: 890 attempts, 860 HTTP 200, 30 transport timeouts, p95 `4562,02 ms`, p99 `5009,37 ms`; abort после пяти последовательных transport errors;
+- формальный `popular-venue` document burst: 600 attempts, 558 HTTP 200, 42 HTTP 503, p95 `4633,06 ms`, p99 `4653,91 ms`; abort после превышения 5% HTTP 5xx.
+
+Оба burst-прогона честно провалили заранее заданный SLO. Soak не запускался после проваленного burst gate. Это доказывает предел единственного локального uncached React SSR process, но не поведение Vercel edge: fixture gateway не реализует `s-maxage` cache и не сообщает cache HIT. Production-like Preview должен отдельно прогреть карточку, подтвердить `X-Vercel-Cache`/`Age`, затем повторить burst с provider telemetry. Короткие локальные durations не являются cold-start или multi-instance evidence.
 
 ## Что нельзя измерить локально
 
@@ -81,20 +98,22 @@ Expected mixed, 100 VU:
 ## Проверки
 
 - `npm.cmd run check`: Phase 6–11 syntax, typegen, strict TypeScript и ESLint прошли.
-- `npm.cmd test`: `114/114` server и `113/113` unit/contract/component tests прошли. Один существующий jsdom admin-dialog test ранее сфлапал один раз, затем прошёл три isolated runs и финальный полный suite.
+- `npm.cmd test`: `115/115` server и `113/113` unit/contract/component tests прошли.
 - Targeted Phase 11 safety suite: `15/15`; отдельный real smoke подтвердил корректный IPC shutdown и освобождение OS-owned lock без orphan project processes.
 - `npm.cmd run test:load:local`: четыре smoke profile и baseline mixed прошли.
-- `node scripts/run-phase11-local.mjs --stage expected --scenario mixed`: все 4891 responses получили HTTP 200, команда ожидаемо завершилась с exit 1 только из-за p95 SLO.
+- Phase 4: `17` passed; Phase 5: `28` passed; Phase 6: `19` passed. Viewport skips ожидаемые, frozen snapshots не обновлялись.
+- `npm.cmd run smoke`: production build, public JS budget, client secret scan и 43-file legacy freeze прошли.
+- Три `node scripts/run-phase11-local.mjs --stage expected --scenario mixed`: `0/0/0` exit codes; формальный burst `popular-venue` завершился exit 1 по зафиксированному SLO и HTTP 503.
 - `git diff --check`: чисто, кроме штатных CRLF notices Windows.
 
 ## Незакрытые критерии
 
-1. Снизить p95 SSR home document на expected 100 VU без изменения Visual Freeze и без ослабления SLO; отдельно проверить production-like CDN/cache поведение, которого локальный all-origin probe не моделирует.
-2. После чистого expected выполнить burst и длительный soak с warmup/repeated order.
+1. Проверить formal burst на Vercel Preview после warmup и фактического `X-Vercel-Cache: HIT`/`Age`; локальный uncached burst провалился.
+2. Только после пройденного burst gate выполнить длительный soak expected-профиля с warmup, provider telemetry и повторениями.
 3. Подключить production handlers/representative Supabase в изолированном staging вместо fixture API.
 4. Проверить shared limiter между несколькими instances и точный 429/Retry-After contract.
 5. Собрать cache hit, Supabase, serverless/cold-start и browser error telemetry по correlation id.
 
 Database migrations, provider provisioning, Preview/production load, merge, deployment и aliases отсутствуют.
 
-Кодовый откат safety hardening: `git revert 5b733153b85f07e54ef03fff83a04e96c0add924`; затем isolation fix: `git revert ea542198675b03917f0aa19429dab20012a0a7a5`. Полный откат Phase 11 после этого: `git revert 6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`.
+Кодовый откат home SSR optimization: `git revert 64a3c493b0b18ad280c74392f41a2ec9e23fbd05`; затем safety hardening: `git revert 5b733153b85f07e54ef03fff83a04e96c0add924`; isolation fix: `git revert ea542198675b03917f0aa19429dab20012a0a7a5`. Полный откат Phase 11 после этого: `git revert 6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`.
