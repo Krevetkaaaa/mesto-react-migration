@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const { resolve } = require('node:path');
 
 const commonJsPolicy = require('../password-policy-core.js');
 
@@ -28,4 +30,15 @@ test('CommonJS and ESM password policy entrypoints expose the same contract', as
       `password result drifted for ${candidate}`,
     );
   }
+});
+
+test('API router loads when synchronous require of ESM is disabled', () => {
+  const projectRoot = resolve(__dirname, '..');
+  const result = spawnSync(
+    process.execPath,
+    ['--no-experimental-require-module', '-e', "require('./api/router.js')"],
+    { cwd: projectRoot, encoding: 'utf8' },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
