@@ -6,6 +6,7 @@ const {
   waitForFullPageStableUi,
   waitForStableUi
 } = require('./support/test-fixtures');
+const { CROSS_HOST_VISUAL_DIFF_PIXELS } = require('./support/visual-freeze');
 
 function functionalOnly(testInfo) {
   test.skip(testInfo.project.name !== 'chromium', 'functional coverage runs once');
@@ -33,7 +34,7 @@ async function goToView(page, label, path) {
 
 async function expectCanonicalScreenshot(page, name) {
   const dimensions = await waitForFullPageStableUi(page);
-  await expect(page).toHaveScreenshot(name, { fullPage: true, maxDiffPixels: 1_500 });
+  await expect(page).toHaveScreenshot(name, { fullPage: true, maxDiffPixels: CROSS_HOST_VISUAL_DIFF_PIXELS });
   const proof = await page.screenshot({ animations: 'disabled', caret: 'hide', fullPage: true, scale: 'css' });
   expect(proof.readUInt32BE(16)).toBe(dimensions.width);
   expect(proof.readUInt32BE(20)).toBe(dimensions.height);

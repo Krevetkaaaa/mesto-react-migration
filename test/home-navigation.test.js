@@ -9,6 +9,11 @@ const phaseConfigs = [5, 6, 7].map((phase) => ({
   phase,
   config: require(resolve(__dirname, '..', 'e2e', `phase${phase}-playwright.config.js`))
 }));
+const visualConfigs = [4, 5, 6, 7, 8].map((phase) => ({
+  phase,
+  config: require(resolve(__dirname, '..', 'e2e', `phase${phase}-playwright.config.js`))
+}));
+const { CROSS_HOST_VISUAL_DIFF_PIXELS } = require('../e2e/support/visual-freeze');
 
 function routeHelpers() {
   const start = appSource.indexOf('function catalogHref');
@@ -81,9 +86,13 @@ test('catalog entry listeners navigate instead of taking legacy catalog DOM owne
   assert.match(appSource, /function syncCatalogHeading\(\) \{\s*if \(!catalogEyebrow \|\| !catalogTitle \|\| !catalogCopy\) return;/);
 });
 
-test('the Phase 5-7 release matrix retains each fixture contract suite', () => {
+test('the release matrix retains fixture contracts and one bounded visual threshold', () => {
   for (const { phase, config } of phaseConfigs) {
     assert.equal(config.testMatch.test(`phase${phase}-fixture.spec.js`), true, `Phase ${phase}`);
+  }
+  assert.equal(CROSS_HOST_VISUAL_DIFF_PIXELS, 3_000);
+  for (const { phase, config } of visualConfigs) {
+    assert.equal(config.expect.toHaveScreenshot.maxDiffPixels, CROSS_HOST_VISUAL_DIFF_PIXELS, `Phase ${phase}`);
   }
 });
 

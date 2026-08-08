@@ -6,6 +6,7 @@ const {
   waitForFullPageStableUi,
   waitForStableUi,
 } = require("./support/test-fixtures");
+const { CROSS_HOST_VISUAL_DIFF_PIXELS } = require("./support/visual-freeze");
 const { PASSWORD_ERROR_MESSAGE } = require("../password-policy-core.js");
 
 const secondVenueId = "30000000-0000-4000-8000-000000000002";
@@ -49,7 +50,7 @@ async function expectNoUnexpectedSeriousAxeViolations(page) {
 
 async function expectCanonicalScreenshot(page, name) {
   await waitForFullPageStableUi(page);
-  await expect(page).toHaveScreenshot(name, { fullPage: true, maxDiffPixels: 1_500 });
+  await expect(page).toHaveScreenshot(name, { fullPage: true, maxDiffPixels: CROSS_HOST_VISUAL_DIFF_PIXELS });
 }
 
 async function expectInteractiveScreenshot(page, name) {

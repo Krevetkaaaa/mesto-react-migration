@@ -17,7 +17,7 @@
 
 `playwright.config.js` сначала использует `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, затем установленный Playwright browser. На Windows fallback на системный Chrome разрешён только при наличии `chrome.exe`, но он подходит лишь для диагностики/functional checks: Visual Freeze считается воспроизводимым только на exact baseline binary. CI скачивает архив выше, проверяет hash и версию до запуска полного `npm run test:e2e`.
 
-Даже exact binary не унифицирует субпиксельную растеризацию текста между Windows 11 и Windows Server GitHub Actions. Legacy full-page/interactive снимки и Phase 4 full-page снимки главной поэтому используют ограниченный cross-host допуск `3 000` пикселей: подтверждённый максимум CI составляет `2 615` пикселей (`0.01` в округлённом отчёте Playwright), при этом размеры PNG и полный документ проверяются отдельно. Снимки при таком расхождении не обновляются; геометрические сдвиги по-прежнему превышают этот предел на порядки.
+Даже exact binary не унифицирует субпиксельную растеризацию текста между Windows 11 и Windows Server GitHub Actions. Все legacy и Phase 4–8 Visual Freeze сравнения поэтому используют один ограниченный cross-host допуск `3 000` пикселей из `e2e/support/visual-freeze.js`: подтверждённый максимум CI составляет `2 615` пикселей (`0.01` в округлённом отчёте Playwright), при этом размеры PNG и полный документ проверяются отдельно. Снимки при таком расхождении не обновляются; геометрические сдвиги по-прежнему превышают этот предел на порядки.
 
 ## Команды
 
@@ -37,7 +37,7 @@ npm.cmd run test:e2e:phase7
 npm.cmd run test:e2e:phase8
 ```
 
-Phase 8 использует `e2e/phase8-playwright.config.js`: один Chromium-проект выполняет admin functional/fixture/Axe scenarios, пять fixed-viewport проектов проверяют canonical login, overview, submissions, reviews, venues, merchants и утверждённые interactive states. Порог остаётся `1500` pixels; `--update-snapshots` в Phase 8 запрещён без отдельного согласования Visual Freeze.
+Phase 8 использует `e2e/phase8-playwright.config.js`: один Chromium-проект выполняет admin functional/fixture/Axe scenarios, пять fixed-viewport проектов проверяют canonical login, overview, submissions, reviews, venues, merchants и утверждённые interactive states. Единый cross-host порог остаётся `3000` pixels; `--update-snapshots` в Phase 8 запрещён без отдельного согласования Visual Freeze.
 
 Явный воспроизводимый local override:
 

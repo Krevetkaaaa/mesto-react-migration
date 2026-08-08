@@ -1,6 +1,7 @@
 const { existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { chromium, defineConfig } = require("@playwright/test");
+const { CROSS_HOST_VISUAL_DIFF_PIXELS } = require("./support/visual-freeze");
 
 const bundledChromium = chromium.executablePath();
 const systemChrome = process.env.ProgramFiles
@@ -24,7 +25,7 @@ module.exports = defineConfig({
   snapshotPathTemplate: "{testDir}/__screenshots__/visual.spec.js/{projectName}/{arg}{ext}",
   expect: {
     timeout: 8_000,
-    toHaveScreenshot: { animations: "disabled", caret: "hide", maxDiffPixels: 1_500, scale: "css" },
+    toHaveScreenshot: { animations: "disabled", caret: "hide", maxDiffPixels: CROSS_HOST_VISUAL_DIFF_PIXELS, scale: "css" },
   },
   use: {
     baseURL: "http://127.0.0.1:4174",

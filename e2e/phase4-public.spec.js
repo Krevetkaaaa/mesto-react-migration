@@ -5,8 +5,7 @@ const {
   waitForFullPageStableUi,
   waitForStableUi,
 } = require("./support/test-fixtures");
-
-const CROSS_HOST_VISUAL_DIFF_PIXELS = 3_000;
+const { CROSS_HOST_VISUAL_DIFF_PIXELS } = require("./support/visual-freeze");
 
 async function expectFrozenFullPage(page, snapshot) {
   const dimensions = await waitForFullPageStableUi(page);
