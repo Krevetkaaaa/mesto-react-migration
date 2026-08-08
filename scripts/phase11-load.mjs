@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const MAX_LATENCY_SAMPLES = 200_000;
+const MAX_LABEL_LATENCY_SAMPLES = 20_000;
+const INITIAL_SAMPLE_SEED = 0x6d657374;
 
 export const LOAD_STAGES = Object.freeze({
   smoke: Object.freeze({ virtualUsers: 5, durationMs: 3_000, minimumThroughputRps: 5 }),
@@ -20,6 +22,12 @@ export const LOAD_SCENARIOS = Object.freeze([
   "merchant-admin",
 ]);
 
+const DEFAULT_LOAD_ARGUMENTS = Object.freeze({
+  baseUrl: "http://127.0.0.1:4174",
+  scenario: "public-read",
+  stageName: "smoke",
+});
+
 const PUBLIC_REQUESTS = Object.freeze([
   Object.freeze({ label: "home-document", pathname: "/" }),
   Object.freeze({ label: "catalog-document", pathname: "/catalog" }),
@@ -33,33 +41,80 @@ function invariant(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function isPositivePid(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+export function fetchWithoutRedirect(input, init = {}) {
+  return fetch(input, { ...init, redirect: "manual" });
+}
+
+export function addReservoirSample(reservoir, value, observedCount, capacity) {
+  invariant(Number.isSafeInteger(observedCount) && observedCount > 0, "Reservoir observed count must be positive");
+  invariant(Number.isSafeInteger(capacity) && capacity > 0, "Reservoir capacity must be positive");
+  if (reservoir.latencies.length < capacity) {
+    reservoir.latencies.push(value);
+    return;
+  }
+  reservoir.sampleSeed = (Math.imul(reservoir.sampleSeed, 1_664_525) + 1_013_904_223) >>> 0;
+  const replacement = reservoir.sampleSeed % observedCount;
+  if (replacement < capacity) reservoir.latencies[replacement] = value;
+}
+
 export function validateLoadTarget(value) {
   const target = new URL(String(value || "http://127.0.0.1:4174"));
   invariant(["http:", "https:"].includes(target.protocol), "Load target must use HTTP or HTTPS");
   invariant(!target.username && !target.password, "Load target must not contain credentials");
   invariant(target.pathname === "/" && !target.search && !target.hash, "Load target must be an origin without path, query, or hash");
-  const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(target.hostname);
-  invariant(loopback, "Phase 11 fixture load target must be loopback; remote load is intentionally unsupported");
+  const loopback = ["127.0.0.1", "[::1]"].includes(target.hostname);
+  invariant(loopback, "Phase 11 fixture load target must use a loopback IP literal; remote load is intentionally unsupported");
   return target.origin;
 }
 
+export function parseLoadArguments(args) {
+  if (args.length === 0) return { ...DEFAULT_LOAD_ARGUMENTS };
+  invariant(args.length % 2 === 0, "Phase 11 load options require a value");
+  const values = new Map();
+  for (let index = 0; index < args.length; index += 2) {
+    const option = args[index];
+    const value = args[index + 1];
+    invariant(["--base-url", "--stage", "--scenario"].includes(option), `Unknown Phase 11 load option: ${option}`);
+    invariant(value && !value.startsWith("--"), `${option} requires a value`);
+    invariant(!values.has(option), `Duplicate Phase 11 load option: ${option}`);
+    values.set(option, value);
+  }
+  invariant(
+    values.has("--stage") === values.has("--scenario"),
+    "--stage and --scenario must be supplied together",
+  );
+  const stageName = values.get("--stage") ?? DEFAULT_LOAD_ARGUMENTS.stageName;
+  const scenario = values.get("--scenario") ?? DEFAULT_LOAD_ARGUMENTS.scenario;
+  invariant(Object.hasOwn(LOAD_STAGES, stageName), `Unknown load stage: ${stageName}`);
+  invariant(LOAD_SCENARIOS.includes(scenario), `Unknown load scenario: ${scenario}`);
+  return {
+    baseUrl: values.get("--base-url") ?? DEFAULT_LOAD_ARGUMENTS.baseUrl,
+    scenario,
+    stageName,
+  };
+}
+
 async function resetVerifiedFixture(baseUrl) {
-  const gateway = await fetch(new URL("/__phase4/health", baseUrl), { signal: AbortSignal.timeout(2_000) });
+  const gateway = await fetchWithoutRedirect(new URL("/__phase4/health", baseUrl), { signal: AbortSignal.timeout(2_000) });
   const gatewayPayload = await gateway.json().catch(() => null);
   invariant(
     gateway.ok
       && gatewayPayload?.ok === true
-      && Number.isSafeInteger(gatewayPayload.reactPid)
-      && Number.isSafeInteger(gatewayPayload.legacyPid),
+      && isPositivePid(gatewayPayload.reactPid)
+      && isPositivePid(gatewayPayload.legacyPid),
     "Load target is not the production SSR plus fixture gateway",
   );
-  const probe = await fetch(new URL("/__e2e/state", baseUrl), { signal: AbortSignal.timeout(2_000) });
+  const probe = await fetchWithoutRedirect(new URL("/__e2e/state", baseUrl), { signal: AbortSignal.timeout(2_000) });
   await probe.arrayBuffer();
   invariant(
     probe.ok && probe.headers.get("x-e2e-fixture") === "legacy-safety-net",
     "Load target is not the verified Mesto safety-net fixture",
   );
-  const reset = await fetch(new URL("/__e2e/reset", baseUrl), {
+  const reset = await fetchWithoutRedirect(new URL("/__e2e/reset", baseUrl), {
     method: "POST",
     signal: AbortSignal.timeout(2_000),
   });
@@ -75,10 +130,11 @@ function cookieFrom(response) {
 }
 
 async function fixtureLogin(baseUrl, pathname, body) {
-  const response = await fetch(new URL(pathname, baseUrl), {
+  const response = await fetchWithoutRedirect(new URL(pathname, baseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: baseUrl },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(2_000),
   });
   await response.arrayBuffer();
   invariant(response.headers.get("x-e2e-fixture") === "legacy-safety-net", `Fixture sentinel missing for ${pathname}`);
@@ -216,7 +272,7 @@ export async function runLoadTest({ baseUrl, stageName = "smoke", scenario = "pu
     abortedReason: null,
     consecutiveTransportErrors: 0,
     lastSuccessAt: performance.now(),
-    sampleSeed: 0x6d657374,
+    sampleSeed: INITIAL_SAMPLE_SEED,
     cache: { hit: 0, miss: 0, unreported: 0 },
     byLabel: {},
   };
@@ -231,7 +287,7 @@ export async function runLoadTest({ baseUrl, stageName = "smoke", scenario = "pu
       const requestStarted = performance.now();
       let status = 0;
       try {
-        const response = await fetch(new URL(definition.pathname, origin), {
+        const response = await fetchWithoutRedirect(new URL(definition.pathname, origin), {
           method: definition.method || "GET",
           headers: definition.headers,
           body: definition.body,
@@ -260,25 +316,20 @@ export async function runLoadTest({ baseUrl, stageName = "smoke", scenario = "pu
       }
       const latency = performance.now() - requestStarted;
       metrics.requests += 1;
-      if (metrics.latencies.length < MAX_LATENCY_SAMPLES) {
-        metrics.latencies.push(latency);
-      } else {
-        metrics.sampleSeed = (Math.imul(metrics.sampleSeed, 1_664_525) + 1_013_904_223) >>> 0;
-        const replacement = metrics.sampleSeed % metrics.requests;
-        if (replacement < MAX_LATENCY_SAMPLES) metrics.latencies[replacement] = latency;
-      }
+      addReservoirSample(metrics, latency, metrics.requests, MAX_LATENCY_SAMPLES);
       const label = metrics.byLabel[definition.label] ?? {
         requests: 0,
         successes: 0,
         transportErrors: 0,
         statuses: {},
         latencies: [],
+        sampleSeed: INITIAL_SAMPLE_SEED,
       };
       label.requests += 1;
       if (status === 200) label.successes += 1;
       if (status === 0) label.transportErrors += 1;
       else label.statuses[status] = (label.statuses[status] || 0) + 1;
-      if (label.latencies.length < 20_000) label.latencies.push(latency);
+      addReservoirSample(label, latency, label.requests, MAX_LABEL_LATENCY_SAMPLES);
       metrics.byLabel[definition.label] = label;
       const serverErrors = Object.entries(metrics.statuses)
         .filter(([code]) => Number(code) >= 500)
@@ -299,17 +350,8 @@ export async function runLoadTest({ baseUrl, stageName = "smoke", scenario = "pu
   return { target: origin, stage: stageName, scenario, configuration: stage, summary, slo };
 }
 
-function argument(name, fallback) {
-  const index = process.argv.indexOf(name);
-  return index === -1 ? fallback : process.argv[index + 1];
-}
-
 async function main() {
-  const result = await runLoadTest({
-    baseUrl: argument("--base-url", "http://127.0.0.1:4174"),
-    stageName: argument("--stage", "smoke"),
-    scenario: argument("--scenario", "public-read"),
-  });
+  const result = await runLoadTest(parseLoadArguments(process.argv.slice(2)));
   console.log(JSON.stringify(result, null, 2));
   if (!result.slo.passed) process.exitCode = 1;
 }
