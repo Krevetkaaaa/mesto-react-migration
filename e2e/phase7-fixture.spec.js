@@ -1,5 +1,5 @@
 const { authenticateFixture, expect, test } = require('./support/test-fixtures');
-const { NEW_PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
+const { NEW_PASSWORD_ERROR_MESSAGE } = require('../password-policy-core.js');
 
 const venueId = '30000000-0000-4000-8000-000000000001';
 

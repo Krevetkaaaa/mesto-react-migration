@@ -23,7 +23,7 @@ export const PUBLIC_JS_BUDGET_OVERRIDES = Object.freeze({
 const PUBLIC_ROUTE_PATTERN = /^routes\/public-/;
 const PUBLIC_STATIC_JAVASCRIPT = Object.freeze({
   all: ["/theme.js"],
-  "routes/public-home": ["/app.js", "/password-policy.mjs"],
+  "routes/public-home": ["/app.js", "/password-policy-core.js", "/password-policy.mjs"],
 });
 
 function invariant(condition, message) {

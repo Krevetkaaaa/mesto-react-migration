@@ -10,7 +10,7 @@ const registerHandler = require('../handlers/auth/register');
 const sessionHandler = require('../handlers/auth/session');
 const { isSameOriginRequest } = require('../lib/same-origin');
 const { signSession } = require('../lib/security');
-const { NEW_PASSWORD_ERROR_MESSAGE, PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
+const { NEW_PASSWORD_ERROR_MESSAGE, PASSWORD_ERROR_MESSAGE } = require('../password-policy-core.js');
 
 const USER_ID = '9aa8f050-486d-4d77-95d9-2dba1d633d07';
 const USER_SECRET = 'customer-auth-test-secret-that-is-long-enough';

@@ -1,18 +1,19 @@
-export const PASSWORD_MIN_LENGTH = 10;
-export const PASSWORD_PATTERN = "(?=.*[A-Za-zА-Яа-яЁё])(?=.*[0-9]).{10,}";
-export const PASSWORD_HINT = "Минимум 10 символов, буква и цифра";
-export const PASSWORD_REQUIREMENTS_LEAD = "Используйте не менее 10 символов, хотя бы одну букву и одну цифру.";
-export const TEMPORARY_PASSWORD_HINT = "Не менее 10 символов, буква и цифра. Если поле пустое, безопасный пароль создаст сервер.";
+import './password-policy-core.js';
 
-const PASSWORD_REQUIREMENT = "должен содержать минимум 10 символов, букву и цифру.";
-export const PASSWORD_ERROR_MESSAGE = `Пароль ${PASSWORD_REQUIREMENT}`;
-export const NEW_PASSWORD_ERROR_MESSAGE = `Новый пароль ${PASSWORD_REQUIREMENT}`;
-export const TEMPORARY_PASSWORD_ERROR_MESSAGE = `Временный пароль ${PASSWORD_REQUIREMENT}`;
-export const NEW_PASSWORD_VALIDATION_MESSAGE = "New password is too weak";
-export const TEMPORARY_PASSWORD_VALIDATION_MESSAGE = "Temporary password is too weak";
+const policy = globalThis[Symbol.for('mesto.password-policy')];
 
-const passwordPattern = new RegExp(`^(?:${PASSWORD_PATTERN})$`, "u");
-
-export function isStrongPassword(value) {
-  return passwordPattern.test(String(value ?? ""));
+if (!policy) {
+  throw new Error('Password policy core failed to initialize.');
 }
+
+export const PASSWORD_MIN_LENGTH = policy.PASSWORD_MIN_LENGTH;
+export const PASSWORD_PATTERN = policy.PASSWORD_PATTERN;
+export const PASSWORD_HINT = policy.PASSWORD_HINT;
+export const PASSWORD_REQUIREMENTS_LEAD = policy.PASSWORD_REQUIREMENTS_LEAD;
+export const TEMPORARY_PASSWORD_HINT = policy.TEMPORARY_PASSWORD_HINT;
+export const PASSWORD_ERROR_MESSAGE = policy.PASSWORD_ERROR_MESSAGE;
+export const NEW_PASSWORD_ERROR_MESSAGE = policy.NEW_PASSWORD_ERROR_MESSAGE;
+export const TEMPORARY_PASSWORD_ERROR_MESSAGE = policy.TEMPORARY_PASSWORD_ERROR_MESSAGE;
+export const NEW_PASSWORD_VALIDATION_MESSAGE = policy.NEW_PASSWORD_VALIDATION_MESSAGE;
+export const TEMPORARY_PASSWORD_VALIDATION_MESSAGE = policy.TEMPORARY_PASSWORD_VALIDATION_MESSAGE;
+export const isStrongPassword = policy.isStrongPassword;

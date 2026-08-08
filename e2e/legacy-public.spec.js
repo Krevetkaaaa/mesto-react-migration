@@ -7,7 +7,7 @@ const {
   savedFavorite,
   test
 } = require('./support/test-fixtures');
-const { PASSWORD_ERROR_MESSAGE, PASSWORD_PATTERN } = require('../password-policy.mjs');
+const { PASSWORD_ERROR_MESSAGE, PASSWORD_PATTERN } = require('../password-policy-core.js');
 
 function isVenuesRequest(response) {
   return response.url().includes('/api/venues') && response.request().method() === 'GET';

@@ -10,7 +10,7 @@ const { createManagedUser, isStrongPassword, resetManagedPassword, temporaryPass
 const { normalizeMembershipRole } = require('../../lib/merchant-permissions');
 const { enforceRateLimit } = require('../../lib/rate-limit');
 const { authRequest, createStore } = require('../../lib/supabase');
-const { TEMPORARY_PASSWORD_ERROR_MESSAGE } = require('../../password-policy.mjs');
+const { TEMPORARY_PASSWORD_ERROR_MESSAGE } = require('../../password-policy-core.js');
 
 function has(body, key) {
   return Object.prototype.hasOwnProperty.call(body, key);

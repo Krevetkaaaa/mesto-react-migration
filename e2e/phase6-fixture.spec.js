@@ -1,5 +1,5 @@
 const { authenticateFixture, expect, test } = require('./support/test-fixtures');
-const { PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
+const { PASSWORD_ERROR_MESSAGE } = require('../password-policy-core.js');
 
 async function startFixtureOAuth(request, provider, returnTo = '/profile') {
   return request.get(`/api/auth/oauth?${new URLSearchParams({ provider, returnTo }).toString()}`, {

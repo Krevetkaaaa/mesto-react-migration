@@ -6,7 +6,7 @@ const {
   PASSWORD_REQUIREMENTS_LEAD,
   TEMPORARY_PASSWORD_ERROR_MESSAGE,
   TEMPORARY_PASSWORD_HINT
-} = require('../password-policy.mjs');
+} = require('../password-policy-core.js');
 
 async function openMerchantWorkspace(page) {
   await authenticateFixture(page, 'merchant');

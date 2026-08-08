@@ -2,7 +2,7 @@ const { email, json, methodNotAllowed, readJson, text } = require('../../lib/htt
 const { createManagedUser, isStrongPassword, normalizeUsername, publicUser, sessionCookie } = require('../../lib/identity');
 const { enforceRateLimit } = require('../../lib/rate-limit');
 const { requireSameOrigin } = require('../../lib/same-origin');
-const { PASSWORD_ERROR_MESSAGE } = require('../../password-policy.mjs');
+const { PASSWORD_ERROR_MESSAGE } = require('../../password-policy-core.js');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);

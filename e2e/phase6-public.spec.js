@@ -1,6 +1,6 @@
 const AxeBuilder = require("@axe-core/playwright").default;
 const { authenticateFixture, expect, test, waitForStableUi } = require("./support/test-fixtures");
-const { PASSWORD_ERROR_MESSAGE, PASSWORD_PATTERN } = require("../password-policy.mjs");
+const { PASSWORD_ERROR_MESSAGE, PASSWORD_PATTERN } = require("../password-policy-core.js");
 
 function functionalOnly(testInfo) {
   test.skip(testInfo.project.name !== "chromium", "functional scenario runs once");

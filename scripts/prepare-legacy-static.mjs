@@ -32,6 +32,7 @@ const rootFileWhitelist = Object.freeze([
   "merchant.css",
   "merchant.html",
   "merchant.js",
+  "password-policy-core.js",
   "password-policy.mjs",
   "phone-premium.css",
   "styles.css",

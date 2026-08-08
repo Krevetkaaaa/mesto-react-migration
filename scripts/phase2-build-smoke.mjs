@@ -118,8 +118,13 @@ if (process.argv.includes("--serve")) {
 async function runSmoke() {
   const manifest = JSON.parse(await readFile(stagedManifestPath, "utf8"));
   invariant(manifest.algorithm === "sha256", "Legacy manifest must use SHA-256");
-  invariant(manifest.files.length === 44, "The legacy staging set must remain at 44 files");
+  invariant(manifest.files.length === 45, "The legacy staging set must remain at 45 files");
+  const passwordPolicyCoreEntry = manifest.files.find(({ path }) => path === "password-policy-core.js");
   const passwordPolicyEntry = manifest.files.find(({ path }) => path === "password-policy.mjs");
+  invariant(
+    passwordPolicyCoreEntry?.bytes > 0 && /^[a-f0-9]{64}$/.test(passwordPolicyCoreEntry.sha256),
+    "Legacy staging must contain a hashed password-policy-core.js",
+  );
   invariant(
     passwordPolicyEntry?.bytes > 0 && /^[a-f0-9]{64}$/.test(passwordPolicyEntry.sha256),
     "Legacy staging must contain a hashed password-policy.mjs",
@@ -232,12 +237,17 @@ async function runSmoke() {
     "merchant.html",
     "admin.html",
     "app.js",
+    "password-policy-core.js",
     "password-policy.mjs",
     "assets/mesto-hero.png",
     "legacy-static-manifest.json",
   ]) {
     await assertFile(resolve(clientRoot, legacyPath));
   }
+  invariant(
+    sha256(await readFile(resolve(clientRoot, "password-policy-core.js"))) === passwordPolicyCoreEntry.sha256,
+    "Built password-policy-core.js must match the staged SHA-256 manifest",
+  );
   invariant(
     sha256(await readFile(resolve(clientRoot, "password-policy.mjs"))) === passwordPolicyEntry.sha256,
     "Built password-policy.mjs must match the staged SHA-256 manifest",

@@ -9,7 +9,7 @@ const reviewsHandler = require('../handlers/admin/reviews');
 const venuesHandler = require('../handlers/admin/venues');
 const { configurePublicCacheInvalidation } = require('../lib/public-cache');
 const { ADMIN_SESSION_TYPE, hashPassword, signSession, verifySession } = require('../lib/security');
-const { TEMPORARY_PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
+const { TEMPORARY_PASSWORD_ERROR_MESSAGE } = require('../password-policy-core.js');
 
 const ADMIN_SECRET = 'phase-8-admin-secret-that-is-at-least-32-characters';
 const PUBLIC_ORIGIN = 'https://mesto.example';
