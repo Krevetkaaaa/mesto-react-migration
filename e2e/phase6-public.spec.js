@@ -15,6 +15,41 @@ async function expectNoUnexpectedSeriousAxeViolations(page) {
 }
 
 test.describe("Phase 6 public account routes", () => {
+  test("home account dialogs replace history and restore their keyboard triggers", async ({ page }, testInfo) => {
+    functionalOnly(testInfo);
+    await page.goto("/");
+
+    const loginTrigger = page.locator(".login-trigger");
+    await loginTrigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.locator("dialog.form-dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(/\/$/);
+    await expect(loginTrigger).toBeFocused();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator("dialog[open]")).toHaveCount(0);
+
+    const registerTrigger = page.locator(".register-trigger");
+    await registerTrigger.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/register$/);
+    await page.locator("dialog.form-dialog > .dialog-close").click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(registerTrigger).toBeFocused();
+
+    await authenticateFixture(page, "customer");
+    await page.goto("/");
+    const favoritesTrigger = page.locator(".favorites-button");
+    await favoritesTrigger.focus();
+    await favoritesTrigger.click();
+    await expect(page).toHaveURL(/\/favorites$/);
+    await page.locator("dialog.favorites-dialog > .dialog-close").click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(favoritesTrigger).toBeFocused();
+  });
+
   test.describe("login action validation", () => {
     test.use({ expectedHttpErrors: [{ path: "/login.data", status: 401 }] });
   test("anonymous guard, failed login and successful session restore", async ({ page }, testInfo) => {

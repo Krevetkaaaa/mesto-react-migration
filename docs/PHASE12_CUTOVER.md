@@ -55,9 +55,9 @@ Memory rate limiter запрещён в production. Отсутствие shared 
 
 - `npm.cmd run check` прошёл: syntax gates, React Router typegen, strict TypeScript и ESLint;
 - `npm.cmd test` прошёл: `148/148` server и `189/189` unit/contract/component tests;
-- `npm.cmd run smoke` прошёл: production SSR/client build, 49-asset secret scan, route ownership и public JavaScript budget;
-- главная занимает `508,4 KiB raw / 152,1 KiB gzip` при общем лимите `580/160 KiB`; максимальный public route занимает `522,9/156,4 KiB`, отдельный legacy override удалён;
-- Phase 4: `23 passed / 52 expected skipped`; Phase 5: `35/80`; Phase 6: `28/104`; Phase 7: `64/128`; Phase 8: `57/105`;
+- `npm.cmd run smoke` прошёл: production SSR/client build, 50-asset secret scan, route ownership и public JavaScript budget;
+- главная занимает `508,8 KiB raw / 152,2 KiB gzip` при общем лимите `580/160 KiB`; максимальный public route занимает `522,9/156,4 KiB`, отдельный legacy override удалён;
+- Phase 4: `23 passed / 52 expected skipped`; Phase 5: `35/80`; Phase 6: `29/109`; Phase 7: `64/128`; Phase 8: `57/105`;
 - frozen screenshots не обновлялись; Visual Freeze главной, help, catalog/city/venue, account, merchant и admin зелёный;
 - свежий независимый Sol Ultra black-box прошёл customer, mobile keyboard/a11y, theme, merchant и admin charters; post-fix повтор `/ → /catalog → /venue` завершился с `0` console errors, `0` page errors и без неожиданных `4xx/5xx`;
 - независимый финальный release review завершён вердиктом `SHIP`: P0/P1 не осталось;
@@ -67,6 +67,8 @@ Memory rate limiter запрещён в production. Отсутствие shared 
 Release-candidate опубликован без переписывания истории: основной commit `398c4d8446d593e2976f1590275f4851d09c3fdf`, Vercel navigation fix `0b8f9e6a8675e09842479ea57f3c7113052e91b8`, переносимый Visual Freeze gate `562e55f1932d1c53cf72bb27f86351baa20bff87`, Phase 4 CI helper fix `68575fbc659163cc853053ac6ff59e9a32e8d1dd`, единый Phase 4–8 visual contract `f00ee7afd40107a5a8d6d3ecf10bd7d330951e98` и timezone-stable SSR fix `3fb5b760f71833f83d04c1a6689519f3df9147b7`. READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q` доступен по `https://mesto-city-guide-c8yeinpgi-krevetkaaaas-projects.vercel.app`. React Router включает полный initial route manifest, поэтому клиентская навигация не зависит от недоступного в явной Vercel route table `/__manifest`. Frozen snapshots не перезаписывались; cross-host допуск `3 000` пикселей документирует только подтверждённую субпиксельную растеризацию Windows 11/Windows Server (максимум `2 615` пикселей), а размеры и полный документ проверяются отдельно. Admin/merchant date text форматируется в явной product timezone `Europe/Simferopol`, поэтому Node SSR в UTC и браузер гидратируют один и тот же текст.
 
 Главная теперь полностью hydrated React route: featured venues, search, mobile navigation, favorites, reviews и venue submission не зависят от runtime `/app.js`. Безопасный `returnTo`, восстановление фокуса, canonical image URLs, стабильные legacy venue keys и pending single-flight формы покрыты unit и browser regressions.
+
+Route-диалоги входа, регистрации и избранного закрываются replacement-навигацией: кнопка Back не открывает закрытый dialog повторно, а клавиатурный фокус после монтирования главной возвращается на соответствующий логический trigger. Регрессия проверяет Enter, Escape, close button, историю и оба account-состояния.
 
 SEO-контракт использует отдельный `/api/venue-sitemap`: provider-safe страницы по 1000 slug с exact-count consistency до стандартного лимита 50 000 URL, общий public-read limiter, запрет cache-busting query и redirect-follow, потоковое ограничение ответа, проверку уникальности/canonical form и `503 no-store` для неполной выборки. Query-варианты `/sitemap.xml` канонизируются `308` до обращения к каталогу; входные home query-параметры больше не могут разогнать server-side pagination.
 

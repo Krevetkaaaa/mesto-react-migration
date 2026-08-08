@@ -114,6 +114,29 @@ export function PublicHomeView({
   );
 }
 
+function HomeRouteFocusRestorer() {
+  const location = useLocation();
+
+  useLayoutEffect(() => {
+    const target = (location.state as { homeReturnFocus?: unknown } | null)?.homeReturnFocus;
+    const selector = target === "auth"
+      ? "[data-open-auth]"
+      : target === "favorites"
+        ? "[data-open-favorites]"
+        : target === "register"
+          ? "[data-open-register]"
+          : "";
+    if (!selector) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.key, location.state]);
+
+  return null;
+}
+
 function SubmissionRouteDialog() {
   const account = usePublicAccount();
   const [searchParams] = useSearchParams();
@@ -198,10 +221,13 @@ function SubmissionRouteDialog() {
 export default function PublicHome() {
   const { catalogSummary, featuredVenues } = useLoaderData<typeof loader>();
   return (
-    <PublicHomeView
-      catalogSummary={catalogSummary}
-      featuredVenues={featuredVenues}
-      submissionDialogContent={<SubmissionRouteDialog />}
-    />
+    <>
+      <HomeRouteFocusRestorer />
+      <PublicHomeView
+        catalogSummary={catalogSummary}
+        featuredVenues={featuredVenues}
+        submissionDialogContent={<SubmissionRouteDialog />}
+      />
+    </>
   );
 }

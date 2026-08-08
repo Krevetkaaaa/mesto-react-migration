@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Form, Link, useNavigate, useNavigation } from "react-router";
+import { Form, Link, type NavigateFunction, useNavigate, useNavigation } from "react-router";
 
 import {
   PASSWORD_ERROR_MESSAGE,
@@ -18,6 +18,13 @@ interface AuthDialogProps {
   oauthCallbackError: string;
   providers: AuthProviders;
   returnTo: string;
+}
+
+function returnHomeAndRestoreFocus(navigate: NavigateFunction, target: "auth" | "favorites" | "register") {
+  void navigate("/", {
+    replace: true,
+    state: { homeReturnFocus: target },
+  });
 }
 
 function oauthLabel(provider: "google" | "yandex" | "vk") {
@@ -40,10 +47,10 @@ export function AuthDialog({ actionData, mode, oauthCallbackError, providers, re
     if (!dialog) return;
     if (dialog.open) dialog.removeAttribute("open");
     dialog.showModal();
-    const close = () => { void navigate("/"); };
+    const close = () => returnHomeAndRestoreFocus(navigate, mode === "register" ? "register" : "auth");
     dialog.addEventListener("close", close);
     return () => dialog.removeEventListener("close", close);
-  }, [navigate]);
+  }, [mode, navigate]);
 
   useEffect(() => {
     if (mode !== "login" || oauthHandled.current || typeof window === "undefined") return;
@@ -144,7 +151,7 @@ export function FavoritesDialog({ actionData, favorites }: {
     if (!dialog) return;
     if (dialog.open) dialog.removeAttribute("open");
     dialog.showModal();
-    const close = () => { void navigate("/"); };
+    const close = () => returnHomeAndRestoreFocus(navigate, "favorites");
     dialog.addEventListener("close", close);
     return () => dialog.removeEventListener("close", close);
   }, [navigate]);
