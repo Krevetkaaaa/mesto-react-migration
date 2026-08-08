@@ -10,6 +10,7 @@ const { createManagedUser, isStrongPassword, resetManagedPassword, temporaryPass
 const { normalizeMembershipRole } = require('../../lib/merchant-permissions');
 const { enforceRateLimit } = require('../../lib/rate-limit');
 const { authRequest, createStore } = require('../../lib/supabase');
+const { TEMPORARY_PASSWORD_ERROR_MESSAGE } = require('../../password-policy.mjs');
 
 function has(body, key) {
   return Object.prototype.hasOwnProperty.call(body, key);
@@ -61,7 +62,7 @@ module.exports = async function handler(req, res) {
       }
       if (!assignments) return json(res, 400, { message: 'Назначения должны содержать не более 100 корректных заведений.' });
       if (!membershipRole) return json(res, 400, { message: 'Выберите корректную роль ресторатора.' });
-      if (!password) return json(res, 400, { message: 'Временный пароль должен содержать минимум 10 символов, букву и цифру.' });
+      if (!password) return json(res, 400, { message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
 
       const profile = await createManagedUser({
         email: address,
@@ -103,7 +104,7 @@ module.exports = async function handler(req, res) {
         return json(res, 400, { message: 'Запрос сброса пароля содержит лишние поля.' });
       }
       const password = validPassword(body);
-      if (!password) return json(res, 400, { message: 'Временный пароль должен содержать минимум 10 символов, букву и цифру.' });
+      if (!password) return json(res, 400, { message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
       const reset = await resetManagedPassword(userId, password);
       await audit(store, {
         actor_label: admin.sub,

@@ -1,4 +1,12 @@
 const { authenticateFixture, expect, test } = require('./support/test-fixtures');
+const {
+  PASSWORD_ERROR_MESSAGE,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_PATTERN,
+  PASSWORD_REQUIREMENTS_LEAD,
+  TEMPORARY_PASSWORD_ERROR_MESSAGE,
+  TEMPORARY_PASSWORD_HINT
+} = require('../password-policy.mjs');
 
 async function openMerchantWorkspace(page) {
   await authenticateFixture(page, 'merchant');
@@ -196,6 +204,14 @@ test.describe('legacy role shells', () => {
     await expect(dialog).toHaveAttribute('data-forced', 'true');
     await expect(page.locator('#current-password-field')).toBeHidden();
     await expect(form.locator('[name="currentPassword"]')).toBeDisabled();
+    await expect(form.locator('[data-password-requirements]')).toHaveText(PASSWORD_REQUIREMENTS_LEAD);
+    await expect(form.locator('[name="password"]')).toHaveAttribute('minlength', String(PASSWORD_MIN_LENGTH));
+    await expect(form.locator('[name="password"]')).toHaveAttribute('pattern', PASSWORD_PATTERN);
+    await form.locator('[name="password"]').fill('abcdefghij');
+    await form.locator('[name="confirmPassword"]').fill('abcdefghij');
+    await form.locator('[type="submit"]').click();
+    await expect(page.locator('#password-form-message')).toHaveText(PASSWORD_ERROR_MESSAGE);
+    expect((await fixtureApi.read()).scenario.merchantMustChangePassword).toBe(true);
     await form.locator('[name="password"]').fill('NewFixture123');
     await form.locator('[name="confirmPassword"]').fill('NewFixture123');
     const saved = page.waitForResponse((response) => response.url().includes('/api/auth/password') && response.request().method() === 'POST');
@@ -279,6 +295,11 @@ test.describe('legacy admin merchant pattern characterization', () => {
     await page.locator('[data-view-panel="merchants"] [data-new-merchant]').click();
     const form = page.locator('#merchant-editor-form');
     const login = form.locator('[name="login"]');
+    const password = form.locator('[name="password"]');
+    await expect(password).toHaveAttribute('minlength', String(PASSWORD_MIN_LENGTH));
+    await expect(password).toHaveAttribute('pattern', PASSWORD_PATTERN);
+    await expect(password).toHaveAttribute('title', TEMPORARY_PASSWORD_ERROR_MESSAGE);
+    await expect(form.locator('[data-password-hint]')).toHaveText(TEMPORARY_PASSWORD_HINT);
     const patternFailure = await login.evaluate((input) => {
       try {
         new RegExp(input.pattern, 'v');
@@ -292,7 +313,7 @@ test.describe('legacy admin merchant pattern characterization', () => {
     await form.locator('[name="name"]').fill('Иван Орлов');
     await login.fill('ivan.owner');
     await form.locator('[name="email"]').fill('ivan@example.test');
-    await form.locator('[name="password"]').fill('FixturePass123');
+    await password.fill('FixturePass123');
     await form.locator('[name="membershipRole"]').selectOption('manager');
     await form.locator('[name="venueIds"]').first().check({ force: true });
     const created = page.waitForResponse((response) => response.url().includes('/api/admin/merchants') && response.request().method() === 'POST');

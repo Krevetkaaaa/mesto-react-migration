@@ -11,7 +11,7 @@ const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
 
 module.exports = defineConfig({
   testDir: ".",
-  testMatch: /phase5-public\.spec\.js/,
+  testMatch: /phase5-(?:fixture|public)\.spec\.js/,
   timeout: 45_000,
   outputDir: "../test-results/phase5",
   fullyParallel: false,

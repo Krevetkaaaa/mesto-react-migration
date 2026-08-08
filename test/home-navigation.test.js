@@ -5,6 +5,10 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const appSource = readFileSync(resolve(__dirname, '..', 'app.js'), 'utf8');
+const phaseConfigs = [5, 6, 7].map((phase) => ({
+  phase,
+  config: require(resolve(__dirname, '..', 'e2e', `phase${phase}-playwright.config.js`))
+}));
 
 function routeHelpers() {
   const start = appSource.indexOf('function catalogHref');
@@ -63,7 +67,7 @@ test('legacy home only creates venue routes from explicit safe slugs', () => {
 });
 
 test('catalog entry listeners navigate instead of taking legacy catalog DOM ownership', () => {
-  const start = appSource.indexOf("document.querySelectorAll('.quick-filters button')");
+  const start = appSource.indexOf("document.querySelectorAll('.quick-filters [data-filter]')");
   const end = appSource.indexOf("document.querySelectorAll('[data-home-link]')", start);
   const listeners = appSource.slice(start, end);
 
@@ -77,7 +81,13 @@ test('catalog entry listeners navigate instead of taking legacy catalog DOM owne
   assert.match(appSource, /function syncCatalogHeading\(\) \{\s*if \(!catalogEyebrow \|\| !catalogTitle \|\| !catalogCopy\) return;/);
 });
 
-test('retired hidden venue cards keep their counter metadata without home DOM serialization', () => {
+test('the Phase 5-7 release matrix retains each fixture contract suite', () => {
+  for (const { phase, config } of phaseConfigs) {
+    assert.equal(config.testMatch.test(`phase${phase}-fixture.spec.js`), true, `Phase ${phase}`);
+  }
+});
+
+test('retired hidden venue cards remain presentation data and never drive the home summary', () => {
   const inventory = staticInventory();
   const byId = Object.fromEntries(inventory.map((item) => [item.dataset.venue, item.dataset]));
   assert.equal(inventory.length, 31);
@@ -116,14 +126,11 @@ test('retired hidden venue cards keep their counter metadata without home DOM se
     Евпатория: 1
   });
 
-  const collectionCounts = {
-    breakfast: inventory.filter((item) => /Кофейни|Кафе|Кондитерские|Пекарни/.test(item.dataset.category) || /завтрак|кофе|выпеч/.test(item.dataset.search)).length,
-    sea: inventory.filter((item) => ['Ялта', 'Севастополь', 'Алушта', 'Феодосия', 'Судак', 'Балаклава', 'Гурзуф'].includes(item.dataset.city)).length,
-    date: inventory.filter((item) => Number(item.dataset.score) >= 4.8 && /Рестораны|Бары|Гастробары/.test(item.dataset.category)).length,
-    pet: inventory.filter((item) => item.dataset.pet === '1').length
-  };
-  assert.deepEqual(collectionCounts, { breakfast: 13, sea: 16, date: 9, pet: 6 });
   assert.match(appSource, /new Set\(staticVenueInventory\.map\(normalizedVenueTitle\)\)/);
+  assert.doesNotMatch(appSource, /function inventoryCards|setupVenueCounters|syncCatalogTotals|data-collection-count/);
+  assert.match(appSource, /endpoint\.searchParams\.set\('summary', '1'\)/);
+  assert.match(appSource, /summary\?\.source !== 'database' \|\| summary\.databaseConfigured !== true/);
+  assert.match(appSource, /dataset\.homeCatalogSource !== 'database'/);
 });
 
 test('database-backed home cards preserve an API slug and use it before the editorial dialog fallback', () => {

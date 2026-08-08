@@ -10,6 +10,7 @@ const registerHandler = require('../handlers/auth/register');
 const sessionHandler = require('../handlers/auth/session');
 const { isSameOriginRequest } = require('../lib/same-origin');
 const { signSession } = require('../lib/security');
+const { NEW_PASSWORD_ERROR_MESSAGE, PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
 
 const USER_ID = '9aa8f050-486d-4d77-95d9-2dba1d633d07';
 const USER_SECRET = 'customer-auth-test-secret-that-is-long-enough';
@@ -211,4 +212,67 @@ test('same-origin login, registration and Google exchange reach their existing v
     assert.equal(res.statusCode, 400);
     assert.notEqual(res.body.code, 'CSRF_CHECK_FAILED');
   }
+});
+
+test('registration rejects every weak-password shape before identity persistence', async () => {
+  const headers = { origin: PUBLIC_ORIGIN, 'sec-fetch-site': 'same-origin' };
+  let upstreamCalls = 0;
+  global.fetch = async () => {
+    upstreamCalls += 1;
+    throw new Error('Weak registration must not reach identity persistence');
+  };
+
+  for (const [index, password] of ['short', 'abcdefghij', '1234567890'].entries()) {
+    const res = responseRecorder();
+    await registerHandler(request('POST', {
+      body: {
+        name: 'Test User',
+        username: `test-user-${index}`,
+        email: `test-user-${index}@example.test`,
+        password
+      },
+      headers
+    }), res);
+
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(res.body, { message: PASSWORD_ERROR_MESSAGE });
+    assert.equal(res.headers['set-cookie'], undefined);
+  }
+
+  assert.equal(upstreamCalls, 0);
+});
+
+test('password change rejects a weak password before identity mutation', async () => {
+  process.env.SUPABASE_URL = 'https://database.example';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
+  const calls = [];
+  global.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    calls.push(`${init?.method || 'GET'} ${url.pathname}`);
+    if (url.pathname === '/rest/v1/profiles' && (init?.method || 'GET') === 'GET') {
+      return jsonResponse([{
+        id: USER_ID,
+        email: 'user@example.test',
+        username: 'user',
+        display_name: 'User',
+        role: 'customer',
+        status: 'active',
+        session_version: 0,
+        must_change_password: true
+      }]);
+    }
+    throw new Error(`Weak password must not reach identity mutation: ${url.pathname}`);
+  };
+
+  const res = responseRecorder();
+  await passwordHandler(request('POST', {
+    body: { password: 'abcdefghij' },
+    cookie: currentToken(),
+    headers: { origin: PUBLIC_ORIGIN, 'sec-fetch-site': 'same-origin' }
+  }), res);
+
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { message: NEW_PASSWORD_ERROR_MESSAGE });
+  assert.equal(res.headers['set-cookie'], undefined);
+  assert.deepEqual(calls, ['GET /rest/v1/profiles']);
 });

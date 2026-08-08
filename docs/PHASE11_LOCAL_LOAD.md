@@ -78,6 +78,15 @@ Mixed baseline, 25 VU:
 
 Итого 18 146/18 146 HTTP 200, без transport errors, 4xx/5xx и неожиданных statuses. Expected gate считается устойчиво пройденным локально.
 
+После QA-hardening каталожной сводки выполнены ещё два fresh-process regression run:
+
+| Stage / profile | Requests / HTTP 200 | Successful RPS | p95 | p99 | Результат |
+| --- | ---: | ---: | ---: | ---: | --- |
+| baseline / public-read | 2577 / 2577 | 256,80 | 200,01 ms | 265,84 ms | pass |
+| expected / mixed | 6059 / 6059 | 300,46 | 747,37 ms | 944,51 ms | pass |
+
+Новая SSR-сводка главной не ухудшила локальный expected gate: transport errors, 4xx/5xx и неожиданные statuses отсутствуют. Это по-прежнему fixture evidence, а не production capacity evidence; ранее зафиксированный 300-VU burst fail не отменён и SLO не ослаблялся.
+
 Burst evidence, 300 VU:
 
 - дополнительный mixed stress: 890 attempts, 860 HTTP 200, 30 transport timeouts, p95 `4562,02 ms`, p99 `5009,37 ms`; abort после пяти последовательных transport errors;

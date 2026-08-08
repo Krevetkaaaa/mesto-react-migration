@@ -4,10 +4,22 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { PublicHomeMarkup } from "../../../app/components/public/PublicHomeMarkup";
+import { EDITORIAL_VENUES } from "../../../app/data/editorial-venues";
+import { createEditorialHomeCatalogSummary } from "../../../app/modules/home-catalog-summary";
 import { PublicHelpView } from "../../../app/routes/public-help";
 import { PublicHomeView } from "../../../app/routes/public-home";
+import {
+  PASSWORD_ERROR_MESSAGE,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_PATTERN,
+} from "../../../password-policy.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
+const editorialHomeCatalogSummary = createEditorialHomeCatalogSummary(EDITORIAL_VENUES);
+
+function EditorialHomeView() {
+  return <PublicHomeView catalogSummary={editorialHomeCatalogSummary} />;
+}
 
 function documentFor(markup: string) {
   return new DOMParser().parseFromString(`<!doctype html><body>${markup}</body>`, "text/html");
@@ -62,7 +74,7 @@ async function legacyDocument(filename: string) {
 
 describe("public JSX structural parity", () => {
   it.each([
-    ["home", "index.html", PublicHomeView, ["#guide", "#categories", "#popular", "#site-footer", "#venue-search", "#venue-dialog"], ["#guide-title", "#categories-title", "#popular-title"], ["#platform"]],
+    ["home", "index.html", EditorialHomeView, ["#guide", "#categories", "#popular", "#site-footer", "#venue-search", "#venue-dialog"], ["#guide-title", "#categories-title", "#popular-title"], ["#platform"]],
     ["help", "help.html", PublicHelpView, ["#content", "#faq", "#partners", "#rules", "#privacy", "#terms"], ["#page-title", "#faq-title", "#partners-title", "#rules-title", "#privacy-title", "#terms-title"], []],
   ])("keeps the ordered legacy DOM contract for %s", async (_name, legacyFile, Markup, selectors, textSelectors, retiredSelectors) => {
     const legacy = await legacyDocument(legacyFile);
@@ -114,6 +126,18 @@ describe("public JSX structural parity", () => {
     }
     for (const selector of textSelectors) {
       expect(normalizedText(rendered.querySelector(selector))).toBe(normalizedText(legacy.querySelector(selector)));
+    }
+  });
+
+  it("keeps legacy and React registration constraints aligned with the shared password policy", async () => {
+    const legacy = await legacyDocument("index.html");
+    const rendered = documentFor(renderToStaticMarkup(<PublicHomeMarkup />));
+
+    for (const document of [legacy, rendered]) {
+      const input = document.querySelector<HTMLInputElement>('#register-form [name="password"]');
+      expect(input?.minLength).toBe(PASSWORD_MIN_LENGTH);
+      expect(input?.pattern).toBe(PASSWORD_PATTERN);
+      expect(input?.title).toBe(PASSWORD_ERROR_MESSAGE);
     }
   });
 

@@ -184,6 +184,41 @@ create index if not exists venue_memberships_user_idx on public.venue_membership
 create index if not exists menu_items_venue_idx on public.menu_items(venue_id,section,sort_order);
 create index if not exists promotions_venue_idx on public.promotions(venue_id,status,created_at desc);
 
+create or replace function public.public_catalog_summary()
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  with published as materialized (
+    select city, category
+    from public.venues
+    where status = 'published'
+  )
+  select jsonb_build_object(
+    'total', (select count(*) from published),
+    'byCategory', (
+      select coalesce(jsonb_object_agg(category_counts.category, category_counts.total), '{}'::jsonb)
+      from (
+        select category, count(*) as total
+        from published
+        where nullif(btrim(category), '') is not null
+        group by category
+      ) as category_counts
+    ),
+    'byCity', (
+      select coalesce(jsonb_object_agg(city_counts.city, city_counts.total), '{}'::jsonb)
+      from (
+        select city, count(*) as total
+        from published
+        where nullif(btrim(city), '') is not null
+        group by city
+      ) as city_counts
+    )
+  );
+$$;
+
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as $$
 begin
@@ -289,8 +324,10 @@ create policy "Public can read active promotions" on public.promotions for selec
 
 revoke execute on function public.moderate_venue_submission(uuid,text,text,text) from public, anon, authenticated;
 revoke execute on function public.moderate_review_submission(uuid,text,text,text) from public, anon, authenticated;
+revoke execute on function public.public_catalog_summary() from public, anon, authenticated;
 grant execute on function public.moderate_venue_submission(uuid,text,text,text) to service_role;
 grant execute on function public.moderate_review_submission(uuid,text,text,text) to service_role;
+grant execute on function public.public_catalog_summary() to service_role;
 
 insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
 values ('venue-submissions','venue-submissions',true,6291456,array['image/jpeg','image/png','image/webp'])

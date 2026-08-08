@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   headers as helpHeaders,
@@ -14,6 +14,14 @@ import {
 } from "../../../app/routes/public-home";
 import { SECURITY_HEADERS } from "../../../app/lib/security-headers";
 
+const fixtureSummary = {
+  total: 3,
+  byCategory: { "Рестораны": 2, "Кофейни": 1 },
+  byCity: { "Симферополь": 2, "Ялта": 1 },
+  source: "database",
+  databaseConfigured: true,
+};
+
 function argsFor<T extends (args: never) => unknown>(
   _handler: T,
   value: Record<string, unknown>,
@@ -22,16 +30,25 @@ function argsFor<T extends (args: never) => unknown>(
 }
 
 describe("public route server contracts", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(
+      JSON.stringify(fixtureSummary),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ))));
   });
 
-  it("derives canonical URLs from the trusted request URL", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("derives canonical URLs from the trusted request URL", async () => {
     const request = new Request("https://preview.example.test/source?ignored=true");
 
-    expect(homeLoader(argsFor(homeLoader, { request }))).toEqual({
+    await expect(homeLoader(argsFor(homeLoader, { request }))).resolves.toEqual({
       canonicalUrl: "https://preview.example.test/",
       openGraphImageUrl: "https://preview.example.test/assets/mesto-hero.png",
+      catalogSummary: fixtureSummary,
     });
     expect(helpLoader(argsFor(helpLoader, { request }))).toEqual({
       canonicalUrl: "https://preview.example.test/help",
@@ -48,18 +65,18 @@ describe("public route server contracts", () => {
     );
   });
 
-  it("rejects a non-HTTP configured origin and falls back to the request", () => {
+  it("rejects a non-HTTP configured origin and falls back to the request", async () => {
     vi.stubEnv("MESTO_PUBLIC_ORIGIN", "file:///tmp/not-public");
     const request = new Request("https://safe.example.test/");
 
-    expect(homeLoader(argsFor(homeLoader, { request })).canonicalUrl).toBe(
+    expect((await homeLoader(argsFor(homeLoader, { request }))).canonicalUrl).toBe(
       "https://safe.example.test/",
     );
   });
 
-  it("publishes canonical and Open Graph metadata for both routes", () => {
+  it("publishes canonical and Open Graph metadata for both routes", async () => {
     const homeRequest = new Request("https://mesto.example.test/");
-    const homeData = homeLoader(argsFor(homeLoader, { request: homeRequest }));
+    const homeData = await homeLoader(argsFor(homeLoader, { request: homeRequest }));
     const helpRequest = new Request("https://mesto.example.test/help");
     const helpData = helpLoader(argsFor(helpLoader, { request: helpRequest }));
 

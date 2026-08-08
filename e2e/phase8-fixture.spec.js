@@ -1,4 +1,5 @@
 const { authenticateFixture, expect, test } = require('./support/test-fixtures');
+const { TEMPORARY_PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
 
 const venueId = '30000000-0000-4000-8000-000000000001';
 const merchantId = '20000000-0000-4000-8000-000000000001';
@@ -149,6 +150,16 @@ test.describe('Phase 8 admin fixture contracts', () => {
     await page.goto('/admin/overview');
     await authenticateFixture(page, 'admin');
 
+    const rejectedCreate = await mutate(page, '/api/admin/merchants', 'POST', {
+      displayName: 'Weak Password',
+      username: 'weak.owner',
+      password: 'abcdefghij',
+      venueIds: [venueId],
+      membershipRole: 'manager'
+    });
+    expect(rejectedCreate.status()).toBe(400);
+    await expect(rejectedCreate.json()).resolves.toEqual({ message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
+
     const created = await mutate(page, '/api/admin/merchants', 'POST', {
       displayName: 'Иван Орлов',
       username: 'ivan.owner',
@@ -172,6 +183,13 @@ test.describe('Phase 8 admin fixture contracts', () => {
       userId: payload.merchant.id,
       status: 'suspended'
     })).status()).toBe(200);
+    const rejectedReset = await mutate(page, '/api/admin/merchants', 'PATCH', {
+      userId: payload.merchant.id,
+      action: 'reset-password',
+      password: '1234567890'
+    });
+    expect(rejectedReset.status()).toBe(400);
+    await expect(rejectedReset.json()).resolves.toEqual({ message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
     const reset = await mutate(page, '/api/admin/merchants', 'PATCH', {
       userId: payload.merchant.id,
       action: 'reset-password'

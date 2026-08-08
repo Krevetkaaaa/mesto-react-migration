@@ -25,6 +25,22 @@
 добавляется только для конфиденциального приложения VK ID, которое требует
 Service access key.
 
+## Агрегаты публичного каталога
+
+Перед выпуском главной страницы с серверными счётчиками примените
+`migrations/20260808_public_catalog_summary.sql`. Миграция добавляет вызываемую
+только ролью `service_role` функцию `public.public_catalog_summary()` с правами
+вызывающей стороны (`security invoker`). Пока миграция ещё не применена, сервер
+совместимости постранично считает те же опубликованные строки по колонкам
+`city,category`.
+
+Явный rollback:
+
+```sql
+revoke execute on function public.public_catalog_summary() from service_role;
+drop function if exists public.public_catalog_summary();
+```
+
 Маршрут `/api/venues` читает собственный каталог Supabase и возвращает только
 карточки `venues` со статусом `published`. Поиск организаций Яндекса в реальном
 времени не используется. Ссылки карточек могут по-прежнему открывать внешний

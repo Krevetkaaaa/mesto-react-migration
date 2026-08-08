@@ -21,6 +21,12 @@ import {
   useRevalidator,
 } from "react-router";
 
+import {
+  isStrongPassword,
+  PASSWORD_ERROR_MESSAGE,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_REQUIREMENTS_LEAD,
+} from "../../../password-policy.mjs";
 import type {
   MenuItem,
   MerchantWorkspaceSnapshot,
@@ -1183,9 +1189,9 @@ function PasswordDialog({ dialogRef, forced, draft, setDraft, visible, setVisibl
       event.preventDefault();
       return;
     }
-    if (draft.password.length < 10 || !/[A-Za-zА-Яа-яЁё]/.test(draft.password) || !/\d/.test(draft.password)) {
+    if (!isStrongPassword(draft.password)) {
       event.preventDefault();
-      setMessage("Пароль должен содержать минимум 10 символов, букву и цифру.");
+      setMessage(PASSWORD_ERROR_MESSAGE);
     } else if (draft.password !== draft.confirmPassword) {
       event.preventDefault();
       setMessage("Пароли не совпадают.");
@@ -1196,16 +1202,16 @@ function PasswordDialog({ dialogRef, forced, draft, setDraft, visible, setVisibl
       <fetcher.Form className="dialog-card" id="password-form" method="post" action={action} aria-busy={busy} inert={busy ? true : undefined} onSubmit={validate}>
         <input name="intent" type="hidden" value="merchant.password" />
         <div className="dialog-heading"><div><p className="eyebrow">Безопасность</p><h2 id="password-dialog-title">Новый пароль</h2></div>{!forced ? <button className="dialog-close" type="button" aria-label="Закрыть" onClick={onClose}><MerchantIcon name="close" /></button> : null}</div>
-        <p className="dialog-lead">Используйте не менее 10 символов, хотя бы одну букву и одну цифру.</p>
+        <p className="dialog-lead">{PASSWORD_REQUIREMENTS_LEAD}</p>
         {!forced ? <label className="field" id="current-password-field"><span>Текущий пароль</span><span className="input-shell"><MerchantIcon name="lock" /><input name="currentPassword" type="password" autoComplete="current-password" required value={draft.currentPassword} onChange={(event) => {
           const currentPassword = event.target.value;
           setDraft((current) => ({ ...current, currentPassword }));
         }} /></span></label> : null}
-        <label className="field"><span>Новый пароль</span><span className="input-shell"><MerchantIcon name="lock" /><input name="password" type={visible ? "text" : "password"} minLength={10} autoComplete="new-password" required value={draft.password} onChange={(event) => {
+        <label className="field"><span>Новый пароль</span><span className="input-shell"><MerchantIcon name="lock" /><input name="password" type={visible ? "text" : "password"} minLength={PASSWORD_MIN_LENGTH} autoComplete="new-password" required value={draft.password} onChange={(event) => {
           const password = event.target.value;
           setDraft((current) => ({ ...current, password }));
         }} /><button className="password-toggle" type="button" aria-label={visible ? "Скрыть пароль" : "Показать пароль"} onClick={() => setVisible(!visible)}><MerchantIcon name="eye" /></button></span></label>
-        <label className="field"><span>Повторите пароль</span><span className="input-shell"><MerchantIcon name="lock" /><input name="confirmPassword" type="password" minLength={10} autoComplete="new-password" required value={draft.confirmPassword} onChange={(event) => {
+        <label className="field"><span>Повторите пароль</span><span className="input-shell"><MerchantIcon name="lock" /><input name="confirmPassword" type="password" minLength={PASSWORD_MIN_LENGTH} autoComplete="new-password" required value={draft.confirmPassword} onChange={(event) => {
           const confirmPassword = event.target.value;
           setDraft((current) => ({ ...current, confirmPassword }));
         }} /></span></label>

@@ -3,6 +3,7 @@
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const passwordPolicyPromise = import('/password-policy.mjs');
 
   const viewMeta = {
     overview: ['Рабочее пространство', 'Добрый день'],
@@ -258,6 +259,15 @@
   }
 
   async function initialize() {
+    const passwordPolicy = await passwordPolicyPromise;
+    const passwordForm = $('#password-form');
+    passwordForm.querySelector('[data-password-requirements]').textContent = passwordPolicy.PASSWORD_REQUIREMENTS_LEAD;
+    ['password', 'confirmPassword'].forEach((name) => {
+      const input = passwordForm.elements[name];
+      input.minLength = passwordPolicy.PASSWORD_MIN_LENGTH;
+      input.pattern = passwordPolicy.PASSWORD_PATTERN;
+      input.title = passwordPolicy.PASSWORD_ERROR_MESSAGE;
+    });
     bindEvents();
     setLoading(true);
     try {
@@ -855,13 +865,14 @@
 
   async function savePassword(event) {
     event.preventDefault();
+    const passwordPolicy = await passwordPolicyPromise;
     const form = event.currentTarget;
     const password = form.elements.password.value;
     const confirmation = form.elements.confirmPassword.value;
     const message = $('#password-form-message');
     message.textContent = '';
-    if (password.length < 10 || !/[A-Za-zА-Яа-яЁё]/.test(password) || !/\d/.test(password)) {
-      message.textContent = 'Пароль должен содержать минимум 10 символов, букву и цифру.';
+    if (!passwordPolicy.isStrongPassword(password)) {
+      message.textContent = passwordPolicy.PASSWORD_ERROR_MESSAGE;
       return;
     }
     if (password !== confirmation) {

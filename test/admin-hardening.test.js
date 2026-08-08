@@ -9,6 +9,7 @@ const reviewsHandler = require('../handlers/admin/reviews');
 const venuesHandler = require('../handlers/admin/venues');
 const { configurePublicCacheInvalidation } = require('../lib/public-cache');
 const { ADMIN_SESSION_TYPE, hashPassword, signSession, verifySession } = require('../lib/security');
+const { TEMPORARY_PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
 
 const ADMIN_SECRET = 'phase-8-admin-secret-that-is-at-least-32-characters';
 const PUBLIC_ORIGIN = 'https://mesto.example';
@@ -168,6 +169,57 @@ test('admin body and identifiers are rejected strictly before storage access', a
   assert.equal(oversizedBody.statusCode, 413);
   assert.equal(oversizedBody.body.code, 'PAYLOAD_TOO_LARGE');
   assert.equal(fetchCalls, 0);
+});
+
+test('merchant creation rejects an explicit weak password before storage access', async () => {
+  let fetchCalls = 0;
+  global.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error('Weak password must not reach merchant persistence');
+  };
+
+  const res = responseRecorder();
+  await merchantsHandler(request('POST', {
+    displayName: 'Merchant',
+    username: 'merchant',
+    venueIds: [VENUE_ID],
+    membershipRole: 'owner',
+    password: 'abcdefghij'
+  }), res);
+
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
+  assert.equal(fetchCalls, 0);
+  assertPrivate(res);
+});
+
+test('merchant password reset rejects an explicit weak password before auth mutation', async () => {
+  const calls = [];
+  global.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    calls.push(`${init?.method || 'GET'} ${url.pathname}`);
+    if (url.pathname === '/rest/v1/profiles' && (init?.method || 'GET') === 'GET') {
+      return jsonResponse([{
+        id: MERCHANT_ID,
+        role: 'merchant',
+        status: 'active',
+        session_version: 0
+      }]);
+    }
+    throw new Error(`Weak password must not reach auth mutation: ${url.pathname}`);
+  };
+
+  const res = responseRecorder();
+  await merchantsHandler(request('PATCH', {
+    userId: MERCHANT_ID,
+    action: 'reset-password',
+    password: '1234567890'
+  }), res);
+
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
+  assert.deepEqual(calls, ['GET /rest/v1/profiles']);
+  assertPrivate(res);
 });
 
 test('admin dependency failures never expose Supabase details', async () => {

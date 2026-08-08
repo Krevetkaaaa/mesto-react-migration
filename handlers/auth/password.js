@@ -1,6 +1,7 @@
 const { json, methodNotAllowed, readJson } = require('../../lib/http');
 const { changePassword, isStrongPassword, publicUser, requireUser, sessionCookie, signIn } = require('../../lib/identity');
 const { enforceRateLimit } = require('../../lib/rate-limit');
+const { NEW_PASSWORD_ERROR_MESSAGE } = require('../../password-policy.mjs');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
@@ -13,7 +14,7 @@ module.exports = async function handler(req, res) {
     const body = await readJson(req, 50_000);
     const password = String(body.password || '');
     if (!isStrongPassword(password)) {
-      return json(res, 400, { message: 'Новый пароль должен содержать минимум 10 символов, букву и цифру.' });
+      return json(res, 400, { message: NEW_PASSWORD_ERROR_MESSAGE });
     }
     if (!profile.must_change_password) {
       const currentPassword = String(body.currentPassword || '');

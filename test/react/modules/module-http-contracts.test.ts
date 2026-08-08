@@ -169,6 +169,30 @@ describe("HTTP module contracts", () => {
     expect(http.requests).toEqual([]);
   });
 
+  it.each(["short", "abcdefghij", "1234567890"])(
+    "rejects weak registration password %s before transport",
+    async (password) => {
+      const http = new RecordingHttpClient([]);
+      await expect(createHttpSession(http).register({
+        name: "Test User",
+        username: "test-user",
+        email: "test@example.test",
+        password,
+      })).rejects.toMatchObject({ kind: "validation" });
+      expect(http.requests).toEqual([]);
+    },
+  );
+
+  it.each(["short", "abcdefghij", "1234567890"])(
+    "rejects weak changed password %s before transport",
+    async (password) => {
+      const http = new RecordingHttpClient([]);
+      await expect(createHttpSession(http).changePassword({ password }))
+        .rejects.toMatchObject({ kind: "validation" });
+      expect(http.requests).toEqual([]);
+    },
+  );
+
   it("maps catalog search/content and validates critical wire fields", async () => {
     const http = new RecordingHttpClient([
       {
@@ -598,5 +622,28 @@ describe("HTTP module contracts", () => {
       venueIds: [venueId],
       membershipRole: "manager",
     });
+  });
+
+  it("rejects explicit weak merchant passwords before transport", async () => {
+    const http = new RecordingHttpClient([]);
+    const admin = createHttpAdminConsole(http);
+
+    await expect(admin.execute({
+      type: "merchant.create",
+      command: {
+        displayName: "Мария",
+        username: "merchant.owner",
+        venueIds: [venueId],
+        membershipRole: "owner",
+        password: "abcdefghij",
+      },
+    })).rejects.toMatchObject({ kind: "validation" });
+    await expect(admin.execute({
+      type: "merchant.password.reset",
+      userId: merchantId,
+      password: "1234567890",
+    })).rejects.toMatchObject({ kind: "validation" });
+
+    expect(http.requests).toEqual([]);
   });
 });

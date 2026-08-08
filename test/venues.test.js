@@ -42,6 +42,17 @@ function responseRecorder() {
   };
 }
 
+function fetchJsonResponse(status, body) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => null },
+    async json() {
+      return body;
+    }
+  };
+}
+
 test('GET /api/venues returns an empty Mesto catalog when the database is not configured', async () => {
   delete process.env.SUPABASE_URL;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -72,6 +83,132 @@ test('GET /api/venues returns an empty Mesto catalog when the database is not co
   assert.equal(res.body.nextSkip, null);
   assert.equal(res.body.databaseConfigured, false);
   assert.equal(externalFetches, 0);
+});
+
+test('GET /api/venues?summary=1 exposes an explicit unconfigured summary without external reads', async () => {
+  delete process.env.SUPABASE_URL;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  global.fetch = async () => {
+    throw new Error('Unconfigured summary must not call Supabase');
+  };
+  const res = responseRecorder();
+
+  await handler({
+    method: 'GET',
+    query: { summary: '1' },
+    headers: {},
+    socket: { remoteAddress: 'venues-summary-unconfigured-test' }
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, {
+    total: 0,
+    byCategory: {},
+    byCity: {},
+    source: 'database',
+    databaseConfigured: false
+  });
+  assert.equal(res.headers['cache-control'], 'no-store, max-age=0');
+});
+
+test('GET /api/venues?summary=1 uses the aggregate RPC as its primary production path', async () => {
+  process.env.SUPABASE_URL = 'https://database.example';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
+  const calls = [];
+  global.fetch = async (input, options) => {
+    calls.push({ url: new URL(String(input)), options });
+    return fetchJsonResponse(200, {
+      total: 3,
+      byCategory: { 'Рестораны': 2, 'Кофейни': 1 },
+      byCity: { 'Симферополь': 2, 'Ялта': 1 }
+    });
+  };
+  const res = responseRecorder();
+
+  await handler({
+    method: 'GET',
+    query: { summary: '1' },
+    headers: {},
+    socket: { remoteAddress: 'venues-summary-rpc-test' }
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, {
+    total: 3,
+    byCategory: { 'Рестораны': 2, 'Кофейни': 1 },
+    byCity: { 'Симферополь': 2, 'Ялта': 1 },
+    source: 'database',
+    databaseConfigured: true
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.pathname, '/rest/v1/rpc/public_catalog_summary');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.equal(calls[0].options.body, '{}');
+  assert.equal(res.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
+});
+
+test('catalog summary compatibility fallback paginates minimal published columns until empty', async () => {
+  process.env.SUPABASE_URL = 'https://database.example';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
+  const calls = [];
+  const pages = [
+    fetchJsonResponse(404, {
+      code: 'PGRST202',
+      message: 'Could not find the function public.public_catalog_summary in the schema cache'
+    }),
+    fetchJsonResponse(200, [
+      { city: 'Симферополь', category: 'Рестораны' },
+      { city: 'Ялта', category: 'Рестораны' }
+    ]),
+    fetchJsonResponse(200, [
+      { city: 'Симферополь', category: 'Кофейни' },
+      { city: '__proto__', category: 'constructor' },
+      { city: 'toString', category: 'constructor' }
+    ]),
+    fetchJsonResponse(200, [])
+  ];
+  global.fetch = async (input, options) => {
+    calls.push({ url: new URL(String(input)), options });
+    return pages.shift();
+  };
+  const res = responseRecorder();
+
+  await handler({
+    method: 'GET',
+    query: { summary: '1' },
+    headers: {},
+    socket: { remoteAddress: 'venues-summary-compatibility-test' }
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, {
+    total: 5,
+    byCategory: Object.fromEntries([
+      ['Рестораны', 2],
+      ['Кофейни', 1],
+      ['constructor', 2]
+    ]),
+    byCity: Object.fromEntries([
+      ['Симферополь', 2],
+      ['Ялта', 1],
+      ['__proto__', 1],
+      ['toString', 1]
+    ]),
+    source: 'database',
+    databaseConfigured: true
+  });
+  assert.equal(calls[0].url.pathname, '/rest/v1/rpc/public_catalog_summary');
+  assert.deepEqual(calls.slice(1).map(({ url }) => ({
+    select: url.searchParams.get('select'),
+    status: url.searchParams.get('status'),
+    order: url.searchParams.get('order'),
+    limit: url.searchParams.get('limit'),
+    offset: url.searchParams.get('offset')
+  })), [
+    { select: 'city,category', status: 'eq.published', order: 'id.asc', limit: '1000', offset: '0' },
+    { select: 'city,category', status: 'eq.published', order: 'id.asc', limit: '1000', offset: '2' },
+    { select: 'city,category', status: 'eq.published', order: 'id.asc', limit: '1000', offset: '5' }
+  ]);
 });
 
 test('GET /api/venues reads published places only from the configured database', async () => {

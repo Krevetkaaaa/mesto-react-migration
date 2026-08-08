@@ -1,18 +1,22 @@
 import type { Route } from "./+types/public-home";
+import { useLoaderData } from "react-router";
 
 import { PublicHomeMarkup } from "../components/public/PublicHomeMarkup";
 import { resolvePublicOrigin } from "../lib/public-origin.server";
 import { SECURITY_HEADERS } from "../lib/security-headers";
+import { loadHomeCatalogSummary } from "../modules/home-catalog-summary.server";
+import type { HomeCatalogSummary } from "../modules/home-catalog-summary";
 
 const DESCRIPTION =
   "Место — городской гид по ресторанам, кафе, барам и новым гастрономическим впечатлениям.";
 
-export function loader({ request }: Route.LoaderArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
   const origin = resolvePublicOrigin(request);
 
   return {
     canonicalUrl: `${origin}/`,
     openGraphImageUrl: `${origin}/assets/mesto-hero.png`,
+    catalogSummary: await loadHomeCatalogSummary(request),
   };
 }
 
@@ -59,15 +63,18 @@ export function headers() {
   };
 }
 
-export function PublicHomeView() {
+export function PublicHomeView({
+  catalogSummary,
+}: { catalogSummary?: HomeCatalogSummary } = {}) {
   return (
     <>
-      <PublicHomeMarkup />
+      <PublicHomeMarkup {...(catalogSummary ? { catalogSummary } : {})} />
       <script src="app.js?v=ui-motion-3" />
     </>
   );
 }
 
 export default function PublicHome() {
-  return <PublicHomeView />;
+  const { catalogSummary } = useLoaderData<typeof loader>();
+  return <PublicHomeView catalogSummary={catalogSummary} />;
 }

@@ -13,6 +13,10 @@ import type {
   ModerationCommand,
   UpdateMerchantCommand,
 } from "../modules/admin-console";
+import {
+  isStrongPassword,
+  TEMPORARY_PASSWORD_VALIDATION_MESSAGE,
+} from "../../password-policy.mjs";
 
 export type NormalizedAdminVenueDraft = Omit<Venue, "id" | "createdAt" | "updatedAt">;
 
@@ -22,10 +26,6 @@ const venueStatuses = ["draft", "published", "archived"] as const;
 const moderationTargets = ["submission", "review"] as const;
 const moderationDecisions = ["approved", "rejected"] as const;
 const merchantStatuses = ["active", "suspended"] as const;
-
-function strongPassword(password: string) {
-  return password.length >= 10 && /[A-Za-zА-Яа-яЁё]/u.test(password) && /\d/u.test(password);
-}
 
 function venueIds(values: readonly string[]) {
   return [...new Set(values.map((value) => requireUuid(value, "Venue id")))].slice(0, 100);
@@ -78,8 +78,8 @@ export function normalizeCreateMerchant(command: CreateMerchantCommand): Normali
   if (!displayName || !/^[a-z0-9._-]{3,48}$/.test(username)) {
     throw validationError("Merchant name, username and email are invalid");
   }
-  if (command.password !== undefined && !strongPassword(command.password)) {
-    throw validationError("Temporary password is too weak");
+  if (command.password !== undefined && !isStrongPassword(command.password)) {
+    throw validationError(TEMPORARY_PASSWORD_VALIDATION_MESSAGE);
   }
   return {
     displayName,
@@ -123,7 +123,7 @@ export function normalizeUpdateMerchant(command: UpdateMerchantCommand): Normali
 
 export function normalizeResetPassword(password?: string) {
   if (password === undefined) return undefined;
-  if (!strongPassword(password)) throw validationError("Temporary password is too weak");
+  if (!isStrongPassword(password)) throw validationError(TEMPORARY_PASSWORD_VALIDATION_MESSAGE);
   return password;
 }
 

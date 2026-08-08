@@ -2,6 +2,7 @@ const { email, json, methodNotAllowed, readJson, text } = require('../../lib/htt
 const { createManagedUser, isStrongPassword, normalizeUsername, publicUser, sessionCookie } = require('../../lib/identity');
 const { enforceRateLimit } = require('../../lib/rate-limit');
 const { requireSameOrigin } = require('../../lib/same-origin');
+const { PASSWORD_ERROR_MESSAGE } = require('../../password-policy.mjs');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
@@ -20,7 +21,7 @@ module.exports = async function handler(req, res) {
       message: 'Слишком много попыток регистрации. Повторите позже.'
     })) return;
     if (!isStrongPassword(password)) {
-      return json(res, 400, { message: 'Пароль должен содержать минимум 10 символов, букву и цифру.' });
+      return json(res, 400, { message: PASSWORD_ERROR_MESSAGE });
     }
     const profile = await createManagedUser({ email: address, password, displayName: name, username, role: 'customer' });
     res.setHeader('Set-Cookie', sessionCookie(profile));

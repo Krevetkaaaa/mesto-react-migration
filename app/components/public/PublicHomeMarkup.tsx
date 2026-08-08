@@ -1,13 +1,65 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import {
+  PASSWORD_ERROR_MESSAGE,
+  PASSWORD_HINT,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_PATTERN,
+} from "../../../password-policy.mjs";
 import type { User } from "../../lib/domain";
+import {
+  catalogHref,
+  defaultCatalogUrlState,
+  type CatalogUrlState,
+} from "../../modules/catalog-url-state";
+import type { HomeCatalogSummary } from "../../modules/home-catalog-summary";
 import { useOptionalPublicAccount } from "./account/PublicAccountProvider";
+
+const EMPTY_HOME_CATALOG_SUMMARY: HomeCatalogSummary = {
+  total: 0,
+  byCategory: {},
+  byCity: {},
+  source: "editorial-fallback",
+  databaseConfigured: false,
+};
+
+function placeWord(count: number) {
+  const remainder = Math.abs(count) % 100;
+  const lastDigit = remainder % 10;
+  if (remainder > 10 && remainder < 20) return "мест";
+  if (lastDigit === 1) return "место";
+  if (lastDigit >= 2 && lastDigit <= 4) return "места";
+  return "мест";
+}
+
+function venueWord(count: number) {
+  const remainder = Math.abs(count) % 100;
+  const lastDigit = remainder % 10;
+  if (remainder > 10 && remainder < 20) return "заведений";
+  if (lastDigit === 1) return "заведение";
+  if (lastDigit >= 2 && lastDigit <= 4) return "заведения";
+  return "заведений";
+}
+
+function placeCount(count: number) {
+  return `${new Intl.NumberFormat("ru-RU").format(count)} ${placeWord(count)}`;
+}
+
+function cityPlaceCount(summary: HomeCatalogSummary, city: string) {
+  const count = summary.byCity[city] ?? 0;
+  return count ? placeCount(count) : "Скоро";
+}
+
+function catalogLink(state: Partial<CatalogUrlState> = {}) {
+  return catalogHref({ ...defaultCatalogUrlState(), ...state });
+}
 
 export interface PublicHomeMarkupProps {
   accountDialogContent?: ReactNode;
   accountUser?: User | null;
   catalogContent?: ReactNode;
   catalogVisible?: boolean;
+  catalogSummary?: HomeCatalogSummary;
   homeBackdrop?: boolean;
   favoriteCount?: number;
   profileContent?: ReactNode;
@@ -26,6 +78,7 @@ export function PublicHomeMarkup({
   accountUser = null,
   catalogContent,
   catalogVisible = false,
+  catalogSummary = EMPTY_HOME_CATALOG_SUMMARY,
   homeBackdrop = false,
   favoriteCount = 0,
   profileContent,
@@ -35,6 +88,9 @@ export function PublicHomeMarkup({
 }: PublicHomeMarkupProps = {}) {
   const account = useOptionalPublicAccount();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileMenuToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
+  const mobileMenuReturnFocusRef = useRef<HTMLElement | null>(null);
   const resolvedUser = account?.status === "authenticated" ? account.user : accountUser;
   const resolvedFavoriteCount = account?.status === "authenticated"
     ? account.favoriteKeys.size
@@ -50,6 +106,65 @@ export function PublicHomeMarkup({
     if (!standalone || typeof window === "undefined") return;
     window.location.assign(`/${action}`);
   };
+
+  useEffect(() => {
+    if (!standalone || !mobileOpen) return;
+    const mobileNav = mobileNavRef.current;
+    if (!mobileNav) return;
+
+    const activeElement = document.activeElement;
+    mobileMenuReturnFocusRef.current = activeElement instanceof HTMLElement && !mobileNav.contains(activeElement)
+      ? activeElement
+      : mobileMenuToggleRef.current;
+    const backgroundState = Array.from(mobileNav.parentElement?.children ?? [])
+      .filter((element) => element !== mobileNav)
+      .map((element) => ({
+        element,
+        inert: element.getAttribute("inert"),
+        ariaHidden: element.getAttribute("aria-hidden"),
+      }));
+    backgroundState.forEach(({ element }) => {
+      element.setAttribute("inert", "");
+      element.setAttribute("aria-hidden", "true");
+    });
+
+    const focusableElements = () => Array.from(mobileNav.querySelectorAll<HTMLElement>(
+      'button:not([disabled]),a[href]',
+    )).filter((element) => !element.hidden && element.tabIndex >= 0);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = focusableElements();
+      if (!focusable.length) return;
+      const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+      const nextIndex = event.shiftKey
+        ? (activeIndex <= 0 ? focusable.length - 1 : activeIndex - 1)
+        : (activeIndex < 0 || activeIndex === focusable.length - 1 ? 0 : activeIndex + 1);
+      event.preventDefault();
+      focusable[nextIndex]?.focus();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    mobileNav.querySelector<HTMLElement>(".mobile-nav-close")?.focus({ preventScroll: true });
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      backgroundState.forEach(({ element, inert, ariaHidden }) => {
+        if (inert === null) element.removeAttribute("inert");
+        else element.setAttribute("inert", inert);
+        if (ariaHidden === null) element.removeAttribute("aria-hidden");
+        else element.setAttribute("aria-hidden", ariaHidden);
+      });
+      const returnFocus = mobileMenuReturnFocusRef.current;
+      mobileMenuReturnFocusRef.current = null;
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+  }, [mobileOpen, standalone]);
+
   return (
     <>
     <svg className="svg-sprite" aria-hidden="true">
@@ -90,7 +205,7 @@ export function PublicHomeMarkup({
         <a href={standalone ? "/catalog?category=Рестораны" : "#popular"}>Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"}>Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"}>О проекте</a><a href="#site-footer">Контакты</a>
       </nav>
       <div className="header-actions">
-        <button className="mobile-menu-toggle" type="button" aria-label="Открыть меню" aria-expanded={standalone ? mobileOpen : false} onClick={() => { if (standalone) setMobileOpen(true); }}><span></span><span></span></button>
+        <button ref={mobileMenuToggleRef} className="mobile-menu-toggle" type="button" aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"} aria-expanded={standalone ? mobileOpen : false} onClick={() => { if (standalone) setMobileOpen(true); }}><span></span><span></span></button>
         <button className="theme-toggle" type="button" data-theme-toggle="" aria-label="Сменить цветовую тему" suppressHydrationWarning>
           <span className="theme-toggle-glyph" aria-hidden="true"><i className="theme-sun"></i><i className="theme-moon"></i><i className="theme-star">✦</i></span>
           <span className="sr-only" data-theme-status="" aria-live="polite" suppressHydrationWarning>Включена светлая тема</span>
@@ -101,7 +216,7 @@ export function PublicHomeMarkup({
       </div>
     </header>
 
-    <main data-react-route={standalone ? routeKind : "home"}>
+    <main data-react-route={standalone ? routeKind : "home"} data-home-catalog-source={catalogSummary.source}>
       {!standalone || homeBackdrop ? (<>
       <section className="guide-screen" id="guide" aria-labelledby="guide-title">
         <div className="hero-photo" role="img" aria-label="Побережье Крыма с горами и Чёрным морем"></div>
@@ -125,33 +240,33 @@ export function PublicHomeMarkup({
             <button className="search-button" type="submit">Найти <svg><use href="#arrow" /></svg></button>
           </form>
           <div className="quick-filters" aria-label="Быстрые фильтры">
-            <button type="button" data-filter="Рестораны">Рестораны</button><button type="button" data-filter="Кафе">Кафе</button><button type="button" data-filter="Кофейни">Кофейни</button><button type="button" data-filter="Кондитерские">Кондитерские</button><button type="button" data-filter="Бары">Бары</button><button type="button" data-filter="Фаст-кэжуал">Фаст-кэжуал</button>
+            <a href={catalogLink({ category: "Рестораны" })} data-filter="Рестораны">Рестораны</a><a href={catalogLink({ category: "Кафе" })} data-filter="Кафе">Кафе</a><a href={catalogLink({ category: "Кофейни" })} data-filter="Кофейни">Кофейни</a><a href={catalogLink({ category: "Кондитерские" })} data-filter="Кондитерские">Кондитерские</a><a href={catalogLink({ category: "Бары" })} data-filter="Бары">Бары</a><a href={catalogLink({ category: "Фаст-кэжуал" })} data-filter="Фаст-кэжуал">Фаст-кэжуал</a>
           </div>
         </div>
-        <div className="hero-note" aria-live="polite"><span className="catalog-status" aria-hidden="true"></span><span className="catalog-total"><strong data-venue-count="" aria-label="31">31</strong> заведений</span><small>в каталоге онлайн</small></div>
+        <div className="hero-note" aria-live="polite"><span className="catalog-status" aria-hidden="true"></span><span className="catalog-total" data-venue-total-label="venues"><strong data-venue-count="" aria-label={String(catalogSummary.total)}>{catalogSummary.total}</strong>{` ${venueWord(catalogSummary.total)}`}</span><small>в каталоге онлайн</small></div>
       </section>
 
       <section className="content-section categories-section" id="categories" aria-labelledby="categories-title">
         <div className="section-heading">
           <div><p className="eyebrow">Выберите настроение</p><h2 id="categories-title">Категории заведений</h2></div>
-          <button className="text-link" type="button" data-open-categories="">Все категории <svg><use href="#arrow" /></svg></button>
+          <a className="text-link" href="/catalog" data-open-categories="">Все категории <svg><use href="#arrow" /></svg></a>
         </div>
         <div className="category-grid">
-          <a className="category-card cafe" href="#popular" data-filter-category="Кафе"><svg><use href="#coffee" /></svg><span>Кафе</span><small data-category-count="Кафе">2 места</small></a>
-          <a className="category-card dining" href="#popular" data-filter-category="Рестораны"><svg><use href="#restaurant" /></svg><span>Рестораны</span><small data-category-count="Рестораны">2 места</small></a>
-          <a className="category-card coffee" href="#popular" data-filter-category="Кофейни"><svg><use href="#coffee" /></svg><span>Кофейни</span><small data-category-count="Кофейни">2 места</small></a>
-          <a className="category-card dessert" href="#popular" data-filter-category="Кондитерские"><svg><use href="#cake" /></svg><span>Кондитерские</span><small data-category-count="Кондитерские">1 место</small></a>
-          <a className="category-card pizza" href="#popular" data-filter-category="Пиццерии"><svg><use href="#pizza" /></svg><span>Пиццерии</span><small data-category-count="Пиццерии">1 место</small></a>
-          <a className="category-card casual" href="#popular" data-filter-category="Фаст-кэжуал"><svg><use href="#bolt" /></svg><span>Фаст-кэжуал</span><small data-category-count="Фаст-кэжуал">1 место</small></a>
-          <a className="category-card bar" href="#popular" data-filter-category="Бары"><svg><use href="#cocktail" /></svg><span>Бары</span><small data-category-count="Бары">1 место</small></a>
-          <a className="category-card gastropub" href="#popular" data-filter-category="Гастробары"><svg><use href="#sparkle" /></svg><span>Гастробары</span><small data-category-count="Гастробары">1 место</small></a>
+          <a className="category-card cafe" href={catalogLink({ category: "Кафе" })} data-filter-category="Кафе"><svg><use href="#coffee" /></svg><span>Кафе</span><small data-category-count="Кафе">{placeCount(catalogSummary.byCategory["Кафе"] ?? 0)}</small></a>
+          <a className="category-card dining" href={catalogLink({ category: "Рестораны" })} data-filter-category="Рестораны"><svg><use href="#restaurant" /></svg><span>Рестораны</span><small data-category-count="Рестораны">{placeCount(catalogSummary.byCategory["Рестораны"] ?? 0)}</small></a>
+          <a className="category-card coffee" href={catalogLink({ category: "Кофейни" })} data-filter-category="Кофейни"><svg><use href="#coffee" /></svg><span>Кофейни</span><small data-category-count="Кофейни">{placeCount(catalogSummary.byCategory["Кофейни"] ?? 0)}</small></a>
+          <a className="category-card dessert" href={catalogLink({ category: "Кондитерские" })} data-filter-category="Кондитерские"><svg><use href="#cake" /></svg><span>Кондитерские</span><small data-category-count="Кондитерские">{placeCount(catalogSummary.byCategory["Кондитерские"] ?? 0)}</small></a>
+          <a className="category-card pizza" href={catalogLink({ category: "Пиццерии" })} data-filter-category="Пиццерии"><svg><use href="#pizza" /></svg><span>Пиццерии</span><small data-category-count="Пиццерии">{placeCount(catalogSummary.byCategory["Пиццерии"] ?? 0)}</small></a>
+          <a className="category-card casual" href={catalogLink({ category: "Фаст-кэжуал" })} data-filter-category="Фаст-кэжуал"><svg><use href="#bolt" /></svg><span>Фаст-кэжуал</span><small data-category-count="Фаст-кэжуал">{placeCount(catalogSummary.byCategory["Фаст-кэжуал"] ?? 0)}</small></a>
+          <a className="category-card bar" href={catalogLink({ category: "Бары" })} data-filter-category="Бары"><svg><use href="#cocktail" /></svg><span>Бары</span><small data-category-count="Бары">{placeCount(catalogSummary.byCategory["Бары"] ?? 0)}</small></a>
+          <a className="category-card gastropub" href={catalogLink({ category: "Гастробары" })} data-filter-category="Гастробары"><svg><use href="#sparkle" /></svg><span>Гастробары</span><small data-category-count="Гастробары">{placeCount(catalogSummary.byCategory["Гастробары"] ?? 0)}</small></a>
         </div>
       </section>
 
       <section className="content-section popular-section" id="popular" aria-labelledby="popular-title">
         <div className="section-heading">
           <div><p className="eyebrow">Выбор гостей</p><h2 id="popular-title">Популярные рестораны</h2></div>
-          <button className="text-link" type="button" data-show-all="">Смотреть всё <svg><use href="#arrow" /></svg></button>
+          <a className="text-link" href="/catalog" data-show-all="">Смотреть всё <svg><use href="#arrow" /></svg></a>
         </div>
         <div className="venue-grid">
           <button className="venue-card" type="button" data-venue="marea" data-category="Рестораны" data-city="Севастополь" data-cuisine="Средиземноморская" data-source="yandex" data-pet="0" data-parking="1" data-score="4.9" data-new="0" data-search="баркас ресторан средиземноморская кухня море севастополь">
@@ -181,7 +296,7 @@ export function PublicHomeMarkup({
             <span><svg aria-hidden="true"><use href="#pin" /></svg>Маршруты</span>
             <span><svg aria-hidden="true"><use href="#star" /></svg>Отзывы</span>
           </div>
-          <div className="app-promo-actions"><button type="button" data-open-profile="">Открыть профиль <svg><use href="#arrow" /></svg></button><div className="app-promo-meta"><span className="app-promo-live"><i className="catalog-live-dot" aria-hidden="true"></i><b data-venue-count="">31</b> мест уже в каталоге</span><button className="app-demo-toggle" type="button" data-phone-demo-toggle="" aria-pressed="false" aria-label="Приостановить анимацию макетов"><span aria-hidden="true" data-phone-demo-icon="">Ⅱ</span></button></div></div>
+          <div className="app-promo-actions"><button type="button" data-open-profile="">Открыть профиль <svg><use href="#arrow" /></svg></button><div className="app-promo-meta"><span className="app-promo-live" data-venue-total-label="places"><i className="catalog-live-dot" aria-hidden="true"></i><b data-venue-count="">{catalogSummary.total}</b>{` ${placeWord(catalogSummary.total)} уже в каталоге`}</span><button className="app-demo-toggle" type="button" data-phone-demo-toggle="" aria-pressed="false" aria-label="Приостановить анимацию макетов"><span aria-hidden="true" data-phone-demo-icon="">Ⅱ</span></button></div></div>
         </div>
         <div className="app-phones" aria-hidden="true" data-phone-scene="">
           <div className="phone phone-left" data-phone-depth="-1">
@@ -251,35 +366,35 @@ export function PublicHomeMarkup({
       <section className="content-section collections-section" id="collections" aria-labelledby="collections-title">
         <div className="section-heading">
           <div><p className="eyebrow">Готовые маршруты</p><h2 id="collections-title">Подборки</h2></div>
-          <button type="button" className="text-link" data-show-all="">Все места <svg><use href="#arrow" /></svg></button>
+          <a className="text-link" href="/catalog" data-show-all="">Все места <svg><use href="#arrow" /></svg></a>
         </div>
         <div className="collection-grid">
-          <a className="collection-card breakfast" href="#catalog-view" data-collection="breakfast"><span className="collection-card-copy"><b>Лучшие завтраки<br />в городе</b><em>Кофе, выпечка и ранние открытия</em><small data-collection-count="breakfast">0 мест</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
-          <a className="collection-card sea" href="#catalog-view" data-collection="sea"><span className="collection-card-copy"><b>Ужин с видом<br />на воду</b><em>Террасы, набережные и морская кухня</em><small data-collection-count="sea">0 мест</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
-          <a className="collection-card date" href="#catalog-view" data-collection="date"><span className="collection-card-copy"><b>Для особенного<br />вечера</b><em>Камерные залы и вечерние меню</em><small data-collection-count="date">0 мест</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
-          <a className="collection-card pet" href="#catalog-view" data-collection="pet"><span className="collection-card-copy"><b>Где рады<br />питомцам</b><em>Проверенные pet-friendly места</em><small data-collection-count="pet">0 мест</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
+          <a className="collection-card breakfast" href={catalogLink({ category: "Кофейни" })} data-collection="breakfast"><span className="collection-card-copy"><b>Лучшие завтраки<br />в городе</b><em>Кофе, выпечка и ранние открытия</em><small>Смотреть места</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
+          <a className="collection-card sea" href={catalogLink({ city: "Ялта", category: "Рестораны" })} data-collection="sea"><span className="collection-card-copy"><b>Ужин с видом<br />на воду</b><em>Террасы, набережные и морская кухня</em><small>Смотреть места</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
+          <a className="collection-card date" href={catalogLink({ category: "Рестораны" })} data-collection="date"><span className="collection-card-copy"><b>Для особенного<br />вечера</b><em>Камерные залы и вечерние меню</em><small>Смотреть места</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
+          <a className="collection-card pet" href={catalogLink({ petFriendly: true })} data-collection="pet"><span className="collection-card-copy"><b>Где рады<br />питомцам</b><em>Проверенные pet-friendly места</em><small>Смотреть места</small></span><i className="collection-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></i></a>
         </div>
       </section>
 
       <section className="content-section cities-section" id="cities" aria-labelledby="cities-title">
-        <div className="section-heading"><div><h2 id="cities-title">Города Крыма</h2></div><button type="button" className="text-link" data-show-cities="">Открыть каталог <svg><use href="#arrow" /></svg></button></div>
+        <div className="section-heading"><div><h2 id="cities-title">Города Крыма</h2></div><a className="text-link" href="/catalog" data-show-cities="">Открыть каталог <svg><use href="#arrow" /></svg></a></div>
         <div className="city-list">
-          <button className="city-card city-card--featured simferopol" type="button" data-city-filter="Симферополь"><span className="city-card-copy"><b>Симферополь</b><small>Центр, парки и новые кофейни</small><span data-city-count="Симферополь">4 места</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card city-card--featured yalta" type="button" data-city-filter="Ялта"><span className="city-card-copy"><b>Ялта</b><small>Набережная и видовые рестораны</small><span data-city-count="Ялта">2 места</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card city-card--featured sevastopol" type="button" data-city-filter="Севастополь"><span className="city-card-copy"><b>Севастополь</b><small>Бухты, террасы и морская кухня</small><span data-city-count="Севастополь">3 места</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card alushta" type="button" data-city-filter="Алушта"><span className="city-card-copy"><b>Алушта</b><small>Завтраки у моря</small><span data-city-count="Алушта">1 место</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card evpatoria" type="button" data-city-filter="Евпатория"><span className="city-card-copy"><b>Евпатория</b><small>Старый город и семейные кафе</small><span data-city-count="Евпатория">1 место</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card feodosia" type="button" data-city-filter="Феодосия"><span className="city-card-copy"><b>Феодосия</b><small>Галереи и рестораны у воды</small><span data-city-count="Феодосия">0 мест</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card sudak" type="button" data-city-filter="Судак"><span className="city-card-copy"><b>Судак</b><small>Винные маршруты и виды</small><span data-city-count="Судак">0 мест</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card kerch" type="button" data-city-filter="Керчь"><span className="city-card-copy"><b>Керчь</b><small>Рыба и локальная кухня</small><span data-city-count="Керчь">0 мест</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card bahchisarai" type="button" data-city-filter="Бахчисарай"><span className="city-card-copy"><b>Бахчисарай</b><small>Крымскотатарская кухня</small><span data-city-count="Бахчисарай">0 мест</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card balaklava" type="button" data-city-filter="Балаклава"><span className="city-card-copy"><b>Балаклава</b><small>Ужин у бухты</small><span data-city-count="Балаклава">0 мест</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card saki" type="button" data-city-filter="Саки"><span className="city-card-copy"><b>Саки</b><small>Семейные места и кафе</small><span data-city-count="Саки">0 мест</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
-          <button className="city-card gurzuf" type="button" data-city-filter="Гурзуф"><span className="city-card-copy"><b>Гурзуф</b><small>Улочки и террасы с видом</small><span data-city-count="Гурзуф">0 мест</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></button>
+          <a className="city-card city-card--featured simferopol" href={catalogLink({ city: "Симферополь" })} data-city-filter="Симферополь"><span className="city-card-copy"><b>Симферополь</b><small>Центр, парки и новые кофейни</small><span data-city-count="Симферополь">{cityPlaceCount(catalogSummary, "Симферополь")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card city-card--featured yalta" href={catalogLink({ city: "Ялта" })} data-city-filter="Ялта"><span className="city-card-copy"><b>Ялта</b><small>Набережная и видовые рестораны</small><span data-city-count="Ялта">{cityPlaceCount(catalogSummary, "Ялта")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card city-card--featured sevastopol" href={catalogLink({ city: "Севастополь" })} data-city-filter="Севастополь"><span className="city-card-copy"><b>Севастополь</b><small>Бухты, террасы и морская кухня</small><span data-city-count="Севастополь">{cityPlaceCount(catalogSummary, "Севастополь")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card alushta" href={catalogLink({ city: "Алушта" })} data-city-filter="Алушта"><span className="city-card-copy"><b>Алушта</b><small>Завтраки у моря</small><span data-city-count="Алушта">{cityPlaceCount(catalogSummary, "Алушта")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card evpatoria" href={catalogLink({ city: "Евпатория" })} data-city-filter="Евпатория"><span className="city-card-copy"><b>Евпатория</b><small>Старый город и семейные кафе</small><span data-city-count="Евпатория">{cityPlaceCount(catalogSummary, "Евпатория")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card feodosia" href={catalogLink({ city: "Феодосия" })} data-city-filter="Феодосия"><span className="city-card-copy"><b>Феодосия</b><small>Галереи и рестораны у воды</small><span data-city-count="Феодосия">{cityPlaceCount(catalogSummary, "Феодосия")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card sudak" href={catalogLink({ city: "Судак" })} data-city-filter="Судак"><span className="city-card-copy"><b>Судак</b><small>Винные маршруты и виды</small><span data-city-count="Судак">{cityPlaceCount(catalogSummary, "Судак")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card kerch" href={catalogLink({ city: "Керчь" })} data-city-filter="Керчь"><span className="city-card-copy"><b>Керчь</b><small>Рыба и локальная кухня</small><span data-city-count="Керчь">{cityPlaceCount(catalogSummary, "Керчь")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card bahchisarai" href={catalogLink({ city: "Бахчисарай" })} data-city-filter="Бахчисарай"><span className="city-card-copy"><b>Бахчисарай</b><small>Крымскотатарская кухня</small><span data-city-count="Бахчисарай">{cityPlaceCount(catalogSummary, "Бахчисарай")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card balaklava" href={catalogLink({ city: "Балаклава" })} data-city-filter="Балаклава"><span className="city-card-copy"><b>Балаклава</b><small>Ужин у бухты</small><span data-city-count="Балаклава">{cityPlaceCount(catalogSummary, "Балаклава")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card saki" href={catalogLink({ city: "Саки" })} data-city-filter="Саки"><span className="city-card-copy"><b>Саки</b><small>Семейные места и кафе</small><span data-city-count="Саки">{cityPlaceCount(catalogSummary, "Саки")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
+          <a className="city-card gurzuf" href={catalogLink({ city: "Гурзуф" })} data-city-filter="Гурзуф"><span className="city-card-copy"><b>Гурзуф</b><small>Улочки и террасы с видом</small><span data-city-count="Гурзуф">{cityPlaceCount(catalogSummary, "Гурзуф")}</span></span><span className="city-card-arrow" aria-hidden="true"><svg><use href="#arrow" /></svg></span></a>
         </div>
       </section>
 
-      <section className="place-stats" aria-label="Место в цифрах"><div><b data-venue-count="" aria-label="31">31</b><span>заведение в каталоге</span></div><div><b>150+</b><span>поводов найти новое</span></div><div><b>20+</b><span>категорий и фильтров</span></div><div><b>4.8</b><span>средняя оценка мест</span></div></section>
+      <section className="place-stats" aria-label="Место в цифрах"><div><b data-venue-count="" aria-label={String(catalogSummary.total)}>{catalogSummary.total}</b><span data-venue-total-label="catalog-stat">{venueWord(catalogSummary.total)} в каталоге</span></div><div><b>150+</b><span>поводов найти новое</span></div><div><b>20+</b><span>категорий и фильтров</span></div><div><b>4.8</b><span>средняя оценка мест</span></div></section>
 
       <section className="categories-view" id="categories-view" hidden aria-labelledby="all-categories-title">
         <div className="categories-view-inner">
@@ -287,18 +402,18 @@ export function PublicHomeMarkup({
           <h1 id="all-categories-title">Все категории</h1>
           <p className="catalog-copy">Выберите формат — затем уточните кухню, город, парковку или возможность прийти с питомцем.</p>
           <div className="categories-full-grid">
-            <button className="category-tile dining" type="button" data-filter-category="Рестораны"><svg><use href="#restaurant" /></svg><span>Рестораны</span><small data-category-count="Рестораны">2 места</small></button>
-            <button className="category-tile cafe" type="button" data-filter-category="Кафе"><svg><use href="#coffee" /></svg><span>Кафе</span><small data-category-count="Кафе">2 места</small></button>
-            <button className="category-tile coffee" type="button" data-filter-category="Кофейни"><svg><use href="#coffee" /></svg><span>Кофейни</span><small data-category-count="Кофейни">2 места</small></button>
-            <button className="category-tile dessert" type="button" data-filter-category="Кондитерские"><svg><use href="#cake" /></svg><span>Кондитерские</span><small data-category-count="Кондитерские">1 место</small></button>
-            <button className="category-tile pizza" type="button" data-filter-category="Пиццерии"><svg><use href="#pizza" /></svg><span>Пиццерии</span><small data-category-count="Пиццерии">1 место</small></button>
-            <button className="category-tile casual" type="button" data-filter-category="Фаст-кэжуал"><svg><use href="#bolt" /></svg><span>Фаст-кэжуал</span><small data-category-count="Фаст-кэжуал">1 место</small></button>
-            <button className="category-tile bar" type="button" data-filter-category="Бары"><svg><use href="#cocktail" /></svg><span>Бары</span><small data-category-count="Бары">1 место</small></button>
-            <button className="category-tile gastropub" type="button" data-filter-category="Гастробары"><svg><use href="#cocktail" /></svg><span>Гастробары</span><small data-category-count="Гастробары">1 место</small></button>
-            <button className="category-tile bar" type="button" data-filter-category="Караоке-клубы"><svg><use href="#cocktail" /></svg><span>Караоке-клубы</span><small data-category-count="Караоке-клубы">2 места</small></button>
-            <button className="category-tile dining" type="button" data-filter-category="Суши-бары"><svg><use href="#restaurant" /></svg><span>Суши-бары</span><small data-category-count="Суши-бары">1 место</small></button>
-            <button className="category-tile bar" type="button" data-filter-category="Кальян-бары"><svg><use href="#cocktail" /></svg><span>Кальян-бары</span><small data-category-count="Кальян-бары">1 место</small></button>
-            <button className="category-tile dining" type="button" data-filter-category="Банкетные залы"><svg><use href="#restaurant" /></svg><span>Банкетные залы</span><small data-category-count="Банкетные залы">2 места</small></button>
+            <button className="category-tile dining" type="button" data-filter-category="Рестораны"><svg><use href="#restaurant" /></svg><span>Рестораны</span><small data-category-count="Рестораны">{placeCount(catalogSummary.byCategory["Рестораны"] ?? 0)}</small></button>
+            <button className="category-tile cafe" type="button" data-filter-category="Кафе"><svg><use href="#coffee" /></svg><span>Кафе</span><small data-category-count="Кафе">{placeCount(catalogSummary.byCategory["Кафе"] ?? 0)}</small></button>
+            <button className="category-tile coffee" type="button" data-filter-category="Кофейни"><svg><use href="#coffee" /></svg><span>Кофейни</span><small data-category-count="Кофейни">{placeCount(catalogSummary.byCategory["Кофейни"] ?? 0)}</small></button>
+            <button className="category-tile dessert" type="button" data-filter-category="Кондитерские"><svg><use href="#cake" /></svg><span>Кондитерские</span><small data-category-count="Кондитерские">{placeCount(catalogSummary.byCategory["Кондитерские"] ?? 0)}</small></button>
+            <button className="category-tile pizza" type="button" data-filter-category="Пиццерии"><svg><use href="#pizza" /></svg><span>Пиццерии</span><small data-category-count="Пиццерии">{placeCount(catalogSummary.byCategory["Пиццерии"] ?? 0)}</small></button>
+            <button className="category-tile casual" type="button" data-filter-category="Фаст-кэжуал"><svg><use href="#bolt" /></svg><span>Фаст-кэжуал</span><small data-category-count="Фаст-кэжуал">{placeCount(catalogSummary.byCategory["Фаст-кэжуал"] ?? 0)}</small></button>
+            <button className="category-tile bar" type="button" data-filter-category="Бары"><svg><use href="#cocktail" /></svg><span>Бары</span><small data-category-count="Бары">{placeCount(catalogSummary.byCategory["Бары"] ?? 0)}</small></button>
+            <button className="category-tile gastropub" type="button" data-filter-category="Гастробары"><svg><use href="#cocktail" /></svg><span>Гастробары</span><small data-category-count="Гастробары">{placeCount(catalogSummary.byCategory["Гастробары"] ?? 0)}</small></button>
+            <button className="category-tile bar" type="button" data-filter-category="Караоке-клубы"><svg><use href="#cocktail" /></svg><span>Караоке-клубы</span><small data-category-count="Караоке-клубы">{placeCount(catalogSummary.byCategory["Караоке-клубы"] ?? 0)}</small></button>
+            <button className="category-tile dining" type="button" data-filter-category="Суши-бары"><svg><use href="#restaurant" /></svg><span>Суши-бары</span><small data-category-count="Суши-бары">{placeCount(catalogSummary.byCategory["Суши-бары"] ?? 0)}</small></button>
+            <button className="category-tile bar" type="button" data-filter-category="Кальян-бары"><svg><use href="#cocktail" /></svg><span>Кальян-бары</span><small data-category-count="Кальян-бары">{placeCount(catalogSummary.byCategory["Кальян-бары"] ?? 0)}</small></button>
+            <button className="category-tile dining" type="button" data-filter-category="Банкетные залы"><svg><use href="#restaurant" /></svg><span>Банкетные залы</span><small data-category-count="Банкетные залы">{placeCount(catalogSummary.byCategory["Банкетные залы"] ?? 0)}</small></button>
           </div>
         </div>
       </section>
@@ -323,7 +438,7 @@ export function PublicHomeMarkup({
 
     <footer className="site-footer" id="site-footer"><div className="footer-main"><div className="footer-brand"><a className="brand brand-mark" href={standalone ? "/" : "#guide"} data-home-link="" aria-label="Место — на главную"><svg className="brand-pin"><use href="#pin" /></svg><span className="brand-word">Место</span><span className="brand-orb" aria-hidden="true"><svg><use href="#logo-star" /></svg></span></a><p>Ваш гид по любимым ресторанам<br />и новым впечатлениям.</p></div><div className="footer-column"><h4>Навигация</h4><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#cities" : "#cities"} data-home-link="">Города</a></div><div className="footer-column"><h4>Помощь</h4><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">Как это работает</a><a href="/help#faq">Вопросы и ответы</a><a href="/help#partners">Партнёрам</a><a href="/help#rules">Правила сервиса</a></div><div className="footer-column footer-contacts"><h4>Для вас</h4><a href={standalone ? "/favorites" : "/?open=favorites#guide"}>Избранное</a><a href="/?open=submission#guide">Добавить заведение</a><a href={standalone ? "/profile" : "/?open=profile#guide"}>Личный кабинет</a><span>Республика Крым</span></div></div><div className="footer-bottom"><small>© 2026 Место. Все права защищены.</small><span><a href="/help#privacy">Политика конфиденциальности</a><a href="/help#terms">Пользовательское соглашение</a></span></div></footer>
 
-    <div className="mobile-nav" role="dialog" aria-modal="true" aria-label="Навигация" hidden={!standalone || !mobileOpen}><div className="mobile-nav-panel"><button type="button" className="mobile-nav-close" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)}>×</button><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">О проекте</a><a href="/help#faq">Помощь</a><button type="button" className="mobile-nav-action" data-open-favorites="" onClick={() => bridgeToAccount("favorites")}>Избранное</button><button type="button" className="mobile-nav-action" data-open-auth="" onClick={() => bridgeToAccount("profile")}>Личный кабинет</button></div></div>
+    <div ref={mobileNavRef} className="mobile-nav" role="dialog" aria-modal="true" aria-label="Навигация" hidden={!standalone || !mobileOpen}><div className="mobile-nav-panel"><button type="button" className="mobile-nav-close" aria-label="Закрыть меню" onClick={() => setMobileOpen(false)}>×</button><a href={standalone ? "/catalog?category=Рестораны" : "#popular"} data-home-link="">Рестораны</a><a href={standalone ? "/#categories" : "#categories"} data-open-categories="">Категории</a><a href={standalone ? "/#collections" : "#collections"} data-home-link="">Подборки</a><a href={standalone ? "/#how-it-works" : "#how-it-works"} data-home-link="">О проекте</a><a href="/help#faq">Помощь</a><button type="button" className="mobile-nav-action" data-open-favorites="" onClick={() => bridgeToAccount("favorites")}>Избранное</button><button type="button" className="mobile-nav-action" data-open-auth="" onClick={() => bridgeToAccount("profile")}>Личный кабинет</button></div></div>
 
     {venueDialogContent ?? (!standalone ? (
     <dialog id="venue-dialog" aria-labelledby="venue-dialog-title">
@@ -369,7 +484,7 @@ export function PublicHomeMarkup({
     ) : null)}
     {!standalone ? (<>
     <dialog id="auth-dialog" className="form-dialog" aria-labelledby="auth-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="form-dialog-inner"><p className="eyebrow">Добро пожаловать в Место</p><h2 id="auth-title">Войти в аккаунт</h2><p className="form-lead">Сохраняйте любимые места и оставляйте отзывы.</p><form id="auth-form"><label>Почта или логин<input name="login" type="text" autoComplete="username" placeholder="you@example.com" required /></label><label>Пароль<input name="password" type="password" autoComplete="current-password" placeholder="Введите пароль" required /></label><p className="auth-error" role="alert" hidden></p><button className="primary-action full" type="submit">Войти <svg><use href="#arrow" /></svg></button></form><div className="form-divider"><span>или</span></div><div className="social-grid"><button type="button" data-social="google"><b>G</b>Google</button><button type="button" data-social="yandex"><b>Я</b>Яндекс</button><button type="button" data-social="vk"><b>VK</b>ВКонтакте</button></div><p className="social-auth-note" aria-live="polite"></p><button className="form-link" type="button" data-open-register="">Регистрация</button></div></dialog>
-    <dialog id="register-dialog" className="form-dialog" aria-labelledby="register-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="form-dialog-inner"><p className="eyebrow">Новый аккаунт</p><h2 id="register-title">Создать профиль</h2><p className="form-lead">Один профиль для избранного, отзывов и новых заведений.</p><form id="register-form"><label>Имя<input name="name" type="text" autoComplete="name" placeholder="Как вас зовут?" required /></label><label>Логин<input name="username" type="text" autoComplete="username" placeholder="Например, alex" pattern="[A-Za-z0-9._-]{3,48}" title="От 3 до 48 латинских букв, цифр, точек, дефисов или подчёркиваний" required /></label><label>Почта<input name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></label><label>Пароль<input name="password" type="password" autoComplete="new-password" placeholder="Минимум 10 символов, буква и цифра" minLength={10} required /></label><p className="auth-error" role="alert" hidden></p><button className="primary-action full" type="submit">Создать аккаунт <svg><use href="#arrow" /></svg></button></form><div className="form-divider"><span>или</span></div><div className="social-grid"><button type="button" data-social="google"><b>G</b>Google</button><button type="button" data-social="yandex"><b>Я</b>Яндекс</button><button type="button" data-social="vk"><b>VK</b>ВКонтакте</button></div><p className="social-auth-note" aria-live="polite"></p><button className="form-link" type="button" data-open-auth="">Уже есть аккаунт</button></div></dialog>
+    <dialog id="register-dialog" className="form-dialog" aria-labelledby="register-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="form-dialog-inner"><p className="eyebrow">Новый аккаунт</p><h2 id="register-title">Создать профиль</h2><p className="form-lead">Один профиль для избранного, отзывов и новых заведений.</p><form id="register-form"><label>Имя<input name="name" type="text" autoComplete="name" placeholder="Как вас зовут?" required /></label><label>Логин<input name="username" type="text" autoComplete="username" placeholder="Например, alex" pattern="[A-Za-z0-9._-]{3,48}" title="От 3 до 48 латинских букв, цифр, точек, дефисов или подчёркиваний" required /></label><label>Почта<input name="email" type="email" autoComplete="email" placeholder="you@example.com" required /></label><label>Пароль<input name="password" type="password" autoComplete="new-password" placeholder={PASSWORD_HINT} minLength={PASSWORD_MIN_LENGTH} pattern={PASSWORD_PATTERN} title={PASSWORD_ERROR_MESSAGE} required /></label><p className="auth-error" role="alert" hidden></p><button className="primary-action full" type="submit">Создать аккаунт <svg><use href="#arrow" /></svg></button></form><div className="form-divider"><span>или</span></div><div className="social-grid"><button type="button" data-social="google"><b>G</b>Google</button><button type="button" data-social="yandex"><b>Я</b>Яндекс</button><button type="button" data-social="vk"><b>VK</b>ВКонтакте</button></div><p className="social-auth-note" aria-live="polite"></p><button className="form-link" type="button" data-open-auth="">Уже есть аккаунт</button></div></dialog>
     <dialog id="review-dialog" className="form-dialog review-dialog" aria-labelledby="review-title"><button className="dialog-close" type="button" aria-label="Закрыть">×</button><div className="form-dialog-inner"><p className="eyebrow">Ваше впечатление</p><h2 id="review-title">Добавить отзыв</h2><p className="form-lead">Оценка и текст появятся в карточке после проверки редакцией.</p><form id="review-form"><label>Ваше имя<input name="authorName" type="text" autoComplete="name" placeholder="Как вас представить?" required /></label><label>Оценка<select name="rating" required><option value="5">5 — отлично</option><option value="4">4 — хорошо</option><option value="3">3 — нормально</option><option value="2">2 — есть замечания</option><option value="1">1 — не понравилось</option></select></label><label>Отзыв<textarea name="review" rows={5} minLength={20} placeholder="Что вам понравилось: атмосфера, кухня, сервис?" required></textarea></label><label className="check-field"><input name="consent" type="checkbox" required /><span>Подтверждаю, что отзыв основан на моём посещении.</span></label><button className="primary-action full" type="submit">Отправить отзыв <svg><use href="#arrow" /></svg></button></form></div></dialog>
     <dialog id="submission-dialog" className="form-dialog submission-dialog" aria-labelledby="submission-title">
       <button className="dialog-close" type="button" aria-label="Закрыть">×</button>

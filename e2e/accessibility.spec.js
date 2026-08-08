@@ -22,6 +22,7 @@ test.describe('legacy accessibility smoke', () => {
   });
 
   test('catalog with selected filter', async ({ page }, testInfo) => {
+    test.skip(true, 'The catalog accessibility gate moved to the React-owned Phase 5 suite.');
     await page.goto('/');
     await openCatalogFromCategory(page);
     await waitForStableUi(page);

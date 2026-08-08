@@ -4,9 +4,8 @@ const { chromium, defineConfig, devices } = require('@playwright/test');
 
 const bundledChromium = chromium.executablePath();
 const systemChrome = process.env.ProgramFiles ? join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe') : '';
-const systemChromeVersion = process.env.ProgramFiles ? join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', '151.0.7922.72') : '';
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-  || (existsSync(bundledChromium) ? '' : existsSync(systemChrome) && existsSync(systemChromeVersion) ? systemChrome : '');
+  || (existsSync(bundledChromium) ? '' : existsSync(systemChrome) ? systemChrome : '');
 
 const visualViewports = [
   ['visual-360x800', { width: 360, height: 800 }],
@@ -18,6 +17,9 @@ const visualViewports = [
 
 module.exports = defineConfig({
   testDir: './e2e',
+  // This config is the retained legacy safety net. React-owned route suites have
+  // dedicated Phase 4-8 configs and must not run against the raw legacy server.
+  testMatch: /(?:accessibility|legacy-public|legacy-shells|visual)\.spec\.js/,
   timeout: 45_000,
   outputDir: './test-results',
   fullyParallel: false,

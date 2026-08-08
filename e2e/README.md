@@ -15,7 +15,7 @@
 - Fonts: локальные WOFF2 из закреплённых `@fontsource/manrope@5.3.0` и `@fontsource/cormorant-garamond@5.3.0`.
 - API/data: stateful fixture server, reset перед каждым тестом, один worker.
 
-`playwright.config.js` сначала использует `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, затем установленный Playwright browser. На Windows fallback на системный Chrome разрешён только при наличии version directory `151.0.7922.72`; после browser update visual baseline нельзя молча пересоздавать.
+`playwright.config.js` сначала использует `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, затем установленный Playwright browser. На Windows fallback на системный Chrome разрешён только при наличии `chrome.exe`; после browser update visual baseline нельзя молча пересоздавать — версию нужно зафиксировать в этом файле и заново проверить baseline.
 
 ## Команды
 

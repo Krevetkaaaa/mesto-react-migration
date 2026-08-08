@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Form, Link, useNavigate, useNavigation } from "react-router";
 
+import {
+  PASSWORD_ERROR_MESSAGE,
+  PASSWORD_HINT,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_PATTERN,
+} from "../../../../password-policy.mjs";
 import type { Favorite, User } from "../../../lib/domain";
 import type { AuthProviders } from "../../../modules/session";
 import { usePublicAccount } from "./PublicAccountProvider";
@@ -87,7 +93,7 @@ export function AuthDialog({ actionData, mode, oauthCallbackError, providers, re
           ) : (
             <label>Почта или логин<input name="login" type="text" autoComplete="username" placeholder="you@example.com" required /></label>
           )}
-          <label>Пароль<input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder={mode === "login" ? "Введите пароль" : "Минимум 10 символов, буква и цифра"} minLength={mode === "register" ? 10 : undefined} required /></label>
+          <label>Пароль<input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder={mode === "login" ? "Введите пароль" : PASSWORD_HINT} minLength={mode === "register" ? PASSWORD_MIN_LENGTH : undefined} pattern={mode === "register" ? PASSWORD_PATTERN : undefined} title={mode === "register" ? PASSWORD_ERROR_MESSAGE : undefined} required /></label>
           <p className="auth-error" role="alert" hidden={!error}>{error}</p>
           <button className="primary-action full" type="submit" disabled={pending}>{pending ? "Отправляем…" : mode === "login" ? "Войти" : "Создать аккаунт"} <svg><use href="#arrow" /></svg></button>
         </Form>

@@ -6,6 +6,7 @@ const {
   waitForFullPageStableUi,
   waitForStableUi,
 } = require("./support/test-fixtures");
+const { PASSWORD_ERROR_MESSAGE } = require("../password-policy.mjs");
 
 const secondVenueId = "30000000-0000-4000-8000-000000000002";
 const functionalProject = "chromium";
@@ -181,8 +182,13 @@ test.describe("Phase 7 merchant functional routes", () => {
     await openMerchant(page, "/merchant/promotions");
     await page.getByRole("button", { name: "Новая акция" }).click();
     const form = page.locator("#promotion-form");
-    await form.locator('[name="title"]').fill("Ужин в саду");
-    await form.locator('[name="description"]').fill("Сезонное предложение");
+    const title = form.locator('[name="title"]');
+    const description = form.locator('[name="description"]');
+    await title.fill("Ужин в саду");
+    await expect(title).toHaveValue("Ужин в саду");
+    await description.fill("Сезонное предложение");
+    await expect(title).toHaveValue("Ужин в саду");
+    await expect(description).toHaveValue("Сезонное предложение");
     await form.locator('[name="startsAt"]').fill("2026-08-10T12:00");
     await form.locator('[name="endsAt"]').fill("2026-08-09T12:00");
     await form.getByRole("button", { name: "Сохранить акцию" }).click();
@@ -227,6 +233,12 @@ test.describe("Phase 7 merchant functional routes", () => {
     await form.getByLabel("Повторите пароль").fill("short");
     await form.getByRole("button", { name: "Сохранить пароль" }).click();
     expect(await form.getByLabel("Новый пароль").evaluate((input) => input.validity.tooShort)).toBe(true);
+    await expect(dialog).toBeVisible();
+
+    await form.getByLabel("Новый пароль").fill("abcdefghij");
+    await form.getByLabel("Повторите пароль").fill("abcdefghij");
+    await form.getByRole("button", { name: "Сохранить пароль" }).click();
+    await expect(page.locator("#password-form-message")).toHaveText(PASSWORD_ERROR_MESSAGE);
     await expect(dialog).toBeVisible();
 
     await form.getByLabel("Новый пароль").fill("NewFixture123");

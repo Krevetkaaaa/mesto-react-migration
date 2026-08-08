@@ -98,6 +98,43 @@ test.describe("Phase 4 public routes on the production React server", () => {
     await expect(page).toHaveScreenshot("interactive-mobile-menu.png");
   });
 
+  test("home mobile menu traps real keyboard focus and gates the background", async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 390, "mobile navigation keyboard contract is exercised at 390px");
+    await gotoHome(page);
+
+    const toggle = page.locator(".mobile-menu-toggle");
+    const menu = page.locator(".mobile-nav");
+    const close = menu.locator(".mobile-nav-close");
+    const menuItems = [
+      ...await menu.locator(".mobile-nav-panel > a").all(),
+      ...await menu.locator(".mobile-nav-panel > .mobile-nav-action").all(),
+    ];
+
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeVisible();
+    await expect(close).toBeFocused();
+    await expect(page.locator("header.site-header")).toHaveAttribute("inert", "");
+    await expect(page.locator("main")).toHaveAttribute("aria-hidden", "true");
+    await expect(page.getByRole("banner")).toHaveCount(0);
+
+    for (const item of menuItems) {
+      await page.keyboard.press("Tab");
+      await expect(item).toBeFocused();
+    }
+    await page.keyboard.press("Tab");
+    await expect(close).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(menuItems.at(-1)).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(toggle).toBeFocused();
+    await expect(page.locator("header.site-header")).not.toHaveAttribute("inert", "");
+    await expect(page.locator("main")).not.toHaveAttribute("aria-hidden", "true");
+    await expect(page.getByRole("banner")).toHaveCount(1);
+  });
+
   test("home keeps an empty legacy catalog sentinel and navigates into the React catalog", async ({ page }) => {
     test.skip((page.viewportSize()?.width || 0) !== 1440, "catalog ownership is characterized at the desktop baseline");
     const pageErrors = [];
@@ -120,6 +157,46 @@ test.describe("Phase 4 public routes on the production React server", () => {
     await expect(page).toHaveURL(/\/catalog\?category=/);
     await expect(page.locator('main[data-react-route="catalog"]')).toBeVisible();
     expect(pageErrors).toEqual([]);
+  });
+
+  test("home summary is identical in raw SSR and hydrated fixture DOM", async ({ page, fixtureApi }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "summary contract is exercised once at desktop");
+    const response = await gotoHome(page);
+    const html = await response.text();
+
+    expect(html).toContain('data-home-catalog-source="database"');
+    expect(html).toContain('data-category-count="Кофейни">1 место');
+    expect(html).toContain('data-city-count="Ялта">1 место');
+    expect(html).toContain('data-venue-total-label="venues"><strong data-venue-count="" aria-label="3">3</strong> заведения');
+
+    await expect(page.locator('[data-venue-count]')).toHaveText(["3", "3", "3"]);
+    await expect(page.locator('#categories [data-category-count="Кофейни"]')).toHaveText("1 место");
+    await expect(page.locator('[data-city-count="Ялта"]')).toHaveText("1 место");
+    await expect(page.locator('[data-venue-total-label="venues"]')).toHaveText("3 заведения");
+    await expect(page.locator('[data-venue-total-label="catalog-stat"]')).toHaveText("заведения в каталоге");
+
+    const categoryHref = await page.locator('#categories [data-filter-category="Кофейни"]').getAttribute("href");
+    const cityHref = await page.locator('[data-city-filter="Ялта"]').getAttribute("href");
+    expect(new URL(categoryHref, "http://fixture").searchParams.get("category")).toBe("Кофейни");
+    expect(new URL(cityHref, "http://fixture").searchParams.get("city")).toBe("Ялта");
+    expect((await fixtureApi.read()).requestCounters.venueList).toBe(2);
+  });
+});
+
+test.describe("Phase 4 home editorial fallback", () => {
+  test.use({ allowedHttpErrors: [{ path: "/api/venues", status: 503 }] });
+
+  test("unavailable summary keeps the server editorial aggregate through hydration", async ({ page, fixtureApi }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "fallback contract is exercised once at desktop");
+    await fixtureApi.set({ catalogError: true });
+    const response = await gotoHome(page);
+    const html = await response.text();
+
+    expect(html).toContain('data-home-catalog-source="editorial-fallback"');
+    expect(html).toContain('data-venue-total-label="venues"><strong data-venue-count="" aria-label="7">7</strong> заведений');
+    await expect(page.locator('[data-venue-count]')).toHaveText(["7", "7", "7"]);
+    await expect(page.locator('[data-category-count="Рестораны"]').first()).toHaveText("7 мест");
+    await expect(page.locator('[data-city-count="Ялта"]')).toHaveText("2 места");
   });
 });
 

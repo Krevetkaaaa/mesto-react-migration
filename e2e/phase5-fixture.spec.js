@@ -1,6 +1,10 @@
 const { authenticateFixture, expect, test } = require('./support/test-fixtures');
 
 test.describe('Phase 5 fixture contracts', () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'visual-1440x900', 'fixture contracts run once');
+  });
+
   test('fixture authentication cookie is shared by the legacy and React gateway ports', async ({ page }) => {
     await authenticateFixture(page, 'customer');
 
@@ -37,6 +41,20 @@ test.describe('Phase 5 fixture contracts', () => {
       venueDetail: 1,
       venueDetailBySlug: { 'tihiy-sad': 1 }
     });
+  });
+
+  test('summary contract aggregates the exact published fixture catalog', async ({ request, fixtureApi }) => {
+    const response = await request.get('/api/venues?summary=1');
+
+    expect(response.status()).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      total: 3,
+      byCategory: { 'Рестораны': 2, 'Кофейни': 1 },
+      byCity: { 'Симферополь': 2, 'Ялта': 1 },
+      source: 'database',
+      databaseConfigured: true
+    });
+    expect((await fixtureApi.read()).requestCounters.venueList).toBe(1);
   });
 
   test('venue detail records, delay and error state are controllable', async ({ request, fixtureApi }) => {

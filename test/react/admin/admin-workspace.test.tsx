@@ -6,6 +6,12 @@ import { createRoutesStub } from "react-router";
 import { AdminWorkspace } from "../../../app/components/admin/AdminWorkspace";
 import { ApplicationError } from "../../../app/lib/application-error";
 import type { AdminWorkspaceSnapshot } from "../../../app/modules/admin-console";
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_PATTERN,
+  TEMPORARY_PASSWORD_ERROR_MESSAGE,
+  TEMPORARY_PASSWORD_HINT,
+} from "../../../password-policy.mjs";
 
 const venue = {
   id: "30000000-0000-4000-8000-000000000001",
@@ -118,6 +124,11 @@ describe("AdminWorkspace", () => {
     renderWorkspace({ overview, merchants: { status: "ready", items: [merchant] } }, "merchants");
     await user.click(screen.getByRole("button", { name: "+ Добавить ресторатора" }));
     expect(screen.getByRole("textbox", { name: "Логин" })).toHaveAttribute("pattern", "[A-Za-z0-9._\\-]{3,48}");
+    const password = screen.getByPlaceholderText("Оставьте пустым, чтобы создать автоматически");
+    expect(password).toHaveAttribute("minlength", String(PASSWORD_MIN_LENGTH));
+    expect(password).toHaveAttribute("pattern", PASSWORD_PATTERN);
+    expect(password).toHaveAttribute("title", TEMPORARY_PASSWORD_ERROR_MESSAGE);
+    expect(screen.getByText(TEMPORARY_PASSWORD_HINT)).toBeInTheDocument();
   });
 
   it("removes one-time credentials from the DOM after the dialog closes", async () => {

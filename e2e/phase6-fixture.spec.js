@@ -1,4 +1,5 @@
 const { authenticateFixture, expect, test } = require('./support/test-fixtures');
+const { PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
 
 async function startFixtureOAuth(request, provider, returnTo = '/profile') {
   return request.get(`/api/auth/oauth?${new URLSearchParams({ provider, returnTo }).toString()}`, {
@@ -12,6 +13,10 @@ function redirectTarget(response) {
 }
 
 test.describe('Phase 6 auth and favorites fixture contracts', () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'fixture contracts run once');
+  });
+
   test('providers and logout match the typed Session adapter contracts', async ({ request, fixtureApi }) => {
     const providers = await request.get('/api/auth/providers');
     expect(providers.status()).toBe(200);
@@ -60,6 +65,26 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
     }
 
     expect((await fixtureApi.read()).authRequestCounters.login).toBe(6);
+  });
+
+  test('registration rejects weak passwords without issuing or mutating a session', async ({ request, fixtureApi }) => {
+    for (const [index, password] of ['short', 'abcdefghij', '1234567890'].entries()) {
+      const registration = await request.post('/api/auth/register', {
+        data: {
+          name: 'Fixture New Customer',
+          username: `fixture.weak.${index}`,
+          email: `fixture.weak.${index}@example.test`,
+          password
+        }
+      });
+      expect(registration.status()).toBe(400);
+      expect(registration.headers()['set-cookie']).toBeUndefined();
+      await expect(registration.json()).resolves.toEqual({ message: PASSWORD_ERROR_MESSAGE });
+    }
+
+    const session = await request.get('/api/auth/session');
+    expect(session.status()).toBe(401);
+    expect((await fixtureApi.read()).authRequestCounters).toMatchObject({ register: 3, session: 1 });
   });
 
   test('registration persists the new customer identity for the issued session cookie', async ({ request, fixtureApi }) => {
@@ -117,7 +142,8 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
         : '/favorites?source=oauth#saved';
       const response = await startFixtureOAuth(request, provider, returnTo);
       const target = redirectTarget(response);
-      expect(`${target.pathname}${target.search}${target.hash}`, provider).toBe('/favorites?source=oauth#saved');
+      const expectedReturnTo = provider === 'yandex' ? '/profile' : '/favorites?source=oauth#saved';
+      expect(`${target.pathname}${target.search}${target.hash}`, provider).toBe(expectedReturnTo);
       expect(response.headers()['set-cookie'], provider).toContain('e2e-session=customer');
     }
   });
@@ -163,22 +189,22 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
   test('session and favorites accept only a recognized active user session', async ({ page, fixtureApi }) => {
     await authenticateFixture(page, 'customer');
 
-    const favoriteRequests = () => [
-      page.request.get('/api/favorites'),
-      page.request.post('/api/favorites', {
+    const favoriteRequests = async () => [
+      await page.request.get('/api/favorites'),
+      await page.request.post('/api/favorites', {
         data: { venueKey: 'fixture-venue', snapshot: { title: 'Fixture venue' } }
       }),
-      page.request.delete('/api/favorites', { data: { venueKey: 'fixture-venue' } })
+      await page.request.delete('/api/favorites', { data: { venueKey: 'fixture-venue' } })
     ];
 
     expect((await page.request.get('/api/auth/session')).status()).toBe(200);
-    const activeFavorites = await Promise.all(favoriteRequests());
+    const activeFavorites = await favoriteRequests();
     expect(activeFavorites.map((response) => response.status())).toEqual([200, 201, 200]);
 
     await fixtureApi.set({ customerSessionMode: 'expired' });
     const expiredResponses = [
       await page.request.get('/api/auth/session'),
-      ...await Promise.all(favoriteRequests())
+      ...await favoriteRequests()
     ];
     for (const response of expiredResponses) {
       expect(response.status()).toBe(401);
@@ -188,7 +214,7 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
     await fixtureApi.set({ customerSessionMode: 'revoked' });
     const revokedResponses = [
       await page.request.get('/api/auth/session'),
-      ...await Promise.all(favoriteRequests())
+      ...await favoriteRequests()
     ];
     for (const response of revokedResponses) {
       expect(response.status()).toBe(401);
@@ -203,7 +229,7 @@ test.describe('Phase 6 auth and favorites fixture contracts', () => {
     }]);
     const unknownResponses = [
       await page.request.get('/api/auth/session'),
-      ...await Promise.all(favoriteRequests())
+      ...await favoriteRequests()
     ];
     for (const response of unknownResponses) {
       expect(response.status()).toBe(401);

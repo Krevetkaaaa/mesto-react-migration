@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
@@ -27,6 +28,10 @@ async function assertMissingFile(path) {
     throw error;
   }
   throw new Error(`Migrated legacy document must not shadow React SSR: ${path}`);
+}
+
+function sha256(contents) {
+  return createHash("sha256").update(contents).digest("hex");
 }
 
 async function findNamedFiles(directory, filename) {
@@ -113,7 +118,12 @@ if (process.argv.includes("--serve")) {
 async function runSmoke() {
   const manifest = JSON.parse(await readFile(stagedManifestPath, "utf8"));
   invariant(manifest.algorithm === "sha256", "Legacy manifest must use SHA-256");
-  invariant(manifest.files.length === 43, "The Phase 2 legacy staging set must remain at 43 files");
+  invariant(manifest.files.length === 44, "The legacy staging set must remain at 44 files");
+  const passwordPolicyEntry = manifest.files.find(({ path }) => path === "password-policy.mjs");
+  invariant(
+    passwordPolicyEntry?.bytes > 0 && /^[a-f0-9]{64}$/.test(passwordPolicyEntry.sha256),
+    "Legacy staging must contain a hashed password-policy.mjs",
+  );
 
   const vercelConfig = JSON.parse(await readFile(vercelConfigPath, "utf8"));
   invariant(
@@ -222,11 +232,16 @@ async function runSmoke() {
     "merchant.html",
     "admin.html",
     "app.js",
+    "password-policy.mjs",
     "assets/mesto-hero.png",
     "legacy-static-manifest.json",
   ]) {
     await assertFile(resolve(clientRoot, legacyPath));
   }
+  invariant(
+    sha256(await readFile(resolve(clientRoot, "password-policy.mjs"))) === passwordPolicyEntry.sha256,
+    "Built password-policy.mjs must match the staged SHA-256 manifest",
+  );
   await assertMissingFile(resolve(clientRoot, "index.html"));
   await assertMissingFile(resolve(clientRoot, "help.html"));
 

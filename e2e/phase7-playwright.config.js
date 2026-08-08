@@ -19,7 +19,7 @@ const visualViewports = [
 
 module.exports = defineConfig({
   testDir: ".",
-  testMatch: /phase7-merchant\.spec\.js/,
+  testMatch: /phase7-(?:fixture|merchant)\.spec\.js/,
   timeout: 45_000,
   outputDir: "../test-results/phase7",
   fullyParallel: false,

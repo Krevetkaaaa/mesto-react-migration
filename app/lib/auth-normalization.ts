@@ -5,12 +5,15 @@ import type {
   RegisterCommand,
   SignInCommand,
 } from "../modules/session";
+import {
+  isStrongPassword,
+  NEW_PASSWORD_VALIDATION_MESSAGE,
+  PASSWORD_ERROR_MESSAGE,
+} from "../../password-policy.mjs";
 
 export type OAuthProvider = "google" | "yandex" | "vk";
 
-export function isStrongPassword(password: string) {
-  return password.length >= 10 && /[A-Za-zА-Яа-яЁё]/u.test(password) && /\d/u.test(password);
-}
+export { isStrongPassword } from "../../password-policy.mjs";
 
 export function normalizeEmail(value: string) {
   const email = sanitizeText(value, 200).toLowerCase();
@@ -40,7 +43,7 @@ export function normalizeRegisterCommand(command: RegisterCommand): RegisterComm
     throw validationError("Name, email and username are invalid");
   }
   if (!isStrongPassword(command.password)) {
-    throw validationError("Password must contain at least ten characters, a letter and a digit");
+    throw validationError(PASSWORD_ERROR_MESSAGE);
   }
   return { name, username, email, password: command.password };
 }
@@ -48,7 +51,7 @@ export function normalizeRegisterCommand(command: RegisterCommand): RegisterComm
 export function normalizeChangePasswordCommand(
   command: ChangePasswordCommand,
 ): ChangePasswordCommand {
-  if (!isStrongPassword(command.password)) throw validationError("New password is too weak");
+  if (!isStrongPassword(command.password)) throw validationError(NEW_PASSWORD_VALIDATION_MESSAGE);
   return {
     password: command.password,
     ...(command.currentPassword === undefined

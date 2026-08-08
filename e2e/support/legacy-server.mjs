@@ -4,6 +4,13 @@ import { createServer } from 'node:http';
 import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  isStrongPassword,
+  NEW_PASSWORD_ERROR_MESSAGE,
+  PASSWORD_ERROR_MESSAGE,
+  TEMPORARY_PASSWORD_ERROR_MESSAGE
+} from '../../password-policy.mjs';
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const port = Number(process.env.PORT || 4173);
 const host = '127.0.0.1';
@@ -14,6 +21,7 @@ const contentTypes = {
   '.jpg': 'image/jpeg',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.png': 'image/png',
   '.svg': 'image/svg+xml; charset=utf-8',
   '.webp': 'image/webp',
@@ -606,10 +614,10 @@ function safeOAuthReturnTo(value, origin, fallback = '/profile') {
       const code = character.charCodeAt(0);
       return code <= 0x1f || code === 0x7f;
     });
-  if ((!candidate.startsWith('/') && !candidate.startsWith(origin)) || unsafe(candidate)) return fallback;
+  if (!candidate.startsWith('/') || unsafe(candidate)) return fallback;
   try {
     const decoded = decodeURIComponent(candidate);
-    if ((!decoded.startsWith('/') && !decoded.startsWith(origin)) || unsafe(decoded)) return fallback;
+    if (!decoded.startsWith('/') || unsafe(decoded)) return fallback;
     const parsed = new URL(candidate, origin);
     if (parsed.origin !== origin) return fallback;
     return `${parsed.pathname}${parsed.search}${parsed.hash}` || fallback;
@@ -685,12 +693,38 @@ async function readJson(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+function publishedCatalogItems() {
+  const publishedSlugs = new Set(
+    fixtureState.publicVenueDetails
+      .filter((venue) => venue.status === 'published')
+      .map((venue) => venue.slug)
+  );
+  return catalogItems.filter((item) => publishedSlugs.has(item.slug));
+}
+
+function catalogSummaryPayload() {
+  const items = publishedCatalogItems();
+  const byCategory = {};
+  const byCity = {};
+  items.forEach((item) => {
+    byCategory[item.category] = (byCategory[item.category] || 0) + 1;
+    byCity[item.city] = (byCity[item.city] || 0) + 1;
+  });
+  return {
+    total: items.length,
+    byCategory,
+    byCity,
+    source: 'database',
+    databaseConfigured: true
+  };
+}
+
 function catalogPayload(url) {
   const city = url.searchParams.get('city') || 'all';
   const category = url.searchParams.get('category') || '';
   const query = String(url.searchParams.get('query') || '').trim().toLocaleLowerCase('ru-RU');
   const genericQueries = new Set(['', 'где поесть', 'все места', 'заведения']);
-  const filteredItems = catalogItems.filter((item) => {
+  const filteredItems = publishedCatalogItems().filter((item) => {
     const matchesCity = city === 'all' || item.city === city;
     const matchesCategory = !category || category === 'all' || item.category === category || item.categories.includes(category);
     const haystack = `${item.name} ${item.description} ${item.categories.join(' ')} ${item.city}`.toLocaleLowerCase('ru-RU');
@@ -734,7 +768,9 @@ async function handleApi(request, response, url) {
     fixtureState.requestCounters.venueList += 1;
     await wait(fixtureState.scenario.catalogDelayMs);
     if (fixtureState.scenario.catalogError) return json(response, 503, { message: 'Каталог временно недоступен.' });
-    return json(response, 200, catalogPayload(url));
+    return json(response, 200, url.searchParams.get('summary') === '1'
+      ? catalogSummaryPayload()
+      : catalogPayload(url));
   }
   const venueDetailMatch = path.match(/^\/api\/venues\/([^/]+)$/);
   if (venueDetailMatch && request.method === 'GET') {
@@ -803,6 +839,7 @@ async function handleApi(request, response, url) {
   }
   if (path === '/api/auth/register' && request.method === 'POST') {
     const body = await readJson(request);
+    if (!isStrongPassword(body.password)) return json(response, 400, { message: PASSWORD_ERROR_MESSAGE });
     const user = { ...customer, name: String(body.name || customer.name), username: String(body.username || customer.username), email: String(body.email || customer.email) };
     fixtureState.customerUser = structuredClone(user);
     fixtureState.scenario.customerSessionMode = 'active';
@@ -999,6 +1036,10 @@ async function handleApi(request, response, url) {
     if (!session.user) {
       return json(response, 401, { message: 'Войдите или зарегистрируйтесь, чтобы продолжить.', ...(session.code ? { code: session.code } : {}) });
     }
+    const body = await readJson(request);
+    if (!isStrongPassword(body.password)) {
+      return json(response, 400, { message: NEW_PASSWORD_ERROR_MESSAGE });
+    }
     if (session.user.role === 'merchant') fixtureState.scenario.merchantMustChangePassword = false;
     const user = session.user.role === 'merchant' ? fixtureMerchantUser() : session.user;
     return json(response, 200, { user });
@@ -1115,6 +1156,9 @@ async function handleApi(request, response, url) {
     if (await shouldFailAdminMutation()) return adminResponse(response, 503, { message: 'Изменение временно недоступно.' });
     const body = await readJson(request);
     if (request.method === 'POST') {
+      if (Object.prototype.hasOwnProperty.call(body, 'password') && !isStrongPassword(body.password)) {
+        return adminResponse(response, 400, { message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
+      }
       fixtureState.adminRequestCounters.merchantCreate += 1;
       const id = `20000000-0000-4000-8000-${String(fixtureState.nextAdminMerchant++).padStart(12, '0')}`;
       const created = {
@@ -1142,6 +1186,9 @@ async function handleApi(request, response, url) {
     const existing = fixtureState.adminMerchants.find((item) => (item.id || item.user_id) === body.userId);
     if (!existing) return adminResponse(response, 404, { message: 'Аккаунт ресторатора не найден.' });
     if (body.action === 'reset-password') {
+      if (Object.prototype.hasOwnProperty.call(body, 'password') && !isStrongPassword(body.password)) {
+        return adminResponse(response, 400, { message: TEMPORARY_PASSWORD_ERROR_MESSAGE });
+      }
       fixtureState.adminRequestCounters.merchantPasswordReset += 1;
       return adminResponse(response, 200, {
         credentials: { password: body.password || 'ResetPass123' },

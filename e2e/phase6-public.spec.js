@@ -1,5 +1,6 @@
 const AxeBuilder = require("@axe-core/playwright").default;
 const { authenticateFixture, expect, test, waitForStableUi } = require("./support/test-fixtures");
+const { PASSWORD_ERROR_MESSAGE, PASSWORD_PATTERN } = require("../password-policy.mjs");
 
 function functionalOnly(testInfo) {
   test.skip(testInfo.project.name !== "chromium", "functional scenario runs once");
@@ -36,13 +37,22 @@ test.describe("Phase 6 public account routes", () => {
   });
   });
 
-  test("registration creates a session and logout clears it", async ({ page }, testInfo) => {
+  test("registration creates a session and logout clears it", async ({ page, fixtureApi }, testInfo) => {
     functionalOnly(testInfo);
     await page.goto("/register");
     await page.getByLabel("Имя").fill("Новый пользователь");
     await page.getByLabel("Логин", { exact: true }).fill("new-user");
     await page.getByLabel("Почта").fill("new-user@example.test");
-    await page.getByLabel("Пароль").fill("Password1234");
+    const password = page.getByLabel("Пароль");
+    await expect(password).toHaveAttribute("pattern", PASSWORD_PATTERN);
+    await expect(password).toHaveAttribute("title", PASSWORD_ERROR_MESSAGE);
+    await password.fill("abcdefghij");
+    await page.getByRole("button", { name: /^Создать аккаунт/ }).click();
+    await expect(page).toHaveURL(/\/register$/);
+    expect(await password.evaluate((input) => input.validity.patternMismatch)).toBe(true);
+    expect((await fixtureApi.read()).authRequestCounters.register).toBe(0);
+
+    await password.fill("Password1234");
     await page.getByRole("button", { name: /^Создать аккаунт/ }).click();
     await expect(page).toHaveURL(/\/profile$/);
     await expect(page.getByRole("heading", { name: "Новый пользователь" })).toBeVisible();

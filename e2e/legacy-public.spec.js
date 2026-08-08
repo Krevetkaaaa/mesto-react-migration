@@ -7,6 +7,7 @@ const {
   savedFavorite,
   test
 } = require('./support/test-fixtures');
+const { PASSWORD_ERROR_MESSAGE, PASSWORD_PATTERN } = require('../password-policy.mjs');
 
 function isVenuesRequest(response) {
   return response.url().includes('/api/venues') && response.request().method() === 'GET';
@@ -14,6 +15,7 @@ function isVenuesRequest(response) {
 
 test.describe('legacy public experience', () => {
   test('loads the home page, opens the catalog, filters results, and opens a venue card', async ({ page }) => {
+    test.skip(true, 'The catalog is React-owned since Phase 5; its replacement contract runs in phase5-public.spec.js.');
     const initialCatalog = page.waitForResponse(isVenuesRequest);
     await page.goto('/');
     await initialCatalog;
@@ -42,6 +44,7 @@ test.describe('legacy public experience', () => {
   });
 
   test('shows an empty catalog state after real select interactions', async ({ page }) => {
+    test.skip(true, 'The catalog is React-owned since Phase 5; its replacement contract runs in phase5-public.spec.js.');
     await page.goto('/');
     await openCatalogFromCategory(page);
 
@@ -129,6 +132,7 @@ test.describe('legacy public experience', () => {
   });
 
   test('loads the next deterministic catalog page', async ({ page, fixtureApi }) => {
+    test.skip(true, 'The catalog is React-owned since Phase 5; pagination is covered by phase5-public.spec.js.');
     await fixtureApi.set({ catalogPageSize: 1 });
     await page.goto('/');
     await openCatalogFromCategory(page);
@@ -244,7 +248,7 @@ test.describe('legacy public registration pattern characterization', () => {
   const invalidPatternMessage = 'Pattern attribute value [A-Za-z0-9._-]{3,48} is not a valid regular expression';
   test.use({ expectedConsolePatterns: [invalidPatternMessage] });
 
-  test('submits registration while surfacing the invalid legacy pattern', async ({ page }) => {
+  test('blocks weak passwords before submitting registration', async ({ page, fixtureApi }) => {
     await page.goto('/');
     await openRegisterDialog(page);
     const form = page.locator('#register-form');
@@ -262,7 +266,16 @@ test.describe('legacy public registration pattern characterization', () => {
     await form.getByLabel('Имя').fill('Елена Смирнова');
     await login.fill('elena.s');
     await form.getByLabel('Почта').fill('elena@example.test');
-    await form.getByLabel('Пароль').fill('StrongPass123');
+    const password = form.getByLabel('Пароль');
+    await expect(password).toHaveAttribute('pattern', PASSWORD_PATTERN);
+    await expect(password).toHaveAttribute('title', PASSWORD_ERROR_MESSAGE);
+    await password.fill('abcdefghij');
+    await form.getByRole('button', { name: /^Создать аккаунт/ }).click();
+    await expect(page.locator('#register-dialog')).toBeVisible();
+    expect(await password.evaluate((input) => input.validity.patternMismatch)).toBe(true);
+    expect((await fixtureApi.read()).authRequestCounters.register).toBe(0);
+
+    await password.fill('StrongPass123');
     const registered = page.waitForResponse((response) => response.url().includes('/api/auth/register') && response.request().method() === 'POST');
     await form.getByRole('button', { name: /^Создать аккаунт/ }).click();
     expect((await registered).status()).toBe(201);
@@ -296,6 +309,7 @@ test.describe('legacy catalog error characterization', () => {
   test.use({ expectedHttpErrors: [{ path: '/api/venues', status: 503 }] });
 
   test('falls back to editorial cards when the catalog API is unavailable', async ({ page, fixtureApi }) => {
+    test.skip(true, 'The catalog is React-owned since Phase 5; its error fallback is covered by phase5-public.spec.js.');
     await fixtureApi.set({ catalogError: true });
     await page.goto('/');
     await page.locator('.category-card[data-filter-category="Рестораны"]').click();

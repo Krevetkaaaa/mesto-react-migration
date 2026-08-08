@@ -23,7 +23,7 @@ export const PUBLIC_JS_BUDGET_OVERRIDES = Object.freeze({
 const PUBLIC_ROUTE_PATTERN = /^routes\/public-/;
 const PUBLIC_STATIC_JAVASCRIPT = Object.freeze({
   all: ["/theme.js"],
-  "routes/public-home": ["/app.js"],
+  "routes/public-home": ["/app.js", "/password-policy.mjs"],
 });
 
 function invariant(condition, message) {
@@ -65,7 +65,7 @@ function localAssetPath(clientRoot, assetUrl) {
   const parsed = new URL(assetUrl, "https://mesto.invalid");
   invariant(parsed.origin === "https://mesto.invalid", `External client asset is outside the budget: ${assetUrl}`);
   const relativeAsset = decodeURIComponent(parsed.pathname).replace(/^\/+/, "");
-  invariant(relativeAsset.endsWith(".js"), `Non-JavaScript asset entered the JavaScript budget: ${assetUrl}`);
+  invariant(/\.m?js$/.test(relativeAsset), `Non-JavaScript asset entered the JavaScript budget: ${assetUrl}`);
   const target = resolve(clientRoot, relativeAsset);
   const boundary = relative(resolve(clientRoot), target);
   invariant(boundary && !boundary.startsWith("..") && !isAbsolute(boundary), `Client asset escapes build root: ${assetUrl}`);

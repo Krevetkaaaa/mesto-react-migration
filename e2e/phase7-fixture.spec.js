@@ -1,4 +1,5 @@
 const { authenticateFixture, expect, test } = require('./support/test-fixtures');
+const { NEW_PASSWORD_ERROR_MESSAGE } = require('../password-policy.mjs');
 
 const venueId = '30000000-0000-4000-8000-000000000001';
 
@@ -8,6 +9,10 @@ async function useMerchantSession(page) {
 }
 
 test.describe('Phase 7 merchant fixture contracts', () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'fixture contracts run once');
+  });
+
   test('dashboard requires an active merchant session and reports every attempt', async ({ page, fixtureApi }) => {
     expect((await page.request.get('/api/merchant/dashboard')).status()).toBe(401);
 
@@ -155,6 +160,13 @@ test.describe('Phase 7 merchant fixture contracts', () => {
     await fixtureApi.set({ merchantMustChangePassword: true });
     const before = await (await page.request.get('/api/merchant/dashboard')).json();
     expect(before.user.mustChangePassword).toBe(true);
+
+    const rejected = await page.request.post('/api/auth/password', {
+      data: { password: 'abcdefghij' }
+    });
+    expect(rejected.status()).toBe(400);
+    await expect(rejected.json()).resolves.toEqual({ message: NEW_PASSWORD_ERROR_MESSAGE });
+    expect((await fixtureApi.read()).scenario.merchantMustChangePassword).toBe(true);
 
     const changed = await page.request.post('/api/auth/password', {
       data: { password: 'NewFixture123' }

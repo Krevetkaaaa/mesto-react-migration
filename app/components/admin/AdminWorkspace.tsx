@@ -13,6 +13,12 @@ import {
   useRevalidator,
 } from "react-router";
 
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_PATTERN,
+  TEMPORARY_PASSWORD_ERROR_MESSAGE,
+  TEMPORARY_PASSWORD_HINT,
+} from "../../../password-policy.mjs";
 import type {
   AdminDashboard,
   MerchantAccount,
@@ -270,7 +276,7 @@ function MerchantEditor({ merchant, venues, fetcher, busy, onClose }: { merchant
           <label>Имя ресторатора<input name="displayName" autoComplete="name" placeholder="Например, Рики" required defaultValue={merchant?.displayName ?? ""} /></label>
           <label>Логин<input name="username" autoComplete="off" placeholder="riki" pattern={"[A-Za-z0-9._\\-]{3,48}"} title="От 3 до 48 латинских букв, цифр, точек, дефисов или подчёркиваний" required={!merchant} readOnly={Boolean(merchant)} defaultValue={merchant?.username ?? ""} /></label>
           <label className="wide">E-mail <small>необязательно</small><input name="email" type="email" autoComplete="off" placeholder="owner@example.ru" readOnly={Boolean(merchant)} defaultValue={merchant ? merchantEmail(merchant.email) : ""} /></label>
-          {!merchant ? <label className="wide">Временный пароль<input name="password" type="password" autoComplete="new-password" minLength={10} placeholder="Оставьте пустым, чтобы создать автоматически" /><small>Не менее 10 символов. Если поле пустое, безопасный пароль создаст сервер.</small></label> : null}
+          {!merchant ? <label className="wide">Временный пароль<input name="password" type="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} pattern={PASSWORD_PATTERN} title={TEMPORARY_PASSWORD_ERROR_MESSAGE} placeholder="Оставьте пустым, чтобы создать автоматически" /><small>{TEMPORARY_PASSWORD_HINT}</small></label> : null}
           <label className="wide">Роль в кабинете<select name="membershipRole" required defaultValue={merchant ? merchantRole(merchant) : "owner"}><option value="owner">Владелец — полный доступ</option><option value="manager">Управляющий — полный рабочий доступ</option><option value="content_editor">Редактор — карточка, меню и акции</option><option value="analyst">Аналитик — отзывы и статистика</option></select><small>Роль применяется ко всем выбранным заведениям.</small></label>
           <fieldset className="venue-assignment wide"><legend>Доступные заведения</legend><p>Ресторатор увидит в своём кабинете только выбранные карточки.</p><div className="venue-checkboxes">
             {sortedVenues.length ? sortedVenues.map((venue) => <label className="venue-option" key={venue.id}><input type="checkbox" name="venueIds" value={venue.id} defaultChecked={selected.has(venue.id)} /><span><b>{venue.title}</b><small>{venue.city} · {venue.category}{venue.status !== "published" ? ` · ${venue.status}` : ""}</small></span></label>) : <div className="empty-state">Сначала добавьте хотя бы одно заведение в постоянный каталог.</div>}

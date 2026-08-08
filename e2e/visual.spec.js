@@ -15,7 +15,7 @@ async function gotoHome(page) {
   await page.goto('/');
   await catalog;
   await expect(page.getByRole('heading', { level: 1, name: /Лучшие места/ })).toBeVisible();
-  await expect(page.locator('[data-category-count="Рестораны"]').first()).toHaveText('8 мест');
+  await expect(page.locator('[data-category-count="Рестораны"]').first()).toHaveText('2 места');
 }
 
 async function gotoMerchant(page) {
@@ -123,6 +123,7 @@ test.describe('legacy canonical full-page visual freeze', () => {
   });
 
   test('public catalog populated', async ({ page }) => {
+    test.skip(true, 'The catalog visual baseline moved to the React-owned Phase 5 suite.');
     await gotoHome(page);
     await openCatalogFromCategory(page);
     await expect(page.locator('#catalog-grid .venue-card')).not.toHaveCount(0);
@@ -130,6 +131,7 @@ test.describe('legacy canonical full-page visual freeze', () => {
   });
 
   test('public catalog empty', async ({ page }) => {
+    test.skip(true, 'The catalog visual baseline moved to the React-owned Phase 5 suite.');
     await gotoHome(page);
     await openCatalogFromCategory(page);
     const cityRequest = page.waitForResponse((response) => response.url().includes('/api/venues'));
@@ -253,6 +255,7 @@ test.describe('legacy interactive visual freeze', () => {
   });
 
   test('catalog select menu', async ({ page }) => {
+    test.skip(true, 'The catalog interaction baseline moved to the React-owned Phase 5 suite.');
     skipUnlessInteractiveViewport(page);
     await gotoHome(page);
     await openCatalogFromCategory(page);
@@ -289,6 +292,7 @@ test.describe('legacy interactive visual freeze', () => {
 
 test.describe('legacy public state visual characterization', () => {
   test('catalog loading', async ({ page, fixtureApi }) => {
+    test.skip(true, 'The catalog loading baseline moved to the React-owned Phase 5 suite.');
     skipUnlessInteractiveViewport(page);
     await fixtureApi.set({ catalogDelayMs: 5_000 });
     await page.goto('/');
@@ -553,6 +557,7 @@ test.describe('legacy catalog error visual characterization', () => {
   test.use({ expectedHttpErrors: [{ path: '/api/venues', status: 503 }] });
 
   test('catalog error fallback', async ({ page, fixtureApi }) => {
+    test.skip(true, 'The catalog error baseline moved to the React-owned Phase 5 suite.');
     skipUnlessInteractiveViewport(page);
     await fixtureApi.set({ catalogError: true });
     await page.goto('/');

@@ -21,6 +21,20 @@ async function expectNoSeriousAxeViolations(page) {
 }
 
 test.describe("Phase 5 catalog routes", () => {
+  test("fixture summary endpoint matches the three published catalog records", async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "summary API contract is exercised once at desktop");
+    const response = await page.request.get("/api/venues?summary=1");
+
+    expect(response.status()).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      total: 3,
+      byCategory: { "Рестораны": 2, "Кофейни": 1 },
+      byCity: { "Симферополь": 2, "Ялта": 1 },
+      source: "database",
+      databaseConfigured: true,
+    });
+  });
+
   test("SSR catalog is canonical, hydrated once, addressable and restores URL filters", async ({ page }) => {
     test.skip((page.viewportSize()?.width || 0) !== 1440, "functional contract is exercised once at desktop");
     const response = await gotoCatalog(page);
@@ -128,13 +142,41 @@ test.describe("Phase 5 catalog routes", () => {
     }
   });
 
-  test("standalone catalog mobile menu is React-owned and closable", async ({ page }) => {
+  test("standalone catalog mobile menu traps focus, gates its background and restores focus", async ({ page }) => {
     test.skip((page.viewportSize()?.width || 0) !== 390, "mobile interaction is exercised at the frozen 390px viewport");
     await gotoCatalog(page);
-    await page.locator(".mobile-menu-toggle").click();
-    await expect(page.locator(".mobile-nav")).toBeVisible();
-    await page.locator(".mobile-nav-close").click();
-    await expect(page.locator(".mobile-nav")).toBeHidden();
+
+    const toggle = page.locator(".mobile-menu-toggle");
+    const menu = page.locator(".mobile-nav");
+    const close = menu.locator(".mobile-nav-close");
+    const menuItems = [
+      ...await menu.locator(".mobile-nav-panel > a").all(),
+      ...await menu.locator(".mobile-nav-panel > .mobile-nav-action").all(),
+    ];
+
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeVisible();
+    await expect(close).toBeFocused();
+    await expect(page.locator("header.site-header")).toHaveAttribute("inert", "");
+    await expect(page.locator("main")).toHaveAttribute("aria-hidden", "true");
+    await expect(page.getByRole("banner")).toHaveCount(0);
+
+    for (const item of menuItems) {
+      await page.keyboard.press("Tab");
+      await expect(item).toBeFocused();
+    }
+    await page.keyboard.press("Tab");
+    await expect(close).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(menuItems.at(-1)).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(toggle).toBeFocused();
+    await expect(page.locator("header.site-header")).not.toHaveAttribute("inert", "");
+    await expect(page.locator("main")).not.toHaveAttribute("aria-hidden", "true");
+    await expect(page.getByRole("banner")).toHaveCount(1);
   });
 });
 
@@ -153,6 +195,35 @@ test.describe("Phase 5 favorite rollback", () => {
     await expect(page.getByText(/Не удалось изменить избранное/)).toBeVisible();
     await expect(favorite).toHaveClass(/is-saved/);
     expect((await fixtureApi.read()).favorites).toBe(1);
+  });
+});
+
+test.describe("Phase 5 public theme lifecycle", () => {
+  test.use({ colorTheme: "midnight" });
+
+  test("midnight control reconnects across catalog, venue and browser Back", async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "client-navigation theme lifecycle is exercised once at desktop");
+
+    const expectMidnightTheme = async () => {
+      const toggle = page.locator("[data-theme-toggle]").first();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
+      await expect(toggle).toHaveAttribute("data-active-theme", "midnight");
+      await expect(toggle).toHaveAttribute("aria-label", "Тема: тёмно-синяя. Включить: светлая");
+      await expect(toggle.locator("[data-theme-status]")).toHaveText("Включена тёмно-синяя тема");
+    };
+
+    await gotoCatalog(page);
+    await expectMidnightTheme();
+
+    await page.locator("#catalog-grid .venue-card-action").first().click();
+    await expect(page).toHaveURL(/\/venue\//);
+    await expect(page.locator("#venue-dialog")).toBeVisible();
+    await expectMidnightTheme();
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(page.locator("#catalog-title")).toBeVisible();
+    await expectMidnightTheme();
   });
 });
 

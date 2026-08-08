@@ -58,6 +58,7 @@ module.exports = async function handler(req, res) {
   const city = text(queryValue(req.query.city), 80, 'all');
   const category = text(queryValue(req.query.category), 80);
   const query = text(queryValue(req.query.query), 120);
+  const summary = queryValue(req.query.summary) === '1';
   const normalizedQuery = query.toLowerCase().replace(/\s+/g, ' ').trim();
   const search = ['где поесть', 'все места', 'заведения'].includes(normalizedQuery) ? '' : query;
   const results = Math.min(Math.max(Number.parseInt(queryValue(req.query.results), 10) || 50, 1), 100);
@@ -65,6 +66,15 @@ module.exports = async function handler(req, res) {
   const store = createStore();
 
   if (!store.configured) {
+    if (summary) {
+      return json(res, 200, {
+        total: 0,
+        byCategory: {},
+        byCity: {},
+        source: 'database',
+        databaseConfigured: false
+      });
+    }
     return json(res, 200, {
       source: 'Место',
       city,
@@ -81,6 +91,13 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    if (summary) {
+      return publicJson(req, res, {
+        ...await store.publicCatalogSummary(),
+        source: 'database',
+        databaseConfigured: true
+      });
+    }
     const page = await store.listPublishedPage({ city, category, search, limit: results, offset: skip });
     const items = dedupe(page.items.map(persistentItem));
     const found = Number.isFinite(page.total) ? page.total : skip + items.length;
