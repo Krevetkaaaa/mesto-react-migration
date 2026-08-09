@@ -17,6 +17,29 @@ async function close(server) {
   await new Promise((resolve) => server.close(resolve));
 }
 
+test('phase 4 gateway provides explicit local Vercel observability stubs', async () => {
+  const { serveLocalVercelObservability } = await import('../e2e/support/phase4-proxy.mjs');
+  const gateway = createServer((request, response) => {
+    const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
+    if (serveLocalVercelObservability(request, response, pathname)) return;
+    response.writeHead(404).end();
+  });
+  const gatewayPort = await listen(gateway);
+
+  try {
+    for (const pathname of ['/_vercel/insights/script.js', '/_vercel/speed-insights/script.js']) {
+      const response = await fetch(`http://127.0.0.1:${gatewayPort}${pathname}`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), 'application/javascript; charset=utf-8');
+      assert.equal(response.headers.get('x-e2e-fixture'), 'phase4-vercel-observability');
+      assert.match(await response.text(), /provided by the platform/);
+    }
+    assert.equal((await fetch(`http://127.0.0.1:${gatewayPort}/not-vercel`)).status, 404);
+  } finally {
+    await close(gateway);
+  }
+});
+
 test('phase 4 proxy never turns an upstream reset into a successful complete body', async () => {
   const { proxyHttpRequest } = await import('../e2e/support/phase4-proxy.mjs');
   const upstream = createServer((request, response) => {

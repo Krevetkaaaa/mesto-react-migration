@@ -3,6 +3,7 @@ import { createServerHttpClient } from "../adapters/http";
 import { loadHttpVenueSitemap } from "../adapters/venue-sitemap-http";
 import { EDITORIAL_VENUES } from "../data/editorial-venues";
 import { HOME_FEATURED_VENUES } from "../data/home-featured-venues";
+import { PUBLIC_VENUES_CACHE_TAG } from "../lib/public-cache-tags";
 import { resolvePublicOrigin } from "../lib/public-origin.server";
 import { PUBLIC_CITY_SLUGS } from "../modules/catalog-url-state";
 import { normalizeVenueSlug } from "../modules/venue-catalog";
@@ -111,6 +112,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       "Cache-Control": database.databaseConfigured ? SITEMAP_CACHE_CONTROL : NO_STORE,
       "Content-Type": "application/xml; charset=utf-8",
       "X-Content-Type-Options": "nosniff",
+      ...(database.databaseConfigured ? { "Vercel-Cache-Tag": PUBLIC_VENUES_CACHE_TAG } : {}),
     },
   });
 }

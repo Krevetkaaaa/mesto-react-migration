@@ -2,6 +2,7 @@ const AxeBuilder = require('@axe-core/playwright').default;
 const {
   authenticateFixture,
   expect,
+  runAxeWithCspNonce,
   test,
   waitForFullPageStableUi,
   waitForStableUi
@@ -46,9 +47,12 @@ async function expectInteractiveScreenshot(page, name) {
 }
 
 async function expectNoUnexpectedSeriousAxeViolations(page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    .analyze();
+  const results = await runAxeWithCspNonce(
+    page,
+    () => new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze(),
+  );
   const violations = results.violations
     .filter((violation) => ['serious', 'critical'].includes(violation.impact))
     // The immutable legacy palette has known contrast debt. Phase 8 must not
@@ -170,6 +174,36 @@ test.describe('Phase 8 admin functional parity', () => {
       venueUpdate: 1,
       venueDelete: 1
     });
+  });
+
+  test('renders persisted admin content as inert text', async ({ page, fixtureApi }, testInfo) => {
+    functionalOnly(testInfo);
+    const payload = '<svg data-stored-xss-probe onload="globalThis.__storedXssExecuted=1">Stored XSS venue</svg>';
+    const storedText = payload.replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
+    await page.route(/\/_vercel\/(?:insights|speed-insights)\/script\.js$/, (route) => route.fulfill({
+      contentType: 'application/javascript',
+      body: ''
+    }));
+    await page.addInitScript(() => { globalThis.__storedXssExecuted = 0; });
+    await openAdmin(page, '/admin/venues');
+
+    await page.getByRole('button', { name: '+ Новое заведение' }).click();
+    const editor = page.locator('#venue-editor');
+    await editor.getByLabel('Название').fill(payload);
+    await editor.getByLabel('Slug').fill('stored-xss-venue');
+    await editor.getByLabel('Город').selectOption('Ялта');
+    await editor.getByLabel('Категория').fill('Проверка');
+    await editor.getByLabel('Описание').fill('Persisted administrator-authored content');
+    await editor.getByRole('button', { name: 'Сохранить карточку' }).click();
+
+    await expect(page.locator('#venues-table')).toContainText(storedText);
+    await expect(page.locator('#venues-table [data-stored-xss-probe]')).toHaveCount(0);
+    expect(await page.evaluate(() => globalThis.__storedXssExecuted)).toBe(0);
+    expect((await fixtureApi.read()).adminDashboard.venues.some((venue) => venue.title === storedText)).toBe(true);
+    await page.reload();
+    await expect(page.locator('#venues-table')).toContainText(storedText);
+    await expect(page.locator('#venues-table [data-stored-xss-probe]')).toHaveCount(0);
+    expect(await page.evaluate(() => globalThis.__storedXssExecuted)).toBe(0);
   });
 
   test('manages merchant assignments and removes one-time passwords from the DOM', async ({ page, fixtureApi }, testInfo) => {

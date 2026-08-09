@@ -69,6 +69,7 @@ describe("public crawler resources", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/xml; charset=utf-8");
     expect(response.headers.get("cache-control")).toContain("s-maxage=900");
+    expect(response.headers.get("vercel-cache-tag")).toBe("mesto-venues");
     expect(body).toContain("<loc>https://mesto.example.test/</loc>");
     expect(body).toContain("<loc>https://mesto.example.test/venue/database-only-place</loc>");
     for (const city of PUBLIC_CITY_SLUGS) {
@@ -124,6 +125,7 @@ describe("public crawler resources", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store, max-age=0");
+    expect(response.headers.get("vercel-cache-tag")).toBeNull();
     expect(body).toContain(`<loc>https://mesto.example.test/venue/${EDITORIAL_VENUES[0]?.slug}</loc>`);
   });
 

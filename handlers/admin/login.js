@@ -3,6 +3,7 @@ const { readAdminBody, setAdminResponseHeaders } = require('../../lib/admin');
 const { enforceRateLimit } = require('../../lib/rate-limit');
 const { requireSameOrigin } = require('../../lib/same-origin');
 const { createSessionCookie, verifyPassword } = require('../../lib/security');
+const { verifyIssuedSessionCookie } = require('../../lib/admin-session-revocation');
 
 module.exports = async function handler(req, res) {
   setAdminResponseHeaders(res);
@@ -23,10 +24,15 @@ module.exports = async function handler(req, res) {
     const login = text(body.login, 120);
     const valid = typeof body.password === 'string' && login === expectedLogin && verifyPassword(body.password, expectedHash);
     if (!valid) return json(res, 401, { message: 'Неверный логин или пароль.' });
-    res.setHeader('Set-Cookie', createSessionCookie(login, secret));
+    const cookie = createSessionCookie(login, secret);
+    await verifyIssuedSessionCookie(cookie);
+    res.setHeader('Set-Cookie', cookie);
     return json(res, 200, { user: { login, role: 'admin' } });
   } catch (error) {
-    return json(res, error.statusCode || 400, { message: 'Не удалось выполнить вход.' });
+    return json(res, error.statusCode || 400, {
+      message: 'Не удалось выполнить вход.',
+      ...(error.statusCode === 503 ? { code: 'ADMIN_SESSION_UNAVAILABLE' } : {})
+    });
   }
 };
 

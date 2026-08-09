@@ -110,3 +110,17 @@ Vercel Preview по-прежнему заблокирован `TEAM_ACCESS_REQUI
 - Exact Chrome Visual Freeze без snapshot update: Phase 4 `23/52`, Phase 5 `35/80`, Phase 6 `28/104`, Phase 7 `64/128`, Phase 8 `57/105` (passed/expected skipped).
 
 Не закрыты production-критерии: реальные p75 LCP/INP/CLS, nonce/hash CSP, shared admin revocation, authenticated stored-XSS E2E и provider telemetry. Они остаются внешними/отдельными release blockers и не маскируются локальными тестами.
+
+## Superseding update — 9 августа 2026 года
+
+Эта запись заменяет только устаревший текущий статус security/observability debt в checkpoint и follow-up выше. Их исторические результаты и численные показатели не переписываются.
+
+- React SSR теперь создаёт отдельный cryptographic base64 nonce на каждый SSR render/cache fill, добавляет его в `script-src` и `style-src` и передаёт React Router для SSR scripts/styles. CDN HIT может повторно отдать уже закешированные body и CSP с тем же nonce до revalidation; это не заявляется как уникальность каждой edge-доставки. `unsafe-inline` удалён из `script-src` и общего `style-src`; узкий `style-src-attr 'unsafe-inline'` пока сохранён для существующих inline style attributes. `img-src` по-прежнему допускает `data:`, `blob:` и произвольный HTTPS origin, поэтому его сужение остаётся отдельным debt. Статический CSP снят с Vercel catch-all, чтобы не конфликтовать с render-specific policy.
+- Production build подключает Vercel Analytics и Speed Insights на public, merchant и admin surfaces. Dynamic paths сворачиваются в ограниченные route templates, неизвестные paths — в `/[unmatched]`; это не доказательство фактических Web Vitals без внешнего deployment и трафика.
+- API/SSR telemetry пишет только bounded structured fields: UUID request id, route template, method, status, duration, cold-start flag, error name и валидированный ограниченный `x-vercel-id`. Query, request/response bodies, cookies, tokens и пользовательские идентификаторы не логируются. На Vercel события включаются автоматически, `MESTO_TELEMETRY_LOGS=1` предназначен только для локальной диагностики.
+- Shared admin-session revocation реализован через Upstash-compatible Redis REST. Redis key содержит SHA-256 digest `jti`/token, TTL ограничен остатком session lifetime; logout сохраняет revocation до очистки cookie. Production запрещает memory adapter и fail closed с `ADMIN_SESSION_UNAVAILABLE`, если shared provider недоступен. Можно переиспользовать `MESTO_RATE_LIMIT_REDIS_*` либо задать отдельные `MESTO_ADMIN_SESSION_REDIS_*`.
+- Fixture-backed authenticated merchant/admin stored-XSS E2E проверяют production React rendering: сохраняют вредоносно выглядящий menu/venue payload в персистентном test fixture, подтверждают inert text до и после reload, отсутствие injected node и нулевой execution marker. Реальные production handlers/Supabase этим тестом не считаются проверенными.
+- Nonce-часть прежнего критерия 3 и code-only части критериев 4, 5 и 7 закрыты. Сужение image origins, согласованная accessibility-задача для frozen palette, внешние env/provider acceptance, фактические Analytics/Speed Insights и structured telemetry, mobile p75 Web Vitals, migrations, load gates и representative `EXPLAIN` остаются незавершёнными.
+- Финальная локальная проверка 10 августа: `165/165` server и `202/202` unit tests, `npm run check`, production smoke и полный последовательный `npm run test:e2e` (legacy + Phase 4–8) прошли без обновления snapshots.
+
+Этот update не является production-readiness или production-like acceptance.

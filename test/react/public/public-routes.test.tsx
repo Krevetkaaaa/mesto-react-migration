@@ -176,13 +176,25 @@ describe("public route server contracts", () => {
     ]);
   });
 
-  it.each([["home", homeHeaders], ["help", helpHeaders]])(
-    "returns public cache and MIME-sniffing policy for %s",
-    (_name, headers) => {
-      expect(headers()).toEqual({
-        ...SECURITY_HEADERS,
-        "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
-      });
-    },
-  );
+  it("tags the cached home document and preserves private compatibility redirects", () => {
+    expect(homeHeaders()).toEqual({
+      ...SECURITY_HEADERS,
+      "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
+      "Vercel-CDN-Cache-Control": "public, max-age=60, stale-while-revalidate=120",
+      "Vercel-Cache-Tag": "mesto-venues",
+    });
+    expect(homeHeaders({
+      loaderHeaders: new Headers({ "Cache-Control": "private, no-store, max-age=0" }),
+    })).toEqual({
+      ...SECURITY_HEADERS,
+      "Cache-Control": "private, no-store, max-age=0",
+    });
+  });
+
+  it("keeps the help document public without coupling it to venue invalidation", () => {
+    expect(helpHeaders()).toEqual({
+      ...SECURITY_HEADERS,
+      "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
+    });
+  });
 });

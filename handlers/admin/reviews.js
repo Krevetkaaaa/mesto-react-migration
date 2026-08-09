@@ -6,7 +6,7 @@ const { createStore } = require('../../lib/supabase');
 module.exports = async function handler(req, res) {
   setAdminResponseHeaders(res);
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['PATCH']);
-  const session = requireAdmin(req, res);
+  const session = await requireAdmin(req, res);
   if (!session) return;
   if (!await enforceRateLimit(req, res, {
     policy: 'mutation', scope: 'admin-reviews', identifier: session.sub

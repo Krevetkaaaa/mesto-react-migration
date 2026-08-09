@@ -37,7 +37,7 @@ module.exports = async function handler(req, res) {
   if (!['GET', 'POST', 'PATCH'].includes(req.method)) {
     return methodNotAllowed(res, ['GET', 'POST', 'PATCH']);
   }
-  const admin = requireAdmin(req, res);
+  const admin = await requireAdmin(req, res);
   if (!admin) return;
   if (req.method !== 'GET' && !await enforceRateLimit(req, res, {
     policy: 'mutation', scope: 'admin-merchants', identifier: admin.sub

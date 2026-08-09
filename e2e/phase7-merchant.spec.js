@@ -2,6 +2,7 @@ const AxeBuilder = require("@axe-core/playwright").default;
 const {
   authenticateFixture,
   expect,
+  runAxeWithCspNonce,
   test,
   waitForFullPageStableUi,
   waitForStableUi,
@@ -38,9 +39,12 @@ async function selectView(page, label, path) {
 }
 
 async function expectNoUnexpectedSeriousAxeViolations(page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .analyze();
+  const results = await runAxeWithCspNonce(
+    page,
+    () => new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze(),
+  );
   const blocking = results.violations.filter(({ impact }) => impact === "critical" || impact === "serious");
   // The immutable legacy palette has known contrast debt. Phase 7 must not turn
   // a technical migration into an unapproved visible redesign.
@@ -176,6 +180,35 @@ test.describe("Phase 7 merchant functional routes", () => {
       menuUpdate: 1,
       menuDelete: 1,
     });
+  });
+
+  test("renders persisted merchant content as inert text", async ({ page, fixtureApi }, testInfo) => {
+    functionalOnly(testInfo);
+    const payload = '<img src=x data-stored-xss-probe onerror="globalThis.__storedXssExecuted=1">Stored XSS menu';
+    const storedText = payload.replace(/[<>]/g, " ").replace(/\s+/g, " ").trim();
+    await page.route(/\/_vercel\/(?:insights|speed-insights)\/script\.js$/, (route) => route.fulfill({
+      contentType: "application/javascript",
+      body: ""
+    }));
+    await page.addInitScript(() => { globalThis.__storedXssExecuted = 0; });
+    await openMerchant(page, "/merchant/menu");
+
+    await page.getByRole("button", { name: "Добавить позицию" }).click();
+    const form = page.locator("#menu-form");
+    await form.locator('[name="section"]').fill("Безопасность");
+    await form.locator('[name="title"]').fill(payload);
+    await form.locator('[name="description"]').fill("Persisted merchant-authored content");
+    await form.locator('[name="price"]').fill("100");
+    await form.getByRole("button", { name: "Сохранить позицию" }).click();
+
+    await expect(page.locator("#menu-list")).toContainText(storedText);
+    await expect(page.locator("#menu-list [data-stored-xss-probe]")).toHaveCount(0);
+    expect(await page.evaluate(() => globalThis.__storedXssExecuted)).toBe(0);
+    expect((await fixtureApi.read()).menu).toBe(2);
+    await page.reload();
+    await expect(page.locator("#menu-list")).toContainText(storedText);
+    await expect(page.locator("#menu-list [data-stored-xss-probe]")).toHaveCount(0);
+    expect(await page.evaluate(() => globalThis.__storedXssExecuted)).toBe(0);
   });
 
   test("creates, edits and deletes promotions with date validation", async ({ page, fixtureApi }, testInfo) => {

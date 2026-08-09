@@ -6,6 +6,19 @@ Implementation commit: `dc8c9fbb4f4cdda46c343feb7d98d65f09889377`.
 
 Статус этапа: локальные безопасные seams и проверки реализованы, но критерий завершения Phase 9 не достигнут. Внешний shared-state provider, репрезентативная база и production-like CDN/upload environment не предоставлены, поэтому distributed runtime и планы запросов не выдаются за проверенные.
 
+## Superseding update — 9 августа 2026 года
+
+Эта запись заменяет только устаревший текущий статус cache purge и upload fallback ниже. Исходный checkpoint 7 августа, его результаты и численные показатели сохранены как историческая запись.
+
+- Code-only часть cache invalidation закрыта. Настроенные public API и React documents получают `Vercel-CDN-Cache-Control` и ограниченные tags `mesto-venues` / `mesto-venue-<uuid>`; post-commit seam вызывает project-scoped `invalidateByTag()` из `@vercel/functions` при `MESTO_CACHE_PURGE_PROVIDER=vercel` внутри Vercel Preview/Production Function runtime.
+- Инвалидация ограничивает blast radius: menu/promotion mutation запрашивает purge entity tag, venue mutation — catalog и entity tags. Ошибка provider остаётся best-effort post-commit ошибкой и пишет только bounded событие `cache.purge.failed`, без slug, venue id, URL, token или response body.
+- Поэтому исторический критерий 3 ниже разделён: adapter и cache-tag wiring реализованы кодом, но фактический `HIT → mutation → STALE/revalidation` и отсутствие purge у несвязанных venue всё ещё должны быть подтверждены во внешнем изолированном Preview.
+- Безопасный upload fallback также закрыт только на code-only уровне: текущий server-mediated base64 flow сохраняет authoritative проверки encoded bytes, MIME/container signature, dimensions, `6 MiB` и `40 MP` до записи. Небезопасная заглушка в виде signed URL в public bucket не добавлялась.
+- Direct signed staging upload, provider lifecycle cleanup, derivatives и подтверждённые immutable media headers остаются внешним Phase 9 критерием. Shared Redis runtime, provider configuration, database migration/state и representative `EXPLAIN` также не проверены этим update.
+- Финальная локальная проверка 10 августа: `165/165` server и `202/202` unit tests, `npm run check`, production smoke и полный последовательный `npm run test:e2e` (legacy + Phase 4–8) прошли без обновления snapshots.
+
+Ни Preview, ни production этим code-only update не объявляются готовыми.
+
 ## Публичное кеширование
 
 - `json()` сохраняет явно заданный `Cache-Control`; безопасный default остаётся `no-store, max-age=0`.

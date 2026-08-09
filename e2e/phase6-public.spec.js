@@ -1,5 +1,5 @@
 const AxeBuilder = require("@axe-core/playwright").default;
-const { authenticateFixture, expect, test, waitForStableUi } = require("./support/test-fixtures");
+const { authenticateFixture, expect, runAxeWithCspNonce, test, waitForStableUi } = require("./support/test-fixtures");
 const { PASSWORD_ERROR_MESSAGE, PASSWORD_PATTERN } = require("../password-policy-core.js");
 
 function functionalOnly(testInfo) {
@@ -7,7 +7,10 @@ function functionalOnly(testInfo) {
 }
 
 async function expectNoUnexpectedSeriousAxeViolations(page) {
-  const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  const result = await runAxeWithCspNonce(
+    page,
+    () => new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze(),
+  );
   const blocking = result.violations.filter(({ impact }) => impact === "critical" || impact === "serious");
   // The frozen legacy palette has known contrast debt; changing it is a separate, visible redesign task.
   const unexpected = blocking.filter(({ id }) => id !== "color-contrast");

@@ -34,6 +34,28 @@ function sha256(contents) {
   return createHash("sha256").update(contents).digest("hex");
 }
 
+function assertNonceProtectedDocument(response, body, path) {
+  const policy = response.headers.get("content-security-policy") || "";
+  invariant(!/script-src[^;]*'unsafe-inline'/u.test(policy), `${path} CSP must reject unsafe inline scripts`);
+  const nonce = policy.match(/script-src[^;]*'nonce-([^']+)'/u)?.[1];
+  invariant(nonce, `${path} CSP is missing its per-document script nonce`);
+  invariant(
+    policy.includes(`style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`),
+    `${path} CSP must apply the same nonce to inline style elements`,
+  );
+  invariant(
+    policy.includes("style-src-attr 'unsafe-inline'"),
+    `${path} CSP must scope the remaining React style-attribute compatibility exception`,
+  );
+  for (const tag of body.match(/<script\b[^>]*>/gu) || []) {
+    if (/\bsrc=/u.test(tag)) continue;
+    invariant(
+      tag.includes(`nonce="${nonce}"`),
+      `${path} contains an inline script without the response CSP nonce`,
+    );
+  }
+}
+
 async function findNamedFiles(directory, filename) {
   const matches = [];
   const entries = await readdir(directory, { withFileTypes: true });
@@ -283,6 +305,7 @@ async function runSmoke() {
     invariant(healthResponse.headers.get("x-robots-tag")?.includes("noindex"), "Health route must send X-Robots-Tag");
     invariant(healthHtml.includes('data-react-health="ok"'), "Health response is missing its React marker");
     invariant(healthHtml.includes('name="robots" content="noindex,nofollow"'), "Health HTML is missing robots noindex");
+    assertNonceProtectedDocument(healthResponse, healthHtml, "/__react/health");
 
     for (const [path, routeMarker, contentMarker, expectsLegacyApp, expectsHydration] of [
       ["/", 'data-react-route="home"', "Лучшие места", false, true],
@@ -297,6 +320,13 @@ async function runSmoke() {
       );
       invariant(body.includes(routeMarker), `React ${path} is missing its SSR route marker`);
       invariant(body.includes(contentMarker), `React ${path} is missing its main content`);
+      assertNonceProtectedDocument(response, body, path);
+      if (path === "/") {
+        invariant(
+          response.headers.get("vercel-cache-tag") === "mesto-venues",
+          "React home must carry the catalog invalidation tag",
+        );
+      }
       invariant(body.includes('src="/theme.js?v=theme-1"'), `React ${path} is missing the synchronous theme bootstrap`);
       invariant(
         body.includes('src="app.js?v=ui-motion-3"') === expectsLegacyApp,
@@ -306,6 +336,17 @@ async function runSmoke() {
         body.includes('type="module"') === expectsHydration,
         `React ${path} has the wrong hydration ownership`,
       );
+    }
+
+    for (const [path, expectedTags] of [
+      ["/catalog", "mesto-venues"],
+      ["/venue/barkas", "mesto-venues,mesto-venue-00000000-0000-4000-8000-000000000001"],
+    ]) {
+      const response = await fetch(`${origin}${path}`);
+      const body = await response.text();
+      invariant(response.status === 200, `React ${path} returned ${response.status}`);
+      invariant(response.headers.get("vercel-cache-tag") === expectedTags, `${path} has stale cache-tag ownership`);
+      assertNonceProtectedDocument(response, body, path);
     }
 
     for (const [path, marker] of [

@@ -66,7 +66,7 @@ module.exports = async function handler(req, res) {
   if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method)) {
     return methodNotAllowed(res, ['GET', 'POST', 'PATCH', 'DELETE']);
   }
-  const session = requireAdmin(req, res);
+  const session = await requireAdmin(req, res);
   if (!session) return;
   if (req.method !== 'GET' && !await enforceRateLimit(req, res, {
     policy: 'mutation', scope: 'admin-venues', identifier: session.sub

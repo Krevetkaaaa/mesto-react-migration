@@ -14,8 +14,8 @@ import {
 } from "../components/public/PublicHomeMarkup";
 import { usePublicAccount } from "../components/public/account/PublicAccountProvider";
 import { VenueSubmissionDialog } from "../components/public/submission/VenueSubmissionDialog";
+import { publicCatalogHeaders } from "../lib/public-catalog-route";
 import { resolvePublicOrigin } from "../lib/public-origin.server";
-import { SECURITY_HEADERS } from "../lib/security-headers";
 import { loadHomeCatalogSummary } from "../modules/home-catalog-summary.server";
 import type { HomeCatalogSummary } from "../modules/home-catalog-summary";
 import { loadHomeFeaturedVenues } from "../modules/home-featured-venues.server";
@@ -88,12 +88,7 @@ export function links() {
   ];
 }
 
-export function headers() {
-  return {
-    ...SECURITY_HEADERS,
-    "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
-  };
-}
+export const headers = publicCatalogHeaders;
 
 export function PublicHomeView({
   catalogSummary,

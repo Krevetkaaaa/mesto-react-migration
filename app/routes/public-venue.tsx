@@ -1,10 +1,12 @@
 import type { Route } from "./+types/public-venue";
+import { data } from "react-router";
 
 import { CatalogScreen } from "../components/public/catalog/CatalogScreen";
 import { PublicHomeMarkup } from "../components/public/PublicHomeMarkup";
 import { VenueDialog } from "../components/public/venue/VenueDialog";
 import { isApplicationError } from "../lib/application-error";
 import { publicCatalogHeaders, publicCatalogLinks } from "../lib/public-catalog-route";
+import { publicVenueDocumentCacheTags } from "../lib/public-cache-tags";
 import { resolvePublicOrigin } from "../lib/public-origin.server";
 import { loadPublicCatalog, loadPublicVenue } from "../modules/public-catalog.server";
 
@@ -16,12 +18,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       loadPublicCatalog(request),
     ]);
     const origin = resolvePublicOrigin(request);
-    return {
+    return data({
       canonicalUrl: `${origin}/venue/${detail.venue.slug}`,
       detail,
       returnTo: new URL(request.url).searchParams.get("from"),
       snapshot,
-    };
+    }, {
+      headers: { "Vercel-Cache-Tag": publicVenueDocumentCacheTags(detail.venue.id) },
+    });
   } catch (error) {
     if (isApplicationError(error)) {
       const status = error.status

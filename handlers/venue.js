@@ -1,4 +1,5 @@
 const { json, methodNotAllowed, publicJson, queryValue } = require('../lib/http');
+const { publicVenueCacheHeaders } = require('../lib/public-cache');
 const { enforceRateLimit } = require('../lib/rate-limit');
 const { createStore } = require('../lib/supabase');
 
@@ -50,7 +51,7 @@ module.exports = async function handler(req, res) {
         message: 'Заведение не найдено.'
       });
     }
-    return publicJson(req, res, { venue });
+    return publicJson(req, res, { venue }, publicVenueCacheHeaders({ id: venue.id }));
   } catch {
     return json(res, 500, {
       code: 'VENUE_LOOKUP_FAILED',

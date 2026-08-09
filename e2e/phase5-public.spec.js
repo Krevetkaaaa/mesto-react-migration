@@ -2,6 +2,7 @@ const AxeBuilder = require("@axe-core/playwright").default;
 const {
   authenticateFixture,
   expect,
+  runAxeWithCspNonce,
   test,
   waitForFullPageStableUi,
   waitForStableUi,
@@ -15,7 +16,10 @@ async function gotoCatalog(page, path = "/catalog") {
 }
 
 async function expectNoSeriousAxeViolations(page) {
-  const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  const result = await runAxeWithCspNonce(
+    page,
+    () => new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze(),
+  );
   const blocking = result.violations.filter(({ impact }) => impact === "critical" || impact === "serious");
   expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
 }

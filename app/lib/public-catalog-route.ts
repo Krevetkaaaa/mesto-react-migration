@@ -1,4 +1,8 @@
 import { SECURITY_HEADERS } from "./security-headers";
+import {
+  PUBLIC_VENUES_CACHE_TAG,
+  PUBLIC_VERCEL_CACHE_CONTROL,
+} from "./public-cache-tags";
 
 export const PUBLIC_CATALOG_DESCRIPTION =
   "Каталог опубликованных ресторанов, кафе, кофеен и баров Крыма в городском гиде «Место».";
@@ -19,9 +23,18 @@ export function publicCatalogLinks() {
   ];
 }
 
-export function publicCatalogHeaders() {
+export function publicCatalogHeaders({ loaderHeaders }: { loaderHeaders?: Headers } = {}) {
+  const loaderCacheControl = loaderHeaders?.get("Cache-Control") ?? "";
+  if (/\b(?:private|no-store)\b/iu.test(loaderCacheControl)) {
+    return {
+      ...SECURITY_HEADERS,
+      "Cache-Control": loaderCacheControl,
+    };
+  }
   return {
     ...SECURITY_HEADERS,
     "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=120",
+    "Vercel-CDN-Cache-Control": PUBLIC_VERCEL_CACHE_CONTROL,
+    "Vercel-Cache-Tag": loaderHeaders?.get("Vercel-Cache-Tag") ?? PUBLIC_VENUES_CACHE_TAG,
   };
 }

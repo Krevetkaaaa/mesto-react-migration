@@ -226,6 +226,40 @@ async function authenticateFixture(page, role) {
   }]);
 }
 
+async function runAxeWithCspNonce(page, analyze) {
+  const patched = await page.evaluate(() => {
+    const nonce = document.querySelector('script[nonce]')?.nonce || '';
+    if (!nonce || window.__mestoRestoreAxeCreateElement) return false;
+
+    const originalCreateElement = Document.prototype.createElement;
+    window.__mestoRestoreAxeCreateElement = () => {
+      Document.prototype.createElement = originalCreateElement;
+      delete window.__mestoRestoreAxeCreateElement;
+    };
+    Document.prototype.createElement = function createElementWithAxeNonce(localName, options) {
+      const element = Reflect.apply(
+        originalCreateElement,
+        this,
+        options === undefined ? [localName] : [localName, options]
+      );
+      // axe-core clones readable stylesheets into temporary style elements while
+      // calculating accessibility rules. Authorize only those test-time elements
+      // with the nonce already issued for this document.
+      if (String(localName).toLowerCase() === 'style') element.setAttribute('nonce', nonce);
+      return element;
+    };
+    return true;
+  });
+
+  try {
+    return await analyze();
+  } finally {
+    if (patched && !page.isClosed()) {
+      await page.evaluate(() => window.__mestoRestoreAxeCreateElement?.());
+    }
+  }
+}
+
 const savedFavorite = {
   id: 'favorite-marea',
   venue_key: 'marea',
@@ -246,6 +280,7 @@ module.exports = {
   openCatalogFromCategory,
   openLoginDialog,
   openRegisterDialog,
+  runAxeWithCspNonce,
   savedFavorite,
   test,
   waitForFullPageStableUi,

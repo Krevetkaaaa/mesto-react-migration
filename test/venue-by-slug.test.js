@@ -121,6 +121,7 @@ test('GET /api/venues/:slug normalizes a Unicode slug and selects a published ro
   assert.equal(res.body.venue.title, 'Тихий сад');
   assert.equal(res.body.venue.status, 'published');
   assert.equal(res.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
+  assert.equal(res.headers['vercel-cache-tag'], 'mesto-venue-30000000-0000-4000-8000-000000000001');
   assert.match(res.headers.etag, /^W\/"[A-Za-z0-9_-]{32}"$/);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url.pathname, '/rest/v1/venues');
@@ -150,6 +151,7 @@ test('GET /api/venues/:slug returns 304 for the current entity tag', async () =>
   assert.equal(conditional.body, null);
   assert.equal(conditional.headers.etag, initial.headers.etag);
   assert.equal(conditional.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
+  assert.equal(conditional.headers['vercel-cache-tag'], initial.headers['vercel-cache-tag']);
 });
 
 test('GET /api/venues/:slug returns 404 for absent and unpublished rows', async (t) => {

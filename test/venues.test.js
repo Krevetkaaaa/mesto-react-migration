@@ -145,6 +145,8 @@ test('GET /api/venues?summary=1 uses the aggregate RPC as its primary production
   assert.equal(calls[0].options.method, 'POST');
   assert.equal(calls[0].options.body, '{}');
   assert.equal(res.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
+  assert.equal(res.headers['vercel-cdn-cache-control'], 'public, max-age=60, stale-while-revalidate=120');
+  assert.equal(res.headers['vercel-cache-tag'], 'mesto-venues');
 });
 
 test('catalog summary compatibility fallback paginates minimal published columns until empty', async () => {
@@ -268,6 +270,7 @@ test('GET /api/venues reads published places only from the configured database',
   assert.equal(res.body.items[0].averageCheck, '1500');
   assert.match(res.body.items[0].mapsUrl, /^https:\/\/yandex\.ru\/maps\//);
   assert.equal(res.headers['cache-control'], 'public, max-age=0, s-maxage=60, stale-while-revalidate=120');
+  assert.equal(res.headers['vercel-cache-tag'], 'mesto-venues');
   assert.match(res.headers.etag, /^W\/"[A-Za-z0-9_-]{32}"$/);
 
   assert.equal(calls.length, 1);

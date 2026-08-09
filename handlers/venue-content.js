@@ -1,4 +1,5 @@
 const { json, methodNotAllowed, publicJson, queryValue, uuid } = require('../lib/http');
+const { publicVenueCacheHeaders } = require('../lib/public-cache');
 const { enforceRateLimit } = require('../lib/rate-limit');
 const { createStore } = require('../lib/supabase');
 
@@ -14,7 +15,7 @@ module.exports = async function handler(req, res) {
   })) return;
   try {
     const content = await createStore().publicVenueContent(venueId);
-    return publicJson(req, res, content);
+    return publicJson(req, res, content, publicVenueCacheHeaders({ id: venueId }));
   } catch (error) {
     return json(res, error.statusCode || 500, { message: 'Не удалось загрузить меню и акции.' });
   }

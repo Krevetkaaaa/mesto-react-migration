@@ -5,7 +5,7 @@ import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { childProcessHasExited, PHASE4_CHILD_STDIO } from "./phase4-process-contract.mjs";
-import { proxyHttpRequest } from "./phase4-proxy.mjs";
+import { proxyHttpRequest, serveLocalVercelObservability } from "./phase4-proxy.mjs";
 
 const projectRoot = resolve(import.meta.dirname, "../..");
 const host = "127.0.0.1";
@@ -94,6 +94,7 @@ const gateway = createServer(async (request, response) => {
     response.end(JSON.stringify({ legacyPid: legacy.pid, ok: true, reactPid: react.pid }));
     return;
   }
+  if (serveLocalVercelObservability(request, response, pathname)) return;
 
   const useLegacy = pathname.startsWith("/api/")
     || pathname.startsWith("/__e2e/")

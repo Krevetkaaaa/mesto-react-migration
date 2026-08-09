@@ -10,6 +10,7 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { StaticVercelObservability, VercelObservability } from "./components/VercelObservability";
 import { PublicAccountProvider } from "./components/public/account/PublicAccountProvider";
 import { SECURITY_HEADERS } from "./lib/security-headers";
 
@@ -41,6 +42,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const hydratesPublicRoute = isInteractivePublicPath(pathname);
   const hydratesRoute = hydratesPublicRoute || isMerchantPath(pathname) || isAdminPath(pathname);
   const loadsPublicTheme = isHome || pathname === "/help" || hydratesPublicRoute;
+  const reportsWebVitals = loadsPublicTheme || isMerchantPath(pathname) || isAdminPath(pathname);
   const bodyClassName = isHome || isAccountOverlay
     ? "is-home-view"
     : isCatalog
@@ -65,6 +67,11 @@ export function Layout({ children }: { children: ReactNode }) {
             <Scripts />
           </>
         ) : null}
+        {import.meta.env.PROD && reportsWebVitals
+          ? hydratesRoute
+            ? <VercelObservability pathname={pathname} />
+            : <StaticVercelObservability pathname={pathname} />
+          : null}
       </body>
     </html>
   );

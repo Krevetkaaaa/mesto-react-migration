@@ -19,22 +19,24 @@ function responseRecorder() {
   };
 }
 
-test('Vercel applies the source-controlled security policy before API, static and SSR routing', () => {
+test('Vercel applies non-document defense headers while each runtime owns its CSP', () => {
   const vercel = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
   const globalRoute = vercel.routes[0];
+  const { ['Content-Security-Policy']: _csp, ...edgeHeaders } = configuredHeaders;
 
   assert.deepEqual(globalRoute, {
     src: '^/(.*)$',
-    headers: configuredHeaders,
+    headers: edgeHeaders,
     continue: true
   });
   assert.deepEqual(SECURITY_HEADERS, configuredHeaders);
+  assert.equal(globalRoute.headers['Content-Security-Policy'], undefined);
   assert.ok(vercel.routes.findIndex((route) => route.handle === 'filesystem') > 0);
   assert.ok(vercel.routes.findIndex((route) => route.dest === '/api/router?route=$1') > 0);
   assert.ok(vercel.routes.findIndex((route) => route.dest === 'city/:citySlug') > 0);
 });
 
-test('CSP keeps required runtime sources narrow and documents compatibility exceptions', () => {
+test('base CSP is strict for scripts and limits inline compatibility to style attributes', () => {
   const policy = SECURITY_HEADERS['Content-Security-Policy'];
 
   assert.match(policy, /default-src 'self'/);
@@ -43,10 +45,13 @@ test('CSP keeps required runtime sources narrow and documents compatibility exce
   assert.match(policy, /frame-ancestors 'none'/);
   assert.match(policy, /form-action 'self'/);
   assert.match(policy, /connect-src 'self' https:\/\/fonts\.googleapis\.com https:\/\/fonts\.gstatic\.com/);
-  assert.match(policy, /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/);
+  assert.match(policy, /style-src 'self' https:\/\/fonts\.googleapis\.com/);
+  assert.match(policy, /style-src-attr 'unsafe-inline'/);
   assert.match(policy, /font-src 'self' data: https:\/\/fonts\.gstatic\.com/);
   assert.match(policy, /img-src 'self' data: blob: https:/);
-  assert.match(policy, /script-src 'self' 'unsafe-inline'/);
+  assert.match(policy, /script-src 'self'/);
+  assert.doesNotMatch(policy, /script-src[^;]*'unsafe-inline'/);
+  assert.doesNotMatch(policy, /style-src(?!-)[^;]*'unsafe-inline'/);
   assert.match(policy, /worker-src 'none'/);
   assert.match(policy, /frame-src 'none'/);
   assert.doesNotMatch(policy, /script-src[^;]*\*/);

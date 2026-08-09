@@ -21,9 +21,13 @@
 - `MESTO_ADMIN_LOGIN` и `MESTO_ADMIN_PASSWORD_HASH` для admin acceptance;
 - `MESTO_PUBLIC_ORIGIN`, равный проверяемому публичному origin;
 - `MESTO_RATE_LIMIT_PROVIDER=upstash-redis`, credential-free HTTPS `MESTO_RATE_LIMIT_REDIS_URL` и `MESTO_RATE_LIMIT_REDIS_TOKEN`;
+- `MESTO_ADMIN_SESSION_REVOCATION_PROVIDER=upstash-redis`; отдельные `MESTO_ADMIN_SESSION_REDIS_URL` / `MESTO_ADMIN_SESSION_REDIS_TOKEN` нужны только при отказе от переиспользования rate-limit Redis;
+- `MESTO_CACHE_PURGE_PROVIDER=vercel` только внутри Vercel Preview/Production Function runtime;
 - OAuth variables только для реально включённых providers: `VK_ID_APP_ID`, при необходимости `VK_ID_SERVICE_TOKEN`, `YANDEX_OAUTH_CLIENT_ID`, `YANDEX_OAUTH_CLIENT_SECRET`.
 
-Memory rate limiter запрещён в production. Отсутствие shared provider должно оставаться контролируемым `503 RATE_LIMIT_UNAVAILABLE`, а не скрытым process-local fallback.
+Analytics и Speed Insights не требуют application secrets. Vercel request telemetry включается platform runtime; `MESTO_TELEMETRY_LOGS=1` используется только для локальной диагностики и не подменяет provider acceptance.
+
+Memory rate limiter и memory admin-session revocation запрещены в production. Отсутствие shared provider должно оставаться контролируемым `503 RATE_LIMIT_UNAVAILABLE` / `503 ADMIN_SESSION_UNAVAILABLE`, а не скрытым process-local fallback.
 
 ## Database и provider шаги
 
@@ -32,8 +36,10 @@ Memory rate limiter запрещён в production. Отсутствие shared 
 1. Создать изолированный Preview project/data set без production PII.
 2. Применить additive migration `supabase/migrations/20260808_public_catalog_summary.sql` по инструкции `supabase/README.md`.
 3. Подключить shared Redis/KV и подтвердить один rate-limit window между несколькими runtime instances.
-4. Выполнить `scripts/phase9-catalog-explain.sql` на репрезентативном non-production snapshot и сохранить планы без пользовательских данных.
-5. Не включать production alias, пока Preview acceptance ниже не завершён.
+4. Подтвердить отзыв одной admin session через logout между несколькими runtime instances, не отзывая параллельную session.
+5. Включить Vercel tag purge и проверить `HIT → mutation → STALE/revalidation`, включая отсутствие invalidation у несвязанных venue.
+6. Выполнить `scripts/phase9-catalog-explain.sql` на репрезентативном non-production snapshot и сохранить планы без пользовательских данных.
+7. Не включать production alias, пока Preview acceptance ниже не завершён.
 
 ## Preview acceptance
 
@@ -42,12 +48,15 @@ Memory rate limiter запрещён в production. Отсутствие shared 
 1. `npm ci`, `npm run check`, `npm test`, `npm run smoke` и все Phase 4–8 functional E2E.
 2. Зелёная Visual Freeze matrix на закреплённом браузере и всех утверждённых viewport без необъяснённого snapshot update.
 3. Ручные customer, merchant и admin сценарии с тестовыми ролями; logout и очистка test sessions после проверки.
-4. Фактические cache headers для public documents/API и `private, no-store` для персональных/admin responses.
+4. Фактические cache headers и Vercel tags для public documents/API, tag purge после mutation и `private, no-store` для персональных/admin responses.
 5. Каталог, venue, favorites, review и submission с provider-backed API без `RATE_LIMIT_UNAVAILABLE`.
 6. Mobile p75 LCP <= 2.5 s, INP <= 200 ms и CLS <= 0.1 на согласованном наборе маршрутов.
 7. Expected и burst load profiles по заранее зафиксированным SLO; soak запускается только после зелёного burst.
 8. Goal-driven browser QA свежим независимым reviewer и устранение всех P0/P1.
-9. Ссылка на Preview передаётся владельцу; production cutover разрешён только после его явного визуального одобрения.
+9. SSR render/cache-fill-specific CSP nonce без `unsafe-inline` в `script-src`/общем `style-src` и отсутствие CSP violations на полном browser flow.
+10. Shared Redis revocation между runtime instances и authenticated merchant/admin stored-XSS E2E.
+11. Analytics, Speed Insights и bounded API/SSR telemetry без query, body, cookies, tokens и пользовательских идентификаторов; фактические provider events проверяются во внешнем dashboard.
+12. Ссылка на Preview передаётся владельцу; production cutover разрешён только после его явного визуального одобрения.
 
 ## Локальный release-candidate checkpoint
 
@@ -74,7 +83,7 @@ SEO-контракт использует отдельный `/api/venue-sitemap
 
 API router выдаёт/сохраняет UUID `X-Request-ID`. JSON body limit считает фактические raw/stream bytes, включая пробелы, escape и повторные ключи; mismatch `Content-Length` отклоняется, а oversize возвращает настоящий `413` без socket reset. Общий HTTP seam не следует redirects и останавливает чтение sitemap response сразу при превышении фактического UTF-8 byte cap. Нормальная анонимная проверка customer session возвращает `200 {authenticated:false}`, поэтому публичная навигация не загрязняет консоль ожидаемыми `401`.
 
-## Текущие блокеры
+## Блокеры checkpoint 8 августа 2026 года (историческая запись)
 
 - Последний READY Preview имеет только OAuth variables. `/api/venues` и `/api/venues?summary=1` поэтому честно возвращают `503 RATE_LIMIT_UNAVAILABLE`; Supabase/session/shared limiter acceptance не выполнен.
 - Формальный локальный 300-VU burst ранее провалил SLO; soak не запускался. Loopback fixture не моделирует Vercel edge cache, Supabase или distributed limiter.
@@ -85,6 +94,20 @@ API router выдаёт/сохраняет UUID `X-Request-ID`. JSON body limit 
 - `X-Request-ID` у shared-cacheable origin response обозначает запрос, заполнивший CDN cache, и может повторяться на cache hits; per-edge и origin/cache-fill correlation необходимо разделить перед provider telemetry acceptance.
 - Если одна из последовательных загрузок изображения либо создание venue submission завершается ошибкой, уже загруженный объект требует TTL temporary namespace или компенсирующего удаления; direct signed upload/derivatives остаются внешним Phase 9 debt.
 - Владелец ещё не одобрил финальный Preview.
+
+## Superseding update — 9 августа 2026 года
+
+Список выше сохранён как часть checkpoint 8 августа. Его утверждения об отсутствии cache-tag adapter, CSP nonce, shared admin revocation, stored-XSS E2E и bounded telemetry superseded текущим tree:
+
+- code-only закрыты SSR render/cache-fill-specific CSP nonce, Vercel Analytics/Speed Insights wiring, bounded API/SSR telemetry, shared Redis admin-session revocation, fixture-backed authenticated merchant/admin stored-XSS E2E для production React rendering, Vercel cache tags/project-scoped tag purge adapter и безопасный server-validated upload fallback; реальные handlers/Supabase stored-XSS acceptance остаются внешней проверкой;
+- tag purge пока только запрашивается кодом: фактический CDN effect и изоляция tags должны быть проверены в Vercel Preview;
+- direct signed staging upload, lifecycle cleanup, derivatives и immutable media CDN headers не реализованы; существующий fallback остаётся server-mediated и authoritative-validated;
+- внешний Preview всё ещё требует Supabase/session/shared Redis env и применения согласованной migration; Preview-only `MESTO_CACHE_PURGE_PROVIDER=vercel` уже добавлен, но фактический runtime purge/CDN state ещё не проверен и database state этим update не менялся;
+- формальный burst/soak, реальные mobile p75 Web Vitals, фактические Analytics/Speed Insights и structured provider telemetry, representative `EXPLAIN`, owner approval, merge, production deployment и alias остаются незавершёнными;
+- snapshot-consistent sitemap, разделение edge request id и origin/cache-fill correlation, сужение CSP image origins и согласованная accessibility-задача для frozen palette также не закрыты этим update;
+- финальная локальная проверка 10 августа дала `165/165` server и `202/202` unit tests; `npm run check`, production smoke и полный последовательный `npm run test:e2e` (legacy + Phase 4–8) прошли без snapshot update.
+
+Текущий tree остаётся code-only release candidate и не объявляется production-like или production готовым.
 
 ## Откат
 

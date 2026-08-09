@@ -2,6 +2,7 @@ const { randomUUID } = require('node:crypto');
 
 const { json, uuid } = require('../lib/http');
 const { setSecurityHeaders } = require('../lib/security-headers');
+const { beginApiRequest } = require('../lib/telemetry');
 const venueBySlug = require('../handlers/venue');
 
 const routes = new Map([
@@ -42,6 +43,17 @@ function requestHeader(req, name) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+async function observed(operation, res, telemetry) {
+  try {
+    const result = await operation();
+    telemetry.complete(res.statusCode || 200);
+    return result;
+  } catch (error) {
+    telemetry.fail(error, res.statusCode || 500);
+    throw error;
+  }
+}
+
 module.exports = async function handler(req, res) {
   setSecurityHeaders(res);
   const requestId = uuid(requestHeader(req, 'x-request-id')) || randomUUID();
@@ -49,11 +61,22 @@ module.exports = async function handler(req, res) {
   res.setHeader('X-Request-ID', requestId);
   const value = req.query?.route;
   const key = (Array.isArray(value) ? value.join('/') : String(value || '')).replace(/^\/+|\/+$/g, '');
+  const telemetry = beginApiRequest({
+    method: req.method,
+    requestId,
+    route: key.startsWith('venues/')
+      ? 'venues/:slug'
+      : routes.has(key)
+        ? key
+        : '(unmatched)',
+    vercelId: requestHeader(req, 'x-vercel-id')
+  });
+  if (!key.startsWith('venues/') && !routes.has(key)) telemetry.complete(404);
   if (key.startsWith('venues/')) {
     req.query = { ...req.query, slug: key.slice('venues/'.length) };
-    return venueBySlug(req, res);
+    return observed(() => venueBySlug(req, res), res, telemetry);
   }
   const route = routes.get(key);
   if (!route) return json(res, 404, { message: 'API-маршрут не найден.' });
-  return route(req, res);
+  return observed(() => route(req, res), res, telemetry);
 };

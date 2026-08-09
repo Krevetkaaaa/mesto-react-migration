@@ -1,4 +1,5 @@
 const { json, methodNotAllowed, publicJson, queryValue, text } = require('../lib/http');
+const { publicCatalogCacheHeaders } = require('../lib/public-cache');
 const { enforceRateLimit } = require('../lib/rate-limit');
 const { createStore } = require('../lib/supabase');
 
@@ -96,7 +97,7 @@ module.exports = async function handler(req, res) {
         ...await store.publicCatalogSummary(),
         source: 'database',
         databaseConfigured: true
-      });
+      }, publicCatalogCacheHeaders());
     }
     const page = await store.listPublishedPage({ city, category, search, limit: results, offset: skip });
     const items = dedupe(page.items.map(persistentItem));
@@ -114,7 +115,7 @@ module.exports = async function handler(req, res) {
       persistentCount: items.length,
       databaseConfigured: true,
       items
-    });
+    }, publicCatalogCacheHeaders());
   } catch (error) {
     return json(res, error.statusCode || 502, { message: error.message || 'Не удалось загрузить каталог «Места».' });
   }
