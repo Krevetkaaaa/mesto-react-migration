@@ -109,9 +109,25 @@ API router выдаёт/сохраняет UUID `X-Request-ID`. JSON body limit 
 
 Текущий tree остаётся code-only release candidate и не объявляется production-like или production готовым.
 
+## Superseding Preview acceptance — 11 августа 2026 года
+
+Этот раздел заменяет утверждения checkpoint 8–9 августа о не настроенном Preview, `RATE_LIMIT_UNAVAILABLE` и отсутствующем `EXPLAIN`. Код release candidate не менялся: проверен commit `a27f58e71ba981e79e9dee7815c58622deda0441`.
+
+- GitHub handoff оформлен Draft PR [#1](https://github.com/Krevetkaaaa/mesto-react-migration/pull/1): base `baseline/pre-react-migration-20260805` (`ee847647`) → head `codex/react-migration` (`a27f58e`). PR mergeable, merge state `CLEAN`; оба PR-triggered jobs — `Types, tests, and production smoke` и `Exact-browser functional and Visual Freeze` — завершились `SUCCESS` без snapshot update.
+- Новый Vercel Preview `dpl_A5sZXUDyWBFMe4nrm94cC3TN3tRg` имеет состояние `READY` и доступен по `https://mesto-city-guide-4487ynk4t-krevetkaaaas-projects.vercel.app`. Production alias не переключался.
+- Для Preview созданы отдельные Free-ресурсы `mesto-preview-supabase` и `mesto-preview-rate-limit` (Upstash Redis). Production variables и production resources не изменялись. В Preview Supabase применён полный `supabase/schema.sql`, включая `public_catalog_summary()` и bucket `venue-submissions`; production data не копировались и тестовые строки не сохранялись.
+- Runtime acceptance прошёл: `/api/venues?summary=1` и `/api/venues?results=1` возвращают `200`, `databaseConfigured:true`, `source:"database"`; `/api/venue-sitemap` возвращает `200`, `complete:true`; `/api/auth/providers` возвращает `200` с `email:true`; гостевая `/api/auth/session` возвращает `200 {authenticated:false}`; неверный admin login возвращает ожидаемый `401`, а не provider/configuration `503`.
+- `/`, `/catalog`, `/venue/barkas`, `/sitemap.xml` и `/robots.txt` возвращают `200`; query-вариант sitemap канонизируется `308` на `/sitemap.xml`. Повторные home/summary/sitemap запросы подтверждены как Vercel CDN `HIT`.
+- Distributed limiter доказан 31 одновременным cache-miss запросом с одного источника: ровно `30 × 200` и `1 × 429 RATE_LIMITED`, `RateLimit-Limit: 30`, `RateLimit-Remaining: 0`, положительные `RateLimit-Reset`/`Retry-After`, `Cache-Control: no-store`. Runtime logs показали минимум два cold start при едином общем лимите, то есть это не process-local memory bucket.
+- Structured telemetry содержит парные `api.request.start`/`api.request.complete` для всех 36 origin API-запросов acceptance-run, `0` неожиданных `5xx`, UUID request correlation и отсутствие body/cookie/password/token/e-mail/query-string полей.
+- На целевой Preview-БД выполнен безопасный representative-scale `EXPLAIN (ANALYZE, BUFFERS)` на временной таблице с тем же schema/index contract и 20 000 синтетических строк: catalog list использовал `status,city,category,created_at` index (`50` rows, около `1.4 ms`), detail — unique slug index (около `0.09 ms`), summary aggregation завершилась примерно за `19 ms`. Временная таблица удалена с завершением сессии; постоянные строки не менялись.
+- Встроенный Codex Browser отказался открывать защищённый Preview из-за своей URL policy; обход через другой browser/CDP намеренно не выполнялся. Browser layer остаётся подтверждён PR-triggered exact Chrome CI и ранее выполненным независимым black-box QA, а этот deployment дополнительно проверен на HTTP/API/data/runtime границах.
+
+После этого update незавершёнными остаются только действия, которые нельзя честно подменить локальной проверкой: явное визуальное одобрение владельца, согласованный formal remote burst/soak на Hobby‑окружении, реальные mobile p75 Web Vitals на пользовательском трафике, фактическая mutation→tag-purge проверка, direct signed media pipeline/derivatives и отдельное разрешение на merge/production promotion. Эти пункты не дают права автоматически переключать production alias.
+
 ## Откат
 
-- До production cutover безопасная точка платформенного отката — READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q`; production alias на него не переключался.
+- До production cutover текущая проверенная точка платформенного отката — READY Preview `dpl_A5sZXUDyWBFMe4nrm94cC3TN3tRg`; предыдущий READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q` сохранён, production alias ни на один из них не переключался.
 - Phase 12 откатывается новыми revert-коммитами в обратном порядке: `3fb5b760f71833f83d04c1a6689519f3df9147b7`, `f00ee7afd40107a5a8d6d3ecf10bd7d330951e98`, `68575fbc659163cc853053ac6ff59e9a32e8d1dd`, `562e55f1932d1c53cf72bb27f86351baa20bff87`, `0b8f9e6a8675e09842479ea57f3c7113052e91b8`, затем `398c4d8446d593e2976f1590275f4851d09c3fdf`. Force push не используется. Более глубокий откат возможен на baseline tag `pre-react-migration-20260805-1916`.
 - Vercel deployment/alias откатывается отдельно от Git. Environment variables и provider credentials возвращаются по сохранённому environment snapshot.
 - Git не откатывает Supabase rows, Storage objects, Redis counters, sessions или OAuth/provider state. Database rollback/compensation описан рядом с migration и требует отдельного backup/restore решения.
