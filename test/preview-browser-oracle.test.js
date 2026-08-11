@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { resolve } = require('node:path');
 const { test } = require('node:test');
 
 async function moduleUnderTest() {
@@ -7,7 +8,7 @@ async function moduleUnderTest() {
 
 const baseUrl = 'https://mesto-city-guide-ab12cd34e-team.vercel.app';
 const targetUrl = `${baseUrl}/venue/acceptance-venue`;
-const executablePath = 'C:\\Program Files\\Chromium\\chrome.exe';
+const executablePath = resolve(__dirname, 'fixtures', 'chromium');
 const probeToken = 'acceptance-venue';
 
 function navigationRequest({ redirected = false } = {}) {
