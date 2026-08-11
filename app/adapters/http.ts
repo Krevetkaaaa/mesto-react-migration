@@ -23,6 +23,13 @@ export interface HttpRequest<T> {
 
 export interface HttpClient {
   request<T>(request: HttpRequest<T>): Promise<T>;
+  uploadSigned(request: SignedMediaUpload): Promise<void>;
+}
+
+export interface SignedMediaUpload {
+  url: string;
+  bytes: Uint8Array;
+  contentType: "image/jpeg" | "image/png" | "image/webp";
 }
 
 interface ClientOptions {
@@ -149,6 +156,50 @@ async function responseText(response: Response, maxBytes?: number) {
 
 class FetchHttpClient implements HttpClient {
   constructor(private readonly options: ClientOptions) {}
+
+  async uploadSigned(request: SignedMediaUpload): Promise<void> {
+    let url: URL;
+    try {
+      url = new URL(request.url);
+    } catch (error) {
+      throw new ApplicationError("validation", "Signed media upload URL is invalid", { cause: error });
+    }
+    if (url.protocol !== "https:"
+      || url.username
+      || url.password
+      || url.hash
+      || !url.pathname.includes("/storage/v1/object/upload/sign/")
+      || !url.searchParams.has("token")) {
+      throw new ApplicationError("validation", "Signed media upload URL is invalid");
+    }
+
+    let response: Response;
+    try {
+      response = await this.options.fetch(url, {
+        method: "PUT",
+        credentials: "omit",
+        redirect: "error",
+        headers: {
+          "Content-Type": request.contentType,
+          "Cache-Control": "no-store, max-age=0",
+          "x-upsert": "false",
+        },
+        body: new Blob([new Uint8Array(request.bytes)], { type: request.contentType }),
+      });
+    } catch (error) {
+      throw new ApplicationError("unavailable", "Direct media upload is unavailable", {
+        code: "MEDIA_DIRECT_UPLOAD_FAILED",
+        cause: error,
+      });
+    }
+    if (!response.ok) {
+      const kind = response.status >= 500 ? "unavailable" : statusKind(response.status);
+      throw new ApplicationError(kind, `Direct media upload failed with status ${response.status}`, {
+        status: response.status,
+        code: "MEDIA_DIRECT_UPLOAD_FAILED",
+      });
+    }
+  }
 
   async request<T>(request: HttpRequest<T>): Promise<T> {
     let url: URL;

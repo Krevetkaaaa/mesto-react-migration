@@ -88,3 +88,20 @@ Known defect: `PATCH /api/admin/venues` без валидного id может 
 - Стандартизировать `Retry-After` для всех rate-limited endpoints.
 - Не удалять exact count до измерения и отдельного решения по видимому `N из total`.
 - Любая runtime schema в React adapter должна принимать текущий baseline contract и выдавать конечный набор application errors.
+## Superseding media API contract — 11 августа 2026 года
+
+Исторический `POST /api/uploads` Data URL contract ниже больше не маршрутизируется. Текущий authenticated, same-origin и rate-limited flow:
+
+| Method | Path | Result |
+| --- | --- | --- |
+| POST | `/api/uploads/sign` | `{mediaId, uploadUrl, expiresAt, maxBytes}` для private one-time staging path |
+| PUT | returned Supabase signed URL | Browser отправляет исходные bytes напрямую без cookies/service-role |
+| POST | `/api/uploads/finalize` | Service-role re-download, authoritative validation, private WebP derivatives |
+| POST | `/api/uploads/release` | Compensating cleanup только собственных unattached receipts |
+| POST | `/api/submissions` | Принимает `mediaIds` (до 6), а не `photos`; DB RPC атомарно создаёт submission и attachment |
+
+До approval публичного media URL не существует. `PATCH /api/admin/submissions` публикует UUID-versioned derivatives и затем фиксирует venue; rejection удаляет private media.
+
+For an approval, `PATCH /api/admin/submissions` returns `{result, media}`. `media` is an array of public-only manifests with `id` and `thumb`/`card`/`hero` `{url,width,height,bytes,contentType}`. A rejection returns `media: []`.
+
+`DELETE /api/admin/venues` atomically tombstones media and deletes the venue in Postgres, then removes all manifest objects and media receipts. It returns `{ok:true}` on complete cleanup or `{ok:true,mediaCleanupPending:true}` when the venue deletion committed but provider cleanup must be retried.

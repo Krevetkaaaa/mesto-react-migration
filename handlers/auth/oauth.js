@@ -1,11 +1,19 @@
 const { json, methodNotAllowed, queryValue, text } = require('../../lib/http');
-const { startExternalOAuth } = require('../../lib/oauth-flow');
+const { oauthError, redirectToCanonicalOAuthStart, startExternalOAuth } = require('../../lib/oauth-flow');
 const { enforceRateLimit } = require('../../lib/rate-limit');
 const { configuration } = require('../../lib/supabase');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
   const provider = text(queryValue(req.query?.provider), 30).toLowerCase();
+  if (['google', 'vk', 'yandex'].includes(provider)) {
+    try {
+      const redirected = redirectToCanonicalOAuthStart(req, res, provider);
+      if (redirected) return redirected;
+    } catch (error) {
+      return oauthError(res, error);
+    }
+  }
   if (!await enforceRateLimit(req, res, {
     policy: 'oauth',
     scope: 'oauth-start',

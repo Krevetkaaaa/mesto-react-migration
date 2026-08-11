@@ -6,6 +6,7 @@ const loginHandler = require('../handlers/admin/login');
 const logoutHandler = require('../handlers/admin/logout');
 const merchantsHandler = require('../handlers/admin/merchants');
 const reviewsHandler = require('../handlers/admin/reviews');
+const submissionsHandler = require('../handlers/admin/submissions');
 const venuesHandler = require('../handlers/admin/venues');
 const { configurePublicCacheInvalidation } = require('../lib/public-cache');
 const { ADMIN_SESSION_TYPE, hashPassword, signSession, verifySession } = require('../lib/security');
@@ -16,6 +17,9 @@ const PUBLIC_ORIGIN = 'https://mesto.example';
 const ADMIN_ID = '10000000-0000-4000-8000-000000000001';
 const MERCHANT_ID = '20000000-0000-4000-8000-000000000001';
 const VENUE_ID = '30000000-0000-4000-8000-000000000001';
+const SUBMISSION_ID = '40000000-0000-4000-8000-000000000001';
+const MEDIA_ID = '50000000-0000-4000-8000-000000000001';
+const SECOND_MEDIA_ID = '60000000-0000-4000-8000-000000000001';
 const originalFetch = global.fetch;
 const originalEnvironment = {
   MESTO_ADMIN_LOGIN: process.env.MESTO_ADMIN_LOGIN,
@@ -248,8 +252,11 @@ test('a failed audit cannot replace a successful venue deletion result', async (
   global.fetch = async (input, init) => {
     const url = new URL(String(input));
     calls.push(`${init?.method || 'GET'} ${url.pathname}`);
-    if (url.pathname === '/rest/v1/venues' && init?.method === 'DELETE') {
-      return jsonResponse([{ id: VENUE_ID }]);
+    if (url.pathname === '/rest/v1/venue_submissions' && (init?.method || 'GET') === 'GET') {
+      return jsonResponse([]);
+    }
+    if (url.pathname === '/rest/v1/rpc/delete_venue_with_media' && init?.method === 'POST') {
+      return jsonResponse({ deleted: true, media_count: 0, media_ids: [] });
     }
     if (url.pathname === '/rest/v1/audit_log') {
       return jsonResponse({ message: 'audit service unavailable' }, 503);
@@ -261,8 +268,225 @@ test('a failed audit cannot replace a successful venue deletion result', async (
   await venuesHandler(request('DELETE', { id: VENUE_ID }), res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { ok: true });
-  assert.deepEqual(calls, ['DELETE /rest/v1/venues', 'POST /rest/v1/audit_log']);
+  assert.deepEqual(calls, [
+    'GET /rest/v1/venue_submissions',
+    'POST /rest/v1/rpc/delete_venue_with_media',
+    'POST /rest/v1/audit_log'
+  ]);
   assert.deepEqual(invalidations, [{ id: VENUE_ID, slug: '', reason: 'venue.deleted' }]);
+});
+
+test('venue deletion reports media cleanup pending while a signed-upload tombstone blocks receipt deletion', async () => {
+  const calls = [];
+  const media = {
+    id: MEDIA_ID,
+    owner_id: ADMIN_ID,
+    submission_id: SUBMISSION_ID,
+    status: 'published',
+    staging_path: `${ADMIN_ID}/${MEDIA_ID}/source.png`,
+    staging_cleanup_pending: true,
+    review_manifest: {},
+    public_manifest: {}
+  };
+  global.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    calls.push(`${init?.method || 'GET'} ${url.pathname}`);
+    if (url.pathname === '/rest/v1/venue_submissions' && (init?.method || 'GET') === 'GET') {
+      return jsonResponse([{ id: SUBMISSION_ID }]);
+    }
+    if (url.pathname === '/rest/v1/media_assets' && (init?.method || 'GET') === 'GET') {
+      return jsonResponse([media]);
+    }
+    if (url.pathname === '/rest/v1/rpc/delete_venue_with_media' && init?.method === 'POST') {
+      return jsonResponse({ deleted: true, media_count: 1, media_ids: [MEDIA_ID] });
+    }
+    if (url.pathname === '/rest/v1/media_assets' && init?.method === 'PATCH') {
+      const body = JSON.parse(init.body);
+      if (body.status === 'cleanup_pending') return jsonResponse([{ ...media, status: 'cleanup_pending' }]);
+      if (body.staging_cleanup_pending === false) return jsonResponse([]);
+    }
+    if (url.pathname === '/storage/v1/object/mesto-media-staging' && init?.method === 'DELETE') {
+      const { prefixes } = JSON.parse(init.body);
+      return jsonResponse(prefixes.map((name) => ({ name })));
+    }
+    if (url.pathname === '/rest/v1/media_assets' && init?.method === 'DELETE') {
+      // The authoritative DELETE query requires staging_cleanup_pending=false,
+      // so the still-live signed-token tombstone correctly filters this row.
+      return jsonResponse([]);
+    }
+    if (url.pathname === '/rest/v1/audit_log' && init?.method === 'POST') return jsonResponse([]);
+    throw new Error(`Unexpected request: ${init?.method || 'GET'} ${url.pathname}`);
+  };
+
+  const res = responseRecorder();
+  await venuesHandler(request('DELETE', { id: VENUE_ID }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { ok: true, mediaCleanupPending: true });
+  assert.equal(calls.includes('DELETE /rest/v1/media_assets'), false);
+  assert.ok(calls.includes('DELETE /storage/v1/object/mesto-media-staging'));
+});
+
+test('venue deletion never false-completes when the transactional media receipt differs from the pre-read set', async () => {
+  const calls = [];
+  const media = {
+    id: MEDIA_ID,
+    owner_id: ADMIN_ID,
+    submission_id: SUBMISSION_ID,
+    status: 'published',
+    staging_path: `${ADMIN_ID}/${MEDIA_ID}/source.png`,
+    staging_cleanup_pending: false,
+    review_manifest: {},
+    public_manifest: {}
+  };
+  global.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method || 'GET';
+    calls.push(`${method} ${url.pathname}`);
+    if (url.pathname === '/rest/v1/venue_submissions' && method === 'GET') {
+      return jsonResponse([{ id: SUBMISSION_ID }]);
+    }
+    if (url.pathname === '/rest/v1/media_assets' && method === 'GET') {
+      return jsonResponse([media]);
+    }
+    if (url.pathname === '/rest/v1/rpc/delete_venue_with_media' && method === 'POST') {
+      // Simulates a concurrent/upgrade-window claim the pre-read did not
+      // authoritatively observe. The handler must surface pending cleanup.
+      return jsonResponse({ deleted: true, media_count: 0, media_ids: [] });
+    }
+    if (url.pathname === '/rest/v1/audit_log' && method === 'POST') return jsonResponse([]);
+    throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+  };
+
+  const res = responseRecorder();
+  await venuesHandler(request('DELETE', { id: VENUE_ID }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { ok: true, mediaCleanupPending: true });
+  assert.equal(calls.some((call) => call.startsWith('PATCH /rest/v1/media_assets')), false);
+  assert.equal(calls.some((call) => call.startsWith('DELETE /storage/')), false);
+  assert.equal(calls.some((call) => call === 'DELETE /rest/v1/media_assets'), false);
+});
+
+test('venue deletion after signed-upload grace completes the tombstone before deleting its receipt', async () => {
+  const calls = [];
+  const media = {
+    id: MEDIA_ID,
+    owner_id: ADMIN_ID,
+    submission_id: SUBMISSION_ID,
+    status: 'published',
+    staging_path: `${ADMIN_ID}/${MEDIA_ID}/source.png`,
+    staging_cleanup_pending: true,
+    review_manifest: {},
+    public_manifest: {}
+  };
+  global.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    calls.push(`${init?.method || 'GET'} ${url.pathname}`);
+    if (url.pathname === '/rest/v1/venue_submissions' && (init?.method || 'GET') === 'GET') {
+      return jsonResponse([{ id: SUBMISSION_ID }]);
+    }
+    if (url.pathname === '/rest/v1/media_assets' && (init?.method || 'GET') === 'GET') {
+      return jsonResponse([media]);
+    }
+    if (url.pathname === '/rest/v1/rpc/delete_venue_with_media' && init?.method === 'POST') {
+      return jsonResponse({ deleted: true, media_count: 1, media_ids: [MEDIA_ID] });
+    }
+    if (url.pathname === '/rest/v1/media_assets' && init?.method === 'PATCH') {
+      const body = JSON.parse(init.body);
+      if (body.status === 'cleanup_pending') return jsonResponse([{ ...media, status: 'cleanup_pending' }]);
+      if (body.staging_cleanup_pending === false) {
+        return jsonResponse([{ ...media, status: 'cleanup_pending', staging_cleanup_pending: false }]);
+      }
+    }
+    if (url.pathname === '/storage/v1/object/mesto-media-staging' && init?.method === 'DELETE') {
+      const { prefixes } = JSON.parse(init.body);
+      return jsonResponse(prefixes.map((name) => ({ name })));
+    }
+    if (url.pathname === '/rest/v1/media_assets' && init?.method === 'DELETE') {
+      return jsonResponse([{ id: MEDIA_ID }]);
+    }
+    if (url.pathname === '/rest/v1/audit_log' && init?.method === 'POST') return jsonResponse([]);
+    throw new Error(`Unexpected request: ${init?.method || 'GET'} ${url.pathname}`);
+  };
+
+  const res = responseRecorder();
+  await venuesHandler(request('DELETE', { id: VENUE_ID }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { ok: true });
+  assert.ok(calls.includes('DELETE /rest/v1/media_assets'));
+  assert.ok(calls.includes('DELETE /storage/v1/object/mesto-media-staging'));
+});
+
+test('committed rejection reports exact media cleanup state for Storage, database, and transaction-receipt failures', async () => {
+  for (const mode of ['storage-failure', 'completion-empty', 'receipt-extra', 'complete']) {
+    const media = {
+      id: MEDIA_ID,
+      owner_id: ADMIN_ID,
+      submission_id: SUBMISSION_ID,
+      status: 'attached',
+      staging_path: `${ADMIN_ID}/${MEDIA_ID}/source.png`,
+      staging_cleanup_pending: true,
+      review_manifest: {},
+      public_manifest: {}
+    };
+    const calls = [];
+    global.fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method || 'GET';
+      const body = init?.body ? JSON.parse(init.body) : null;
+      calls.push(`${method} ${url.pathname}`);
+      if (url.pathname === '/rest/v1/media_assets' && method === 'GET'
+        && url.searchParams.get('status') === 'eq.publishing') return jsonResponse([]);
+      if (url.pathname === '/rest/v1/media_assets' && method === 'GET') return jsonResponse([media]);
+      if (url.pathname === '/rest/v1/rpc/moderate_venue_submission_with_media' && method === 'POST') {
+        assert.equal(body.p_decision, 'rejected');
+        const mediaIds = mode === 'receipt-extra' ? [MEDIA_ID, SECOND_MEDIA_ID] : [MEDIA_ID];
+        return jsonResponse({
+          submission_id: SUBMISSION_ID,
+          status: 'rejected',
+          venue_id: null,
+          media_count: mediaIds.length,
+          media_ids: mediaIds
+        });
+      }
+      if (url.pathname === '/rest/v1/media_assets' && method === 'PATCH') {
+        if (body.status === 'cleanup_pending') return jsonResponse([{ ...media, status: 'cleanup_pending' }]);
+        if (body.staging_cleanup_pending === false) {
+          return mode === 'completion-empty'
+            ? jsonResponse([])
+            : jsonResponse([{ ...media, status: 'cleanup_pending', staging_cleanup_pending: false }]);
+        }
+      }
+      if (url.pathname === '/storage/v1/object/mesto-media-staging' && method === 'DELETE') {
+        return mode === 'storage-failure'
+          ? jsonResponse({ message: 'provider unavailable' }, 503)
+          : jsonResponse(body.prefixes.map((name) => ({ name })));
+      }
+      if (url.pathname === '/rest/v1/media_assets' && method === 'DELETE') {
+        return jsonResponse([{ ...media, status: 'cleanup_pending', staging_cleanup_pending: false }]);
+      }
+      throw new Error(`Unexpected request: ${method} ${url.pathname}`);
+    };
+
+    const res = responseRecorder();
+    await submissionsHandler(request('PATCH', {
+      id: SUBMISSION_ID,
+      decision: 'rejected',
+      note: 'not suitable'
+    }), res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(typeof res.body.mediaCleanupPending, 'boolean');
+    assert.equal(res.body.mediaCleanupPending, mode !== 'complete');
+    assert.deepEqual(res.body.media, []);
+    assert.equal(calls.includes('POST /rest/v1/rpc/moderate_venue_submission_with_media'), true);
+    assert.equal(
+      calls.includes('DELETE /rest/v1/media_assets'),
+      mode === 'complete' || mode === 'receipt-extra'
+    );
+  }
 });
 
 test('password reset reports post-commit metadata failure without hiding new credentials', async () => {

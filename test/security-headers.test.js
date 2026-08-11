@@ -44,7 +44,7 @@ test('base CSP is strict for scripts and limits inline compatibility to style at
   assert.match(policy, /object-src 'none'/);
   assert.match(policy, /frame-ancestors 'none'/);
   assert.match(policy, /form-action 'self'/);
-  assert.match(policy, /connect-src 'self' https:\/\/fonts\.googleapis\.com https:\/\/fonts\.gstatic\.com/);
+  assert.match(policy, /connect-src 'self' https:\/\/fonts\.googleapis\.com https:\/\/fonts\.gstatic\.com https:\/\/\*\.supabase\.co/);
   assert.match(policy, /style-src 'self' https:\/\/fonts\.googleapis\.com/);
   assert.match(policy, /style-src-attr 'unsafe-inline'/);
   assert.match(policy, /font-src 'self' data: https:\/\/fonts\.gstatic\.com/);
@@ -55,7 +55,8 @@ test('base CSP is strict for scripts and limits inline compatibility to style at
   assert.match(policy, /worker-src 'none'/);
   assert.match(policy, /frame-src 'none'/);
   assert.doesNotMatch(policy, /script-src[^;]*\*/);
-  assert.doesNotMatch(policy, /connect-src[^;]*\*/);
+  assert.doesNotMatch(policy, /connect-src[^;]*(?:^|\s)\*(?:\s|;|$)/);
+  assert.equal((policy.match(/\*/g) || []).length, 1, 'only the constrained Supabase subdomain wildcard is allowed');
   assert.doesNotMatch(policy, /'unsafe-eval'/);
   assert.equal(SECURITY_HEADERS['Referrer-Policy'], 'strict-origin-when-cross-origin');
   assert.equal(SECURITY_HEADERS['Permissions-Policy'], 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');

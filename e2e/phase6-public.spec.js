@@ -26,7 +26,7 @@ test.describe("Phase 6 public account routes", () => {
     await loginTrigger.focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/login$/);
-    await expect(page.locator("dialog.form-dialog")).toBeVisible();
+    await expect(page.locator("dialog.form-dialog")).toHaveAttribute("data-react-dialog-ready", "true");
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(/\/$/);
     await expect(loginTrigger).toBeFocused();
@@ -38,6 +38,7 @@ test.describe("Phase 6 public account routes", () => {
     await registerTrigger.focus();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/register$/);
+    await expect(page.locator("dialog.form-dialog")).toHaveAttribute("data-react-dialog-ready", "true");
     await page.locator("dialog.form-dialog > .dialog-close").click();
     await expect(page).toHaveURL(/\/$/);
     await expect(registerTrigger).toBeFocused();
@@ -48,6 +49,7 @@ test.describe("Phase 6 public account routes", () => {
     await favoritesTrigger.focus();
     await favoritesTrigger.click();
     await expect(page).toHaveURL(/\/favorites$/);
+    await expect(page.locator("dialog.favorites-dialog")).toHaveAttribute("data-react-dialog-ready", "true");
     await page.locator("dialog.favorites-dialog > .dialog-close").click();
     await expect(page).toHaveURL(/\/$/);
     await expect(favoritesTrigger).toBeFocused();

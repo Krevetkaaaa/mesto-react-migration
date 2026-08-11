@@ -21,7 +21,9 @@ const originalEnvironment = {
   MESTO_PUBLIC_ORIGIN: process.env.MESTO_PUBLIC_ORIGIN,
   MESTO_USER_SESSION_SECRET: process.env.MESTO_USER_SESSION_SECRET,
   SUPABASE_URL: process.env.SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  VERCEL_ENV: process.env.VERCEL_ENV,
+  VERCEL_URL: process.env.VERCEL_URL
 };
 
 test.beforeEach(() => {
@@ -30,6 +32,8 @@ test.beforeEach(() => {
   process.env.MESTO_USER_SESSION_SECRET = USER_SECRET;
   delete process.env.SUPABASE_URL;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  delete process.env.VERCEL_ENV;
+  delete process.env.VERCEL_URL;
 });
 
 test.afterEach(() => {
@@ -108,6 +112,19 @@ test('same-origin module fails closed for unsafe requests and rejects conflictin
   process.env.MESTO_PUBLIC_ORIGIN = 'not-an-origin';
   assert.equal(isSameOriginRequest(request('POST', {
     headers: { host: 'mesto.example', origin: PUBLIC_ORIGIN }
+  })), false);
+
+  process.env.MESTO_PUBLIC_ORIGIN = 'https://branch-preview.vercel.app';
+  process.env.VERCEL_ENV = 'preview';
+  process.env.VERCEL_URL = 'immutable-preview.vercel.app';
+  assert.equal(isSameOriginRequest(request('POST', {
+    headers: { origin: 'https://branch-preview.vercel.app' }
+  })), true);
+  assert.equal(isSameOriginRequest(request('POST', {
+    headers: { origin: 'https://immutable-preview.vercel.app' }
+  })), true);
+  assert.equal(isSameOriginRequest(request('POST', {
+    headers: { origin: 'https://mesto-city-guide.vercel.app' }
   })), false);
 });
 

@@ -303,4 +303,33 @@ describe("typed HTTP adapter", () => {
     })).rejects.toMatchObject({ kind: "validation" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("keeps direct signed media PUT inside the sole transport seam", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    const client = createBrowserHttpClient({ origin: "https://mesto.example", fetch: fetchMock });
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+    await client.uploadSigned({
+      url: "https://project.supabase.co/storage/v1/object/upload/sign/mesto-media-staging/path?token=opaque",
+      bytes,
+      contentType: "image/png",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBeInstanceOf(URL);
+    expect((url as URL).href).toContain("project.supabase.co/storage/v1/object/upload/sign/");
+    expect(init).toMatchObject({ method: "PUT", credentials: "omit", redirect: "error" });
+    const headers = new Headers(init?.headers);
+    expect(headers.get("content-type")).toBe("image/png");
+    expect(headers.get("x-upsert")).toBe("false");
+    expect(init?.body).toBeInstanceOf(Blob);
+
+    await expect(client.uploadSigned({
+      url: "https://evil.example/collect?token=opaque",
+      bytes,
+      contentType: "image/png",
+    })).rejects.toMatchObject({ kind: "validation" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

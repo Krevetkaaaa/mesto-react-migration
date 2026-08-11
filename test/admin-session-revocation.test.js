@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -19,6 +20,8 @@ const ADMIN_SECRET = 'admin-revocation-test-secret-that-is-at-least-32-character
 const PUBLIC_ORIGIN = 'https://mesto.example';
 const originalFetch = global.fetch;
 const originalEnvironment = {
+  KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN,
+  KV_REST_API_URL: process.env.KV_REST_API_URL,
   MESTO_ADMIN_SESSION_REVOCATION_PROVIDER: process.env.MESTO_ADMIN_SESSION_REVOCATION_PROVIDER,
   MESTO_ADMIN_SESSION_REDIS_TOKEN: process.env.MESTO_ADMIN_SESSION_REDIS_TOKEN,
   MESTO_ADMIN_SESSION_REDIS_URL: process.env.MESTO_ADMIN_SESSION_REDIS_URL,
@@ -29,6 +32,7 @@ const originalEnvironment = {
   MESTO_RATE_LIMIT_PROVIDER: process.env.MESTO_RATE_LIMIT_PROVIDER,
   MESTO_RATE_LIMIT_REDIS_TOKEN: process.env.MESTO_RATE_LIMIT_REDIS_TOKEN,
   MESTO_RATE_LIMIT_REDIS_URL: process.env.MESTO_RATE_LIMIT_REDIS_URL,
+  MESTO_REDIS_NAMESPACE: process.env.MESTO_REDIS_NAMESPACE,
   NODE_ENV: process.env.NODE_ENV,
   VERCEL_ENV: process.env.VERCEL_ENV
 };
@@ -42,6 +46,9 @@ test.beforeEach(() => {
   delete process.env.MESTO_RATE_LIMIT_PROVIDER;
   delete process.env.MESTO_RATE_LIMIT_REDIS_TOKEN;
   delete process.env.MESTO_RATE_LIMIT_REDIS_URL;
+  delete process.env.MESTO_REDIS_NAMESPACE;
+  delete process.env.KV_REST_API_TOKEN;
+  delete process.env.KV_REST_API_URL;
   delete process.env.NODE_ENV;
   delete process.env.VERCEL_ENV;
   resetAdminSessionRevocationForTests();
@@ -84,11 +91,12 @@ function createRedisFixture() {
   const calls = [];
   return {
     calls,
+    seed(key) { entries.set(key, { value: '1', ttl: 300 }); },
     async fetch(_input, init) {
       const command = JSON.parse(init.body);
       calls.push(command);
       if (command[0] === 'EXISTS') {
-        return Response.json({ result: entries.has(command[1]) ? 1 : 0 });
+        return Response.json({ result: command.slice(1).filter((key) => entries.has(key)).length });
       }
       if (command[0] === 'SET') {
         entries.set(command[1], { value: command[2], ttl: Number(command[4]) });
@@ -118,6 +126,7 @@ test('independent Redis adapters observe the same revocation without exposing th
   const options = {
     url: 'https://shared-redis.example',
     token: 'shared-provider-token',
+    namespace: 'preview',
     fetchImpl: redis.fetch
   };
   const instanceA = createUpstashRedisAdminSessionRevocationAdapter(options);
@@ -130,9 +139,26 @@ test('independent Redis adapters observe the same revocation without exposing th
 
   const token = decodeURIComponent(cookie.match(/^mesto_admin=([^;]+)/)[1]);
   const setCommand = redis.calls.find(([name]) => name === 'SET');
-  assert.match(setCommand[1], /^mesto:admin-session-revocation:[A-Za-z0-9_-]{43}$/);
+  assert.match(setCommand[1], /^mesto:preview:admin-session-revocation:[A-Za-z0-9_-]{43}$/);
   assert.equal(setCommand[1].includes(token), false);
   assert.equal(Number(setCommand[4]) > 0 && Number(setCommand[4]) <= 300, true);
+});
+
+test('namespaced Redis adapter honors revocations written by the pre-namespace release', async () => {
+  const redis = createRedisFixture();
+  const adapter = createUpstashRedisAdminSessionRevocationAdapter({
+    url: 'https://shared-redis.example',
+    token: 'shared-provider-token',
+    namespace: 'preview',
+    fetchImpl: redis.fetch
+  });
+  const cookie = createSessionCookie('editor', ADMIN_SECRET, 300);
+  const token = decodeURIComponent(cookie.match(/^mesto_admin=([^;]+)/)[1]);
+  const payload = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString('utf8'));
+  const digest = crypto.createHash('sha256').update(`jti:${payload.jti}`).digest('base64url');
+  redis.seed(`mesto:admin-session-revocation:${digest}`);
+
+  assert.equal(await activeAdminSession(request(cookie), adapter), null);
 });
 
 test('production refuses process-local revocation and can reuse the shared limiter Redis', () => {
@@ -151,10 +177,27 @@ test('production refuses process-local revocation and can reuse the shared limit
     NODE_ENV: 'production',
     MESTO_RATE_LIMIT_PROVIDER: 'upstash-redis',
     MESTO_RATE_LIMIT_REDIS_URL: 'https://shared-redis.example',
-    MESTO_RATE_LIMIT_REDIS_TOKEN: 'shared-provider-token'
+    MESTO_RATE_LIMIT_REDIS_TOKEN: 'shared-provider-token',
+    MESTO_REDIS_NAMESPACE: 'production'
   });
   assert.equal(config.provider, 'upstash-redis');
   assert.equal(config.endpoint, 'https://shared-redis.example');
+  assert.equal(config.namespace, 'production');
+
+  const marketplace = configuration({
+    VERCEL_ENV: 'production',
+    MESTO_ADMIN_SESSION_REVOCATION_PROVIDER: 'upstash-redis',
+    KV_REST_API_URL: 'https://marketplace-redis.example',
+    KV_REST_API_TOKEN: 'marketplace-token',
+    MESTO_REDIS_NAMESPACE: 'production'
+  });
+  assert.equal(marketplace.endpoint, 'https://marketplace-redis.example');
+  assert.throws(() => configuration({
+    VERCEL_ENV: 'production',
+    MESTO_ADMIN_SESSION_REVOCATION_PROVIDER: 'upstash-redis',
+    MESTO_RATE_LIMIT_REDIS_URL: 'https://partial.example',
+    KV_REST_API_TOKEN: 'must-not-be-mixed'
+  }), /configured together/);
 });
 
 test('admin logout persists revocation before clearing the cookie', async () => {

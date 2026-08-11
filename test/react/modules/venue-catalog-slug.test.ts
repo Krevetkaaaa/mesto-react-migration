@@ -32,6 +32,10 @@ class RecordingHttpClient implements HttpClient {
 
   constructor(private readonly response: unknown) {}
 
+  uploadSigned(): Promise<void> {
+    return Promise.resolve();
+  }
+
   async request<T>(request: HttpRequest<T>): Promise<T> {
     await Promise.resolve();
     this.requests.push(request);

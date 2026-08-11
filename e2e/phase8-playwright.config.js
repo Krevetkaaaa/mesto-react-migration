@@ -48,7 +48,7 @@ module.exports = defineConfig({
     trace: 'retain-on-failure'
   },
   webServer: {
-    command: 'npm run build && node e2e/support/phase4-production-server.mjs',
+    command: 'npm run build:local && node e2e/support/phase4-production-server.mjs',
     cwd: join(__dirname, '..'),
     url: 'http://127.0.0.1:4174/__phase4/health',
     reuseExistingServer: false,

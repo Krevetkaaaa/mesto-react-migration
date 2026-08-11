@@ -38,7 +38,34 @@ const rootFileWhitelist = Object.freeze([
   "styles.css",
   "theme.js",
 ]);
-const directoryWhitelist = Object.freeze(["assets"]);
+const assetFileWhitelist = Object.freeze([
+  "assets/ATTRIBUTIONS.md",
+  "assets/CITY_IMAGE_SOURCES.md",
+  "assets/card-bar.png",
+  "assets/card-coffee.png",
+  "assets/card-dessert.png",
+  "assets/card-restaurant.png",
+  "assets/city-alushta.jpg",
+  "assets/city-bahchisarai.jpg",
+  "assets/city-balaklava.jpg",
+  "assets/city-evpatoria.jpg",
+  "assets/city-feodosia.jpg",
+  "assets/city-gurzuf.jpg",
+  "assets/city-kerch.jpg",
+  "assets/city-saki.jpg",
+  "assets/city-sevastopol.jpg",
+  "assets/city-simferopol.jpg",
+  "assets/city-sudak.jpg",
+  "assets/city-yalta.jpg",
+  "assets/crimea-coast-hero.jpg",
+  "assets/mesto-hero.png",
+  "assets/real-dining-night.jpg",
+  "assets/real-restaurant-interior.jpg",
+  "assets/venue-cafe-unsplash.jpg",
+  "assets/venue-cocktail-unsplash.jpg",
+  "assets/venue-coffee-unsplash.jpg",
+  "assets/venue-restaurant-unsplash.jpg",
+]);
 
 function assertInsideProject(path, label) {
   const pathFromRoot = relative(projectRoot, path);
@@ -69,14 +96,10 @@ async function listFiles(directory, prefix) {
 }
 
 async function sourceFiles() {
-  const files = rootFileWhitelist.map((outputPath) => ({
+  const files = [...rootFileWhitelist, ...assetFileWhitelist].map((outputPath) => ({
     absolutePath: resolve(projectRoot, outputPath),
     outputPath,
   }));
-
-  for (const directory of directoryWhitelist) {
-    files.push(...(await listFiles(resolve(projectRoot, directory), directory)));
-  }
 
   return files.sort((left, right) => left.outputPath.localeCompare(right.outputPath));
 }

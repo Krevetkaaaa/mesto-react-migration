@@ -6,7 +6,12 @@ const {
   requireAdmin,
   setAdminResponseHeaders
 } = require('../../lib/admin');
-const { createStore } = require('../../lib/supabase');
+const {
+  cleanupPrivateAssets,
+  cleanupPublicManifests,
+  createMediaStorage
+} = require('../../lib/media-storage');
+const { configuration, createStore } = require('../../lib/supabase');
 const { invalidatePublicVenueCache } = require('../../lib/public-cache');
 const { enforceRateLimit } = require('../../lib/rate-limit');
 
@@ -29,6 +34,20 @@ function safeHttpUrl(value, max = 500) {
   } catch {
     return '';
   }
+}
+
+function exactVenueMediaReceipt(deletion, assets) {
+  const expectedIds = (assets || []).map((asset) => uuid(asset?.id));
+  const returnedIds = Array.isArray(deletion?.media_ids)
+    ? deletion.media_ids.map(uuid)
+    : [];
+  if (expectedIds.some((id) => !id) || returnedIds.some((id) => !id)) return false;
+  if (new Set(expectedIds).size !== expectedIds.length
+    || new Set(returnedIds).size !== returnedIds.length
+    || Number(deletion?.media_count) !== returnedIds.length
+    || expectedIds.length !== returnedIds.length) return false;
+  const returned = new Set(returnedIds);
+  return expectedIds.every((id) => returned.has(id));
 }
 
 function venuePayload(body) {
@@ -61,6 +80,40 @@ function venuePayload(body) {
   };
 }
 
+async function cleanupDeletedVenueMedia(store, storage, assets) {
+  if (!assets.length) return true;
+  const ids = assets.map((asset) => asset?.id).filter(Boolean);
+  if (ids.length !== assets.length || new Set(ids).size !== ids.length) return false;
+  const exactlyReturned = (rows) => {
+    if (!Array.isArray(rows) || rows.length !== ids.length) return false;
+    const returnedIds = new Set(rows.map((row) => row?.id).filter(Boolean));
+    return returnedIds.size === ids.length && ids.every((id) => returnedIds.has(id));
+  };
+  try {
+    const claimed = await store.markMediaCleanupPending({ ids });
+    if (!exactlyReturned(claimed)
+      || claimed.some((asset) => asset?.status !== 'cleanup_pending')) return false;
+    await Promise.all([
+      cleanupPrivateAssets(storage, claimed),
+      cleanupPublicManifests(storage, Object.fromEntries(claimed
+        .filter((asset) => Object.keys(asset.public_manifest || {}).length)
+        .map((asset) => [asset.id, asset.public_manifest])))
+    ]);
+    const completed = await store.completeStagingCleanup({ ids });
+    if (!exactlyReturned(completed)
+      || completed.some((asset) => asset?.status !== 'cleanup_pending'
+        || asset?.staging_cleanup_pending !== false)) return false;
+    const deleted = await store.deleteMediaAssets({ ids });
+    // The staging tombstone deliberately filters live signed-token receipts
+    // from DELETE. Treat any missing row as pending cleanup, never as success.
+    return exactlyReturned(deleted);
+  } catch {
+    // The delete RPC already committed a cleanup_pending tombstone. A bounded
+    // sign-time reaper can safely retry without resurrecting the venue.
+    return false;
+  }
+}
+
 module.exports = async function handler(req, res) {
   setAdminResponseHeaders(res);
   if (!['GET', 'POST', 'PATCH', 'DELETE'].includes(req.method)) {
@@ -86,7 +139,17 @@ module.exports = async function handler(req, res) {
     const id = uuid(body.id);
     if (req.method === 'DELETE') {
       if (!id) return json(res, 400, { message: 'Некорректный идентификатор.' });
-      const removed = await store.deleteVenue(id);
+      const assets = await store.mediaAssetsForApprovedVenue(id);
+      const storage = assets.length ? createMediaStorage(configuration()) : null;
+      const deletionResult = await store.deleteVenueWithMedia(id);
+      const deletion = Array.isArray(deletionResult) ? deletionResult[0] : deletionResult;
+      const removed = deletion?.deleted ? [deletion] : [];
+      const mediaReceiptMatches = deletion?.deleted && exactVenueMediaReceipt(deletion, assets);
+      const mediaCleanupPending = deletion?.deleted
+        ? !mediaReceiptMatches || (assets.length
+          ? !await cleanupDeletedVenueMedia(store, storage, assets)
+          : false)
+        : false;
       if (!Array.isArray(removed) || !removed.length) return json(res, 404, { message: 'Заведение не найдено.' });
       await attemptPostCommit(() => store.audit({
         actor_label: session.sub,
@@ -96,7 +159,7 @@ module.exports = async function handler(req, res) {
         entity_id: id
       }));
       await attemptPostCommit(() => invalidatePublicVenueCache({ id, reason: 'venue.deleted' }));
-      return json(res, 200, { ok: true });
+      return json(res, 200, { ok: true, ...(mediaCleanupPending ? { mediaCleanupPending: true } : {}) });
     }
 
     if (req.method === 'PATCH' && !id) {
@@ -130,3 +193,6 @@ module.exports = async function handler(req, res) {
     return handleApiError(res, error);
   }
 };
+
+module.exports.cleanupDeletedVenueMedia = cleanupDeletedVenueMedia;
+module.exports.exactVenueMediaReceipt = exactVenueMediaReceipt;

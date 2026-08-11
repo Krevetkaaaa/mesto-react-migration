@@ -10,7 +10,8 @@
     "dev": "npm run prepare && react-router dev",
     "dev:legacy": "node e2e/support/legacy-server.mjs",
     "prepare": "node scripts/prepare-legacy-static.mjs",
-    "build": "npm run prepare && react-router build",
+    "build": "node scripts/check-release-env.mjs && npm run build:local",
+    "build:local": "npm run prepare && react-router build",
     "start": "node scripts/phase2-build-smoke.mjs --serve",
     "preview": "npm run start",
     "typecheck": "react-router typegen && tsc --noEmit",
@@ -19,10 +20,14 @@
     "check:phase6": "node --check password-policy-core.js && node --check password-policy.mjs && node --check lib/same-origin.js && node --check e2e/phase6-playwright.config.js && node --check e2e/phase6-fixture.spec.js && node --check e2e/phase6-public.spec.js",
     "check:phase7": "node --check lib/merchant-operations.js && node --check e2e/phase7-fixture.spec.js && node --check e2e/phase7-playwright.config.js && node --check e2e/phase7-merchant.spec.js",
     "check:phase8": "node --check e2e/phase8-fixture.spec.js && node --check e2e/phase8-playwright.config.js && node --check e2e/phase8-admin.spec.js",
-    "check:phase9": "node --check lib/cache-purge.js && node --check lib/image-dimensions.js && node --check lib/public-cache.js && node --check test/cache-purge.test.js && node --check test/image-dimensions.test.js && node --check test/public-cache.test.js && node --check test/rate-limit.test.js",
+    "check:phase9": "node --check handlers/cron/media-reaper.js && node --check lib/cache-purge.js && node --check lib/image-dimensions.js && node --check lib/media-processing.js && node --check lib/media-reaper.js && node --check lib/media-storage.js && node --check lib/public-cache.js && node --check test/cache-purge.test.js && node --check test/image-dimensions.test.js && node --check test/media-lifecycle.test.js && node --check test/media-processing.test.js && node --check test/media-reaper.test.js && node --check test/media-storage.test.js && node --check test/public-cache.test.js && node --check test/rate-limit.test.js",
     "check:phase10": "node --check lib/admin-session-revocation.js && node --check lib/security-headers.js && node --check lib/telemetry.js && node --check scripts/check-client-bundle-secrets.mjs && node --check scripts/check-public-js-budget.mjs && node --check test/admin-session-revocation.test.js && node --check test/frontend-security.test.js && node --check test/public-js-budget.test.js && node --check test/security-headers.test.js && node --check test/telemetry.test.js && node -e \"JSON.parse(require('node:fs').readFileSync('config/security-headers.json','utf8'))\"",
     "check:phase11": "node --check scripts/phase11-load.mjs && node --check scripts/phase11-runner-contract.mjs && node --check scripts/phase11-workspace-lock.mjs && node --check scripts/run-phase11-local.mjs && node --check test/load-harness.test.js",
-    "check": "npm run check:legacy && npm run check:phase6 && npm run check:phase7 && npm run check:phase8 && npm run check:phase9 && npm run check:phase10 && npm run check:phase11 && npm run typecheck && npm run lint",
+    "check:phase12": "node --check lib/release-env.js && node --check handlers/release-fingerprint.js && node --check scripts/check-release-env.mjs && node --check scripts/preview-acceptance.mjs && node --check scripts/preview-browser-oracle.mjs && node --check scripts/preview-load.mjs && node --check scripts/run-preview-load-gate.mjs && node --check test/preview-acceptance.test.js && node --check test/preview-browser-oracle.test.js && node --check test/preview-load.test.js && node --check test/release-env-preflight.test.js && node --check test/release-fingerprint.test.js",
+    "check": "npm run check:legacy && npm run check:phase6 && npm run check:phase7 && npm run check:phase8 && npm run check:phase9 && npm run check:phase10 && npm run check:phase11 && npm run check:phase12 && npm run typecheck && npm run lint",
+    "preflight:release": "node scripts/check-release-env.mjs",
+    "acceptance:preview": "node scripts/preview-acceptance.mjs",
+    "load:preview": "node scripts/run-preview-load-gate.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "test:server": "node --test \"test/*.test.js\"",
     "test:unit": "vitest run",
@@ -34,8 +39,8 @@
     "test:e2e:phase6": "playwright test --config e2e/phase6-playwright.config.js",
     "test:e2e:phase7": "playwright test --config e2e/phase7-playwright.config.js",
     "test:e2e:phase8": "playwright test --config e2e/phase8-playwright.config.js",
-    "test:load:local": "npm run build && node scripts/run-phase11-local.mjs",
-    "smoke": "npm run build && node scripts/check-public-js-budget.mjs && node scripts/check-client-bundle-secrets.mjs && node scripts/phase2-build-smoke.mjs"
+    "test:load:local": "npm run build:local && node scripts/run-phase11-local.mjs",
+    "smoke": "npm run build:local && node scripts/check-public-js-budget.mjs && node scripts/check-client-bundle-secrets.mjs && node scripts/phase2-build-smoke.mjs"
   },
   "dependencies": {
     "@react-router/node": "7.18.2",
@@ -48,6 +53,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router": "7.18.2",
+    "sharp": "0.35.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -73,6 +79,7 @@
     "vitest": "4.1.10"
   },
   "allowScripts": {
-    "esbuild@0.28.1": true
+    "esbuild@0.28.1": true,
+    "sharp@0.35.3": true
   }
 }

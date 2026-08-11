@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createHttpAdminConsole } from "../../../app/adapters/admin-console-http";
 import { createHttpFavorites } from "../../../app/adapters/favorites-http";
-import type { HttpClient, HttpRequest } from "../../../app/adapters/http";
+import type { HttpClient, HttpRequest, SignedMediaUpload } from "../../../app/adapters/http";
 import { createHttpMerchantWorkspace } from "../../../app/adapters/merchant-workspace-http";
 import { createHttpSession } from "../../../app/adapters/session-http";
 import { createHttpSubmissions } from "../../../app/adapters/submissions-http";
@@ -88,8 +88,14 @@ interface RecordedRequest {
 
 class RecordingHttpClient implements HttpClient {
   readonly requests: RecordedRequest[] = [];
+  readonly uploads: SignedMediaUpload[] = [];
 
   constructor(private readonly responses: unknown[]) {}
+
+  async uploadSigned(request: SignedMediaUpload): Promise<void> {
+    await Promise.resolve();
+    this.uploads.push(request);
+  }
 
   async request<T>(request: HttpRequest<T>): Promise<T> {
     await Promise.resolve();
@@ -317,8 +323,15 @@ describe("HTTP module contracts", () => {
   });
 
   it("keeps image upload orchestration inside Submissions", async () => {
+    const mediaId = "90000000-0000-4000-8000-000000000001";
     const http = new RecordingHttpClient([
-      { url: "https://storage.example.test/one.png" },
+      {
+        mediaId,
+        uploadUrl: "https://project.supabase.co/storage/v1/object/upload/sign/path?token=signed",
+        expiresAt: "2026-08-11T12:00:00.000Z",
+        maxBytes: 6 * 1024 * 1024,
+      },
+      { media: { id: mediaId, status: "processed" } },
       { submission: { id: submissionId, status: "pending" } },
       { review: { id: reviewId, status: "pending" } },
     ]);
@@ -342,18 +355,25 @@ describe("HTTP module contracts", () => {
 
     expect("uploadImage" in submissions).toBe(false);
     expect(http.requests.map((request) => request.path)).toEqual([
-      "/api/uploads",
+      "/api/uploads/sign",
+      "/api/uploads/finalize",
       "/api/submissions",
       "/api/reviews",
     ]);
     expect(http.requests[0]?.body).toMatchObject({
       name: "venue.png",
       type: "image/png",
-      data: "data:image/png;base64,iVBORw0KGgoB",
+      size: png.byteLength,
     });
-    expect(http.requests[1]?.body).toMatchObject({
+    expect(http.requests[2]?.body).toMatchObject({
       contactEmail: "person@example.test",
-      photos: ["https://storage.example.test/one.png"],
+      mediaIds: [mediaId],
+    });
+    expect(http.uploads).toHaveLength(1);
+    expect(http.uploads[0]?.url).toContain("project.supabase.co/storage/v1/object/upload/sign/");
+    expect(http.uploads[0]).toMatchObject({
+      contentType: "image/png",
+      bytes: png,
     });
   });
 
@@ -372,9 +392,17 @@ describe("HTTP module contracts", () => {
   });
 
   it("does not create a submission after an upload failure", async () => {
+    const mediaId = "90000000-0000-4000-8000-000000000002";
     const http = new RecordingHttpClient([
-      { url: "https://storage.example.test/orphaned.png" },
+      {
+        mediaId,
+        uploadUrl: "https://project.supabase.co/storage/v1/object/upload/sign/one?token=signed",
+        expiresAt: "2026-08-11T12:00:00.000Z",
+        maxBytes: 6 * 1024 * 1024,
+      },
+      { media: { id: mediaId, status: "processed" } },
       new ApplicationError("unavailable", "Second upload failed"),
+      { released: [mediaId] },
     ]);
     const submissions = createHttpSubmissions(http);
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
@@ -391,9 +419,12 @@ describe("HTTP module contracts", () => {
     })).rejects.toMatchObject({ kind: "unavailable" });
 
     expect(http.requests.map((request) => request.path)).toEqual([
-      "/api/uploads",
-      "/api/uploads",
+      "/api/uploads/sign",
+      "/api/uploads/finalize",
+      "/api/uploads/sign",
+      "/api/uploads/release",
     ]);
+    expect(http.requests[3]?.body).toEqual({ mediaIds: [mediaId] });
   });
 
   it("rejects malformed critical UUIDs and coordinate tuples at runtime", async () => {

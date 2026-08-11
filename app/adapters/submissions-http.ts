@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { HttpClient } from "./http";
+import { ApplicationError } from "../lib/application-error";
 import type {
   ReviewSubmissionDraft,
   SubmissionImage,
@@ -13,67 +14,108 @@ import {
 } from "../lib/submission-normalization";
 import { UUID_PATTERN } from "../lib/identifiers";
 
-const uploadResponseSchema = z.object({ url: z.string().url() }).loose();
+const mediaIdSchema = z.string().regex(UUID_PATTERN, "Expected UUID");
+const signResponseSchema = z.object({
+  mediaId: mediaIdSchema,
+  uploadUrl: z.url(),
+  expiresAt: z.iso.datetime(),
+  maxBytes: z.number().int().positive(),
+}).loose();
+const finalizeResponseSchema = z.object({
+  media: z.object({ id: mediaIdSchema, status: z.literal("processed") }).loose(),
+}).loose();
+const releaseResponseSchema = z.object({ released: z.array(mediaIdSchema) }).loose();
 const receiptSchema = z.object({
-  id: z.string().regex(UUID_PATTERN, "Expected UUID"),
+  id: mediaIdSchema,
   status: z.literal("pending"),
 }).loose();
 const venueResponseSchema = z.object({ submission: receiptSchema }).loose();
 const reviewResponseSchema = z.object({ review: receiptSchema }).loose();
 
-function base64(bytes: Uint8Array) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.slice(offset, offset + chunkSize));
-  }
-  return btoa(binary);
-}
-
-async function uploadSubmissionImage(http: HttpClient, command: SubmissionImage) {
-  const response = await http.request({
+async function uploadSubmissionImage(
+  http: HttpClient,
+  command: SubmissionImage,
+  onSigned: (mediaId: string) => void,
+) {
+  const signed = await http.request({
     method: "POST",
-    path: "/api/uploads",
-    body: {
-      name: command.name,
-      type: command.type,
-      data: `data:${command.type};base64,${base64(command.bytes)}`,
-    },
-    schema: uploadResponseSchema,
+    path: "/api/uploads/sign",
+    body: { name: command.name, type: command.type, size: command.bytes.byteLength },
+    schema: signResponseSchema,
   });
-  return response.url;
+  onSigned(signed.mediaId);
+  if (command.bytes.byteLength > signed.maxBytes) {
+    throw new ApplicationError("validation", "Image exceeds the server upload limit", {
+      code: "MEDIA_TOO_LARGE",
+    });
+  }
+
+  await http.uploadSigned({
+    url: signed.uploadUrl,
+    bytes: command.bytes,
+    contentType: command.type,
+  });
+
+  const finalized = await http.request({
+    method: "POST",
+    path: "/api/uploads/finalize",
+    body: { mediaId: signed.mediaId },
+    schema: finalizeResponseSchema,
+  });
+  return finalized.media.id;
 }
 
 class HttpSubmissions implements Submissions {
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+  ) {}
+
+  private async release(mediaIds: readonly string[]) {
+    if (!mediaIds.length) return;
+    await this.http.request({
+      method: "POST",
+      path: "/api/uploads/release",
+      body: { mediaIds },
+      schema: releaseResponseSchema,
+    }).catch(() => undefined);
+  }
 
   async submitVenue(draft: VenueSubmissionDraft) {
     const normalized = normalizeVenueSubmissionDraft(draft);
-    const photos: string[] = [];
-    for (const image of normalized.images ?? []) {
-      photos.push(await uploadSubmissionImage(this.http, image));
+    const mediaIds: string[] = [];
+    try {
+      for (const image of normalized.images ?? []) {
+        await uploadSubmissionImage(
+          this.http,
+          image,
+          (mediaId) => mediaIds.push(mediaId),
+        );
+      }
+      const response = await this.http.request({
+        method: "POST",
+        path: "/api/submissions",
+        body: {
+          contactEmail: normalized.contactEmail ?? "",
+          title: normalized.title,
+          city: normalized.city,
+          category: normalized.category,
+          cuisine: normalized.cuisine ?? "",
+          description: normalized.description,
+          address: normalized.address ?? "",
+          phone: normalized.phone ?? "",
+          website: normalized.website ?? "",
+          hours: normalized.hours ?? "",
+          averageCheck: normalized.averageCheck ?? "",
+          features: [...(normalized.features ?? [])],
+          mediaIds,
+        },
+        schema: venueResponseSchema,
+      });
+      return response.submission;
+    } catch (error) {
+      await this.release(mediaIds);
+      throw error;
     }
-    const response = await this.http.request({
-      method: "POST",
-      path: "/api/submissions",
-      body: {
-        contactEmail: normalized.contactEmail ?? "",
-        title: normalized.title,
-        city: normalized.city,
-        category: normalized.category,
-        cuisine: normalized.cuisine ?? "",
-        description: normalized.description,
-        address: normalized.address ?? "",
-        phone: normalized.phone ?? "",
-        website: normalized.website ?? "",
-        hours: normalized.hours ?? "",
-        averageCheck: normalized.averageCheck ?? "",
-        features: [...(normalized.features ?? [])],
-        photos,
-      },
-      schema: venueResponseSchema,
-    });
-    return response.submission;
   }
 
   async submitReview(draft: ReviewSubmissionDraft) {

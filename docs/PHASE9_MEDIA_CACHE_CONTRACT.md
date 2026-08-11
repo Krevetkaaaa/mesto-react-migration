@@ -25,11 +25,13 @@ Adapter дополнительно требует системные `VERCEL=1` 
 
 Официальный контракт Vercel: [CDN cache purge](https://vercel.com/docs/caching/cdn-cache/purge) и [`@vercel/functions` Function API](https://vercel.com/docs/functions/functions-api-reference/vercel-functions-package#invalidatebytag).
 
-## Почему direct upload и derivatives не подменены заглушкой
+## Исторический pre-implementation анализ (superseded)
 
-Текущий `/api/uploads` принимает bytes через serverless function, но зато до записи проверяет MIME, container signature, dimensions, 6 MiB и 40 MP. Выдать signed URL прямо в существующий public bucket означало бы убрать эти authoritative проверки и позволить объекту стать публичным до валидации. Это регресс безопасности, а не завершение Phase 9.
+> Этот раздел описывает состояние до реализации direct-signed media pipeline. Он сохранён только как история требований и не является текущим status/debt списком; актуальный контракт начинается в следующем разделе.
 
-Безопасный вертикальный flow требует внешних ресурсов и решений:
+На том checkpoint `/api/uploads` принимал bytes через serverless function, но до записи проверял MIME, container signature, dimensions, 6 MiB и 40 MP. Выдать signed URL прямо в существующий public bucket означало бы убрать эти authoritative проверки и позволить объекту стать публичным до валидации. Это было бы регрессией безопасности, а не завершением Phase 9.
+
+Безопасный вертикальный flow тогда требовал внешних ресурсов и решений:
 
 1. Private bucket `venue-upload-staging` с provider-level allowlist `image/jpeg,image/png,image/webp`, лимитом 6 MiB и lifecycle cleanup для незавершённых объектов.
 2. Authenticated/rate-limited sign endpoint, который выдаёт одноразовый versioned object path без `upsert`. Supabase signed upload URL действует 2 часа; приложение не должно обещать более короткий TTL без отдельного broker.
@@ -40,6 +42,51 @@ Adapter дополнительно требует системные `VERCEL=1` 
 7. Staging original удаляется после успешной публикации и best-effort после любой ошибки. TTL покрывает падение между sign/upload/finalize.
 8. В Preview фактическим `GET` проверяются `Cache-Control`, `Age`/`cf-cache-status`, MIME, immutable URL и отсутствие доступа к staging object.
 
-До реализации нужны: создание buckets и policies, lifecycle/cleanup, provider credentials, решение о derivative processor/стоимости, схема media manifest и visual/LCP approval. Поэтому existing base64 flow сохранён, а direct signed upload, derivatives и подтверждённый immutable media CDN остаются внешним блокером, а не ложно отмеченным «готово».
+Исторически до реализации требовались buckets/policies, lifecycle/cleanup, provider credentials, processor, media manifest и visual/LCP approval. Утверждение этого старого checkpoint о сохранённом base64 flow теперь superseded текущей code-only реализацией ниже; runtime/provider acceptance по-прежнему нельзя считать выполненным без нового immutable Preview.
 
 Официальные provider-ограничения: [signed upload URLs](https://supabase.com/docs/reference/javascript/file-buckets-createsigneduploadurl), [bucket restrictions](https://supabase.com/docs/guides/storage/buckets/fundamentals), [image transformations](https://supabase.com/docs/guides/storage/serving/image-transformations) и [Smart CDN](https://supabase.com/docs/guides/storage/cdn/smart-cdn).
+
+## Superseding implementation checkpoint — 11 августа 2026 года
+
+Текущий code-only tree реализует безопасный вертикальный media-flow и supersedes pre-implementation status выше.
+
+1. `POST /api/uploads/sign` после user-session, same-origin и distributed rate-limit создаёт UUID receipt и staging path без `upsert`. Signed URL Supabase имеет provider TTL 2 часа.
+2. Браузер выполняет прямой `PUT` в private `mesto-media-staging`; байты не проходят через лимит тела Vercel Function и не кодируются в base64.
+3. `POST /api/uploads/finalize` service-role запросом повторно скачивает объект и проверяет фактические bytes/signature/decode/dimensions: до 6 MiB, 8192 px и 40 MP. MIME клиента не считается доказательством.
+4. Зафиксированный `sharp@0.35.3` применяет EXIF orientation, удаляет metadata и создаёт `thumb`, `card`, `hero` WebP в private `mesto-media-review`.
+5. `POST /api/submissions` атомарным SECURITY DEFINER RPC прикрепляет только `processed` media того же владельца. Клиентские публичные URL больше не принимаются.
+6. Approval заранее регистрирует UUID-versioned paths, копирует варианты в public `mesto-media-public` с `x-upsert:false` и `Cache-Control: public, max-age=31536000, immutable`, затем одной DB-транзакцией публикует venue и manifest. Rejection удаляет private objects.
+7. Ошибка sign/finalize/последовательной загрузки/создания заявки/публикации запускает compensating delete. При отказе Storage сохраняются `cleanup_pending`/`*_cleanup_pending`; каждый новый sign ограниченно удаляет истёкшие unattached receipts.
+8. `POST /api/uploads/release` удаляет только собственные unattached receipts; attached/published media пользователь удалить не может.
+9. `GET /api/uploads/status?mediaId=<uuid>` даёт authenticated owner-scoped oracle `{mediaId,exists}` с `private, no-store`; чужой receipt неотличим от отсутствующего, поэтому acceptance перед каждым readback требует exact customer ID/username/email session.
+10. Protected `GET /api/cron/media-reaper` после auth запускает bounded fixed-point cleanup. Acceptance вызывает его вручную только после ordinary media/venue cleanup, требует exact isolated counts `{recovered:0,public:0,staging:1,review:0,expired:1}` и доказывает abandoned receipt как owner status `exists:true → false`.
+
+Исторические три migration уже применены и сверены только на изолированном Preview: `20260728_external_identities.sql`, `20260808_public_catalog_summary.sql`, `20260810222309_direct_signed_media_pipeline.sql`. Следующие четыре additive migration code-ready, но **не применены** ни к Preview, ни к Production: `20260811160000_media_publication_fencing.sql`, `20260811163000_signed_upload_tombstones.sql`, `20260811185937_submission_media_cleanup_receipts.sql`, `20260811212027_venue_media_cleanup_receipts.sql`. До runtime acceptance нужно:
+
+- с существующим backup/rollback применить к изолированной Preview DB ровно четыре отсутствующие additive migration и сверить remote history;
+- подтвердить CORS browser `PUT`; для custom Storage domain добавить точный origin в CSP;
+- пройти authenticated sign → PUT → finalize → submit → approve/reject и доказать private denial staging/review;
+- фактическим `GET` подтвердить CDN headers; код запрашивает immutable metadata, но не подменяет provider evidence;
+- задать provider lifecycle/операционный retry для абсолютной очистки при полном отсутствии upload-трафика;
+- отдельно решить backfill legacy bucket `venue-submissions`: новый код в него не пишет, migration старые production objects не меняет.
+
+Mutation-capable acceptance создаёт ровно два signed receipts из одного изображения: один проходит finalize/submission/publication, второй после direct PUT намеренно остаётся abandoned. Оба deadline входят в один общий latest-expiry wait примерно `2 h 6 min`; второго двухчасового ожидания нет. После gate порядок строгий: ordinary submission/media/venue cleanup → protected manual Preview reaper → session logouts. `MESTO_ACCEPTANCE_CRON_SECRET` читается только из environment runner-процесса, требует уже trimmed значение длиной не меньше 32 символов и не попадает в report/error.
+
+Reaper evidence подтверждает только handler/auth/provider reachability конкретного Preview deployment. Оно не доказывает наличие или исполнение Production schedule.
+
+Approval response exposes a safe acceptance oracle as `media[]`: each entry contains only the media `id` and `thumb`/`card`/`hero` `{url,width,height,bytes,contentType}`. Private object paths and signed URLs are never returned.
+
+Deleting an approved venue uses `delete_venue_with_media`: one database transaction marks associated published receipts `cleanup_pending` and deletes the venue. Only after that commit does the handler remove public/private objects and receipt rows. If Storage cleanup fails, the durable tombstones remain eligible for the bounded sign-time reaper. If the database RPC response is transport-ambiguous, no object is deleted, because the venue transaction may have rolled back. `venue_submissions.approved_venue_id` is the durable approval link used to claim the exact media set.
+
+Supabase Smart CDN deletion invalidation is asynchronous and can take up to 60 seconds. On every poll, acceptance must require the exact Supabase 404 JSON `NoSuchKey` contract from both the original warmed public URL (without query/fragment) and a unique cache-nonce URL. A 404 only on the nonce URL while the exact immutable URL remains 200 is not sufficient.
+
+That dual oracle proves CDN/origin invalidation, not revocation from caches outside operator control. A browser or other private cache that already stored a response under `max-age=31536000, immutable` can retain those bytes for up to one year. This is an explicit retention tradeoff only for owner-approved public venue photos; it is not a privacy-deletion guarantee and must never be used for user-private media. Immutable versioning remains unchanged.
+
+`media_assets.owner_id` and `submission_id` use `ON DELETE RESTRICT`, not cascade/set-null: deleting an Auth user or submission cannot silently erase/detach the only database receipts while leaving Storage objects behind. Account/submission erasure must first run the media/venue lifecycle cleanup.
+
+### Текущий verification/status checkpoint
+
+- `git diff --check` и `npm run check` — PASS; server tests `318/318`, Vitest `203/203`, production smoke — PASS.
+- `npm run audit:production` проходит high-severity gate; остаются три транзитивных `moderate` AJV без доступного исправления.
+- Полный exact-Chrome E2E после последних media/reaper изменений не перезапускался. Исторический проход за `763.7 s` относится к более раннему tree. Попытки получить pinned Chrome for Testing `151.0.7922.72` с official GCS и official `gvt1` mirror вернули HTTP 403; archive не сохранён, поэтому pinned GitHub CI step остаётся обязательным.
+- Preview/Production Redis provider fingerprints по-прежнему совпадают; логический namespace `preview` не заменяет физическую isolation. Production Supabase variables остаются пустыми, Production migrations/deployment/alias не изменялись.

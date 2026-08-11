@@ -1,4 +1,14 @@
+const { readFileSync } = require('node:fs');
+const { resolve } = require('node:path');
 const { test: base, expect } = require('@playwright/test');
+
+const frozenFontFiles = new Map([
+  ...[400, 500, 600, 700, 800].map((weight) => [`manrope-${weight}-normal.woff2`, ['manrope', weight]]),
+  ...[500, 600, 700].map((weight) => [`cormorant-garamond-${weight}-normal.woff2`, ['cormorant-garamond', weight]])
+].map(([requestName, [family, weight]]) => [
+  requestName,
+  readFileSync(resolve(process.cwd(), 'node_modules', '@fontsource', family, 'files', `${family}-cyrillic-${weight}-normal.woff2`))
+]));
 
 function fontFace(origin, family, slug, weights) {
   return weights.map((weight) => `@font-face{font-family:'${family}';font-style:normal;font-display:block;font-weight:${weight};src:url('${origin}/__e2e-fonts/${slug}-${weight}-normal.woff2') format('woff2');}`).join('\n');
@@ -54,6 +64,20 @@ const test = base.extend({
     });
     page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.stack || error.message}`));
 
+    // Hundreds of isolated Windows browser contexts can exhaust loopback socket
+    // buffers even with one Playwright worker. Fulfill the exact frozen WOFF2
+    // bytes in-process so Visual Freeze does not depend on fresh TCP sockets.
+    await page.route(`${origin}/__e2e-fonts/**`, (route) => {
+      const name = new URL(route.request().url()).pathname.split('/').pop();
+      const body = frozenFontFiles.get(name);
+      if (!body) return route.abort('failed');
+      return route.fulfill({
+        status: 200,
+        contentType: 'font/woff2',
+        headers: { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=31536000, immutable' },
+        body
+      });
+    });
     await page.route('https://fonts.googleapis.com/**', (route) => route.fulfill({
       status: 200,
       contentType: 'text/css; charset=utf-8',

@@ -1,8 +1,23 @@
 # Этап 12. Переключение и очистка
 
-Дата локального checkpoint: 8 августа 2026 года.
+Дата текущего checkpoint: 11 августа 2026 года.
 
-Статус: локальный release candidate подготовлен и прошёл кодовые, функциональные и Visual Freeze ворота. Production cutover, production alias, внешние migrations и provider configuration не выполнялись. Этап нельзя объявить завершённым до production-like Preview с shared providers, нагрузочного SLO и явного одобрения владельца.
+Статус: текущий release candidate прошёл свежие локальные diff/check/test/smoke ворота, но полный exact-browser E2E после последних изменений ещё не перезапускался, а candidate не опубликован и не развёрнут. Remote acceptance/load намеренно fail closed: read-only derivation обнаружил одинаковый Redis provider fingerprint у Preview и Production. Production Supabase variables существуют с пустыми значениями, а production deployment, alias и data не изменялись. Этап нельзя объявить завершённым до применения новых additive migrations к изолированному Preview, физического разделения providers, зелёного CI нового commit, acceptance точного immutable Preview, нагрузочного gate, независимой browser-проверки и явного визуального одобрения владельца.
+
+## Текущий checkpoint — 11 августа 2026 года
+
+Этот раздел является единственным текущим статусом. Checkpoints 8–11 августа ниже сохранены как исторические доказательства и считаются superseded там, где их утверждения противоречат этому разделу.
+
+- GitHub topology: `main` указывает на baseline `ee8476473b64de946d81dc1adbcd7dc3871e4ac9`; Draft PR [#1](https://github.com/Krevetkaaaa/mesto-react-migration/pull/1) направлен из `codex/react-migration` в `main`. Последний локальный commit — `e44cfd116f50e487a8dc6c4f742f2bfc0049c095`; последующие исправления пока находятся в working tree.
+- На `e44cfd1` job `Types, tests, and production smoke` прошёл, а `Exact-browser functional and Visual Freeze` завершился ошибкой из-за загрузки шрифта (`ERR_NO_BUFFER_SPACE`) и race в optimistic favorite-сценарии. Исправления зафиксированы в working tree, поэтому текущий CI нельзя называть зелёным до commit/push и повторного запуска обоих required checks.
+- Свежий локальный rerun текущего working tree: `git diff --check` — PASS; `npm run check` — PASS; `npm test` — `318/318` server и `203/203` Vitest; `npm run smoke` — PASS. `npm run audit:production` проходит high-severity gate; остаются три транзитивных `moderate` AJV без доступного исправления.
+- Полный exact-Chrome `npm run test:e2e` после последних изменений **не перезапускался**. Попытки локально получить pinned Chrome for Testing `151.0.7922.72` с official GCS и official `gvt1` mirror обе получили HTTP 403; archive не был сохранён. Проход с exit code `0` за `763.7 s` относится только к более раннему working tree и сохраняется как историческое доказательство, а не как текущий gate; pinned GitHub CI step остаётся обязательным.
+- Изолированный Preview Supabase имеет ref `foxqdoyqcfsqngfotayu`. До изменения БД создан provider-backed snapshot 12 известных public tables и Storage bucket metadata; он хранится вне репозитория: `C:\Users\kir21\AppData\Local\Temp\mesto-preview-backup-20260811\data-and-buckets.json`. На момент backup строки в известных таблицах отсутствовали.
+- В Preview применены и сверены с remote history только исторические три migration: `20260728_external_identities.sql`, `20260808_public_catalog_summary.sql` и `20260810222309_direct_signed_media_pipeline.sql`. Четыре additive migration code-ready, но **не применены** ни к Preview, ни к Production: `20260811160000_media_publication_fencing.sql`, `20260811163000_signed_upload_tombstones.sql`, `20260811185937_submission_media_cleanup_receipts.sql`, `20260811212027_venue_media_cleanup_receipts.sql`.
+- Direct signed media flow, private review derivatives, approval-only immutable publication, durable cleanup и protected manual Preview media reaper реализованы в коде. Acceptance создаёт два signed receipts, использует один общий latest-deadline wait около `2 h 6 min`, сначала очищает обычные media/venue artifacts, затем требует exact reaper counts `{recovered:0,public:0,staging:1,review:0,expired:1}` и owner-scoped status `exists:true → false`, и только после этого завершает sessions.
+- Protected reaper использует только env-only `MESTO_ACCEPTANCE_CRON_SECRET`; его unauthenticated/authenticated proof подтверждает handler/auth/provider reachability конкретного Preview deployment, но не доказывает настройку или выполнение Production schedule. Новый exact deployment, полный current-tree E2E, live sign → PUT → finalize → moderation/browser/CDN/reaper acceptance и expected → burst → soak ещё не выполнены.
+- Read-only provider derivation показал, что `MESTO_EXPECTED_PREVIEW_REDIS_PROVIDERS_FINGERPRINT` и фактический Production provider fingerprint сейчас совпадают. Логический namespace `preview` этого не исправляет: acceptance/load обязаны завершаться fail closed, пока Preview не получит физически отдельный Redis provider и distinct fingerprint.
+- Production variables `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` созданы, но оба имеют value length `0`; production project ref и работоспособный database contract поэтому не установлены. Значения секретов не читались и не записывались. Последний известный READY Preview `dpl_A5sZXUDyWBFMe4nrm94cC3TN3tRg` относится к более раннему коду и не является доказательством текущего working tree. Production deployment/alias, merge PR и production migration не выполнялись.
 
 ## Владение маршрутами
 
@@ -19,6 +34,7 @@
 - `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` для изолированной базы и Storage;
 - отдельные сильные `MESTO_USER_SESSION_SECRET` и `MESTO_ADMIN_SESSION_SECRET`;
 - `MESTO_ADMIN_LOGIN` и `MESTO_ADMIN_PASSWORD_HASH` для admin acceptance;
+- `MESTO_ACCEPTANCE_CRON_SECRET` только в environment запуска acceptance runner: raw value уже trimmed, длина не меньше 32 символов, без CLI fallback и вывода в report/error;
 - `MESTO_PUBLIC_ORIGIN`, равный проверяемому публичному origin;
 - `MESTO_RATE_LIMIT_PROVIDER=upstash-redis`, credential-free HTTPS `MESTO_RATE_LIMIT_REDIS_URL` и `MESTO_RATE_LIMIT_REDIS_TOKEN`;
 - `MESTO_ADMIN_SESSION_REVOCATION_PROVIDER=upstash-redis`; отдельные `MESTO_ADMIN_SESSION_REDIS_URL` / `MESTO_ADMIN_SESSION_REDIS_TOKEN` нужны только при отказе от переиспользования rate-limit Redis;
@@ -29,12 +45,12 @@ Analytics и Speed Insights не требуют application secrets. Vercel requ
 
 Memory rate limiter и memory admin-session revocation запрещены в production. Отсутствие shared provider должно оставаться контролируемым `503 RATE_LIMIT_UNAVAILABLE` / `503 ADMIN_SESSION_UNAVAILABLE`, а не скрытым process-local fallback.
 
-## Database и provider шаги
+## Database и provider шаги для production
 
-Внешние шаги выполняются только после отдельного разрешения и backup/PITR проверки:
+Preview-подготовка и её backup зафиксированы в текущем checkpoint выше. Для production эти шаги выполняются отдельно, только после зелёного Preview и проверки backup/PITR:
 
-1. Создать изолированный Preview project/data set без production PII.
-2. Применить additive migration `supabase/migrations/20260808_public_catalog_summary.sql` по инструкции `supabase/README.md`.
+1. Проверить точный production project ref, сделать пригодный для восстановления backup и зафиксировать rollback owner.
+2. Выполнить dry-run и применить только отсутствующие versioned migrations из `supabase/migrations/` по инструкции `supabase/README.md`.
 3. Подключить shared Redis/KV и подтвердить один rate-limit window между несколькими runtime instances.
 4. Подтвердить отзыв одной admin session через logout между несколькими runtime instances, не отзывая параллельную session.
 5. Включить Vercel tag purge и проверить `HIT → mutation → STALE/revalidation`, включая отсутствие invalidation у несвязанных venue.
@@ -44,6 +60,8 @@ Memory rate limiter и memory admin-session revocation запрещены в pro
 ## Preview acceptance
 
 Для exact commit обязательны:
+
+До deployment нужно с существующим backup/rollback применить к изолированному Preview четыре перечисленные выше additive migration и сверить remote migration history. Production при этом не изменяется.
 
 1. `npm ci`, `npm run check`, `npm test`, `npm run smoke` и все Phase 4–8 functional E2E.
 2. Зелёная Visual Freeze matrix на закреплённом браузере и всех утверждённых viewport без необъяснённого snapshot update.
@@ -56,9 +74,10 @@ Memory rate limiter и memory admin-session revocation запрещены в pro
 9. SSR render/cache-fill-specific CSP nonce без `unsafe-inline` в `script-src`/общем `style-src` и отсутствие CSP violations на полном browser flow.
 10. Shared Redis revocation между runtime instances и authenticated merchant/admin stored-XSS E2E.
 11. Analytics, Speed Insights и bounded API/SSR telemetry без query, body, cookies, tokens и пользовательских идентификаторов; фактические provider events проверяются во внешнем dashboard.
-12. Ссылка на Preview передаётся владельцу; production cutover разрешён только после его явного визуального одобрения.
+12. Mutation-capable acceptance создаёт ровно два signed receipts и после одного общего expiry/grace wait выполняет ordinary cleanup → protected manual Preview reaper → logouts. Reaper обязан дать exact isolated counts и owner-scoped `exists:true → false`; это handler/auth/provider proof, а не Production schedule proof.
+13. Ссылка на Preview передаётся владельцу; production cutover разрешён только после его явного визуального одобрения.
 
-## Локальный release-candidate checkpoint
+## Локальный release-candidate checkpoint 8 августа 2026 года (историческая запись)
 
 Проверено 8 августа 2026 года на Node.js 24 и exact Chrome for Testing `151.0.7922.72` с SHA-256 архива `F77DFDF2978865CD1B8B98BD6FF72839E91650B9CBF43051F54C1A0811C183E5`:
 
@@ -95,7 +114,7 @@ API router выдаёт/сохраняет UUID `X-Request-ID`. JSON body limit 
 - Если одна из последовательных загрузок изображения либо создание venue submission завершается ошибкой, уже загруженный объект требует TTL temporary namespace или компенсирующего удаления; direct signed upload/derivatives остаются внешним Phase 9 debt.
 - Владелец ещё не одобрил финальный Preview.
 
-## Superseding update — 9 августа 2026 года
+## Superseding update — 9 августа 2026 года (историческая запись)
 
 Список выше сохранён как часть checkpoint 8 августа. Его утверждения об отсутствии cache-tag adapter, CSP nonce, shared admin revocation, stored-XSS E2E и bounded telemetry superseded текущим tree:
 
@@ -107,11 +126,11 @@ API router выдаёт/сохраняет UUID `X-Request-ID`. JSON body limit 
 - snapshot-consistent sitemap, разделение edge request id и origin/cache-fill correlation, сужение CSP image origins и согласованная accessibility-задача для frozen palette также не закрыты этим update;
 - финальная локальная проверка 10 августа дала `165/165` server и `202/202` unit tests; `npm run check`, production smoke и полный последовательный `npm run test:e2e` (legacy + Phase 4–8) прошли без snapshot update.
 
-Текущий tree остаётся code-only release candidate и не объявляется production-like или production готовым.
+На момент этой исторической записи tree оставался code-only release candidate и не объявлялся production-like или production готовым.
 
-## Superseding Preview acceptance — 11 августа 2026 года
+## Superseding Preview acceptance раннего commit — 11 августа 2026 года (историческая запись)
 
-Этот раздел заменяет утверждения checkpoint 8–9 августа о не настроенном Preview, `RATE_LIMIT_UNAVAILABLE` и отсутствующем `EXPLAIN`. Код release candidate не менялся: проверен commit `a27f58e71ba981e79e9dee7815c58622deda0441`.
+Этот раздел описывает acceptance commit `a27f58e71ba981e79e9dee7815c58622deda0441` и заменяет только более ранние утверждения checkpoint 8–9 августа о не настроенном Preview, `RATE_LIMIT_UNAVAILABLE` и отсутствующем `EXPLAIN`. Он не доказывает состояние более позднего `e44cfd1` или текущего working tree.
 
 - GitHub handoff оформлен Draft PR [#1](https://github.com/Krevetkaaaa/mesto-react-migration/pull/1): base `baseline/pre-react-migration-20260805` (`ee847647`) → head `codex/react-migration` (`a27f58e`). PR mergeable, merge state `CLEAN`; оба PR-triggered jobs — `Types, tests, and production smoke` и `Exact-browser functional and Visual Freeze` — завершились `SUCCESS` без snapshot update.
 - Новый Vercel Preview `dpl_A5sZXUDyWBFMe4nrm94cC3TN3tRg` имеет состояние `READY` и доступен по `https://mesto-city-guide-4487ynk4t-krevetkaaaas-projects.vercel.app`. Production alias не переключался.
@@ -123,12 +142,15 @@ API router выдаёт/сохраняет UUID `X-Request-ID`. JSON body limit 
 - На целевой Preview-БД выполнен безопасный representative-scale `EXPLAIN (ANALYZE, BUFFERS)` на временной таблице с тем же schema/index contract и 20 000 синтетических строк: catalog list использовал `status,city,category,created_at` index (`50` rows, около `1.4 ms`), detail — unique slug index (около `0.09 ms`), summary aggregation завершилась примерно за `19 ms`. Временная таблица удалена с завершением сессии; постоянные строки не менялись.
 - Встроенный Codex Browser отказался открывать защищённый Preview из-за своей URL policy; обход через другой browser/CDP намеренно не выполнялся. Browser layer остаётся подтверждён PR-triggered exact Chrome CI и ранее выполненным независимым black-box QA, а этот deployment дополнительно проверен на HTTP/API/data/runtime границах.
 
-После этого update незавершёнными остаются только действия, которые нельзя честно подменить локальной проверкой: явное визуальное одобрение владельца, согласованный formal remote burst/soak на Hobby‑окружении, реальные mobile p75 Web Vitals на пользовательском трафике, фактическая mutation→tag-purge проверка, direct signed media pipeline/derivatives и отдельное разрешение на merge/production promotion. Эти пункты не дают права автоматически переключать production alias.
+На момент этой исторической проверки незавершёнными оставались явное визуальное одобрение владельца, formal remote burst/soak, реальные mobile p75 Web Vitals, фактическая mutation→tag-purge проверка, direct signed media pipeline/derivatives и production promotion. Актуальный набор ворот приведён в текущем checkpoint в начале документа.
 
 ## Откат
 
-- До production cutover текущая проверенная точка платформенного отката — READY Preview `dpl_A5sZXUDyWBFMe4nrm94cC3TN3tRg`; предыдущий READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q` сохранён, production alias ни на один из них не переключался.
+- До следующего deployment последняя проверенная историческая точка платформенного отката — READY Preview `dpl_A5sZXUDyWBFMe4nrm94cC3TN3tRg`; предыдущий READY Preview `dpl_7VfMiovccjuhUTuc9RFLVaoVrh9q` сохранён, production alias ни на один из них не переключался. Ни один из этих deployments не доказывает текущий working tree.
 - Phase 12 откатывается новыми revert-коммитами в обратном порядке: `3fb5b760f71833f83d04c1a6689519f3df9147b7`, `f00ee7afd40107a5a8d6d3ecf10bd7d330951e98`, `68575fbc659163cc853053ac6ff59e9a32e8d1dd`, `562e55f1932d1c53cf72bb27f86351baa20bff87`, `0b8f9e6a8675e09842479ea57f3c7113052e91b8`, затем `398c4d8446d593e2976f1590275f4851d09c3fdf`. Force push не используется. Более глубокий откат возможен на baseline tag `pre-react-migration-20260805-1916`.
 - Vercel deployment/alias откатывается отдельно от Git. Environment variables и provider credentials возвращаются по сохранённому environment snapshot.
 - Git не откатывает Supabase rows, Storage objects, Redis counters, sessions или OAuth/provider state. Database rollback/compensation описан рядом с migration и требует отдельного backup/restore решения.
 - Legacy files удаляются только после стабильного периода. До этого откат route ownership не зависит от восстановления удалённых source files.
+## Media implementation note — 11 августа 2026 года (историческая промежуточная запись)
+
+На момент этой промежуточной записи direct signed upload, private review derivatives, compensating cleanup и approval-only immutable publication были реализованы только в коде. Позднее migration применена к Preview, как указано в текущем checkpoint выше; authenticated runtime acceptance текущего tree всё ещё не выполнен. Production не изменялась. Точные prerequisites находятся в `docs/PHASE9_MEDIA_CACHE_CONTRACT.md`.

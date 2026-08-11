@@ -1,5 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "regions": [
+    "fra1"
+  ],
   "builds": [
     {
       "src": "package.json",
@@ -15,6 +19,12 @@
       "config": {
         "zeroConfig": true
       }
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/media-reaper",
+      "schedule": "17 3 * * *"
     }
   ],
   "routes": [

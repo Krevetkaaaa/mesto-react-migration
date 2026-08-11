@@ -87,6 +87,9 @@ describe("HomeCatalogSummary", () => {
   it("owns the one HTTP contract used by the server loader", async () => {
     let recorded: HttpRequest<unknown> | undefined;
     const http: HttpClient = {
+      uploadSigned(): Promise<void> {
+        return Promise.resolve();
+      },
       request<T>(request: HttpRequest<T>): Promise<T> {
         recorded = request;
         return Promise.resolve(request.schema.parse(databaseSummary));

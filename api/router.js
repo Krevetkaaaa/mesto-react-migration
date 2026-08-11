@@ -4,14 +4,19 @@ const { json, uuid } = require('../lib/http');
 const { setSecurityHeaders } = require('../lib/security-headers');
 const { beginApiRequest } = require('../lib/telemetry');
 const venueBySlug = require('../handlers/venue');
+const uploads = require('../handlers/uploads');
 
 const routes = new Map([
   ['venues', require('../handlers/venues')],
   ['venue-sitemap', require('../handlers/venue-sitemap')],
   ['venue-content', require('../handlers/venue-content')],
+  ['release-fingerprint', require('../handlers/release-fingerprint')],
   ['submissions', require('../handlers/submissions')],
   ['reviews', require('../handlers/reviews')],
-  ['uploads', require('../handlers/uploads')],
+  ['uploads/sign', uploads.sign],
+  ['uploads/finalize', uploads.finalize],
+  ['uploads/release', uploads.release],
+  ['uploads/status', uploads.status],
   ['favorites', require('../handlers/favorites')],
   ['auth/login', require('../handlers/auth/login')],
   ['auth/logout', require('../handlers/auth/logout')],
@@ -23,6 +28,7 @@ const routes = new Map([
   ['auth/register', require('../handlers/auth/register')],
   ['auth/session', require('../handlers/auth/session')],
   ['auth/yandex/callback', require('../handlers/auth/yandex-callback')],
+  ['cron/media-reaper', require('../handlers/cron/media-reaper')],
   ['admin/dashboard', require('../handlers/admin/dashboard')],
   ['admin/login', require('../handlers/admin/login')],
   ['admin/logout', require('../handlers/admin/logout')],

@@ -139,8 +139,22 @@ if (process.argv.includes("--serve")) {
 
 async function runSmoke() {
   const manifest = JSON.parse(await readFile(stagedManifestPath, "utf8"));
+  invariant(manifest.schemaVersion === 1, "Legacy manifest must use schema version 1");
   invariant(manifest.algorithm === "sha256", "Legacy manifest must use SHA-256");
-  invariant(manifest.files.length === 45, "The legacy staging set must remain at 45 files");
+  invariant(Array.isArray(manifest.files) && manifest.files.length > 0, "Legacy manifest must list staged files");
+  invariant(
+    new Set(manifest.files.map(({ path }) => path)).size === manifest.files.length
+      && manifest.files.every(({ path, bytes, sha256 }) => (
+        typeof path === "string"
+        && path.length > 0
+        && !path.startsWith("/")
+        && !path.includes("..")
+        && Number.isSafeInteger(bytes)
+        && bytes > 0
+        && /^[a-f0-9]{64}$/.test(sha256)
+      )),
+    "Legacy manifest entries must be unique, safe, non-empty SHA-256 records",
+  );
   const passwordPolicyCoreEntry = manifest.files.find(({ path }) => path === "password-policy-core.js");
   const passwordPolicyEntry = manifest.files.find(({ path }) => path === "password-policy.mjs");
   invariant(

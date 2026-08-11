@@ -47,7 +47,8 @@ jobs:
         run: |
           $archive = Join-Path $env:RUNNER_TEMP 'chrome-win64.zip'
           $destination = Join-Path $env:RUNNER_TEMP 'chrome-baseline'
-          Invoke-WebRequest -Uri 'https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.72/win64/chrome-win64.zip' -OutFile $archive -UseBasicParsing
+          & curl.exe --fail --location --retry 5 --retry-all-errors --connect-timeout 20 --max-time 600 --output $archive 'https://storage.googleapis.com/chrome-for-testing-public/151.0.7922.72/win64/chrome-win64.zip'
+          if ($LASTEXITCODE -ne 0) { throw "Frozen Chrome download failed with curl exit code $LASTEXITCODE" }
           $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
           $expectedHash = 'F77DFDF2978865CD1B8B98BD6FF72839E91650B9CBF43051F54C1A0811C183E5'
           if ($actualHash -ne $expectedHash) { throw "Frozen Chrome archive hash mismatch: $actualHash" }

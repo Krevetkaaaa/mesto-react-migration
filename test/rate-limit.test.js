@@ -13,9 +13,12 @@ const {
 } = require('../lib/rate-limit');
 
 const originalEnvironment = {
+  KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN,
+  KV_REST_API_URL: process.env.KV_REST_API_URL,
   MESTO_RATE_LIMIT_PROVIDER: process.env.MESTO_RATE_LIMIT_PROVIDER,
   MESTO_RATE_LIMIT_REDIS_TOKEN: process.env.MESTO_RATE_LIMIT_REDIS_TOKEN,
   MESTO_RATE_LIMIT_REDIS_URL: process.env.MESTO_RATE_LIMIT_REDIS_URL,
+  MESTO_REDIS_NAMESPACE: process.env.MESTO_REDIS_NAMESPACE,
   NODE_ENV: process.env.NODE_ENV,
   VERCEL_ENV: process.env.VERCEL_ENV
 };
@@ -154,6 +157,7 @@ test('Upstash adapter performs one atomic EVAL without putting credentials in UR
   const adapter = createUpstashRedisRateLimitAdapter({
     url: 'https://redis.example/',
     token: 'private-provider-token',
+    namespace: 'preview',
     fetchImpl: async (url, options) => {
       calls.push({ url, options });
       return new Response(JSON.stringify({ result: [3, 42_000] }), {
@@ -170,7 +174,7 @@ test('Upstash adapter performs one atomic EVAL without putting credentials in UR
   const command = JSON.parse(calls[0].options.body);
   assert.equal(command[0], 'EVAL');
   assert.equal(command[2], '1');
-  assert.equal(command[3], 'mesto:rate-limit:opaque-key');
+  assert.equal(command[3], 'mesto:preview:rate-limit:opaque-key');
   assert.equal(command[4], '10');
   assert.equal(command[5], '60000');
   assert.doesNotMatch(calls[0].url + calls[0].options.body, /private-provider-token/);
@@ -226,13 +230,31 @@ test('configuration permits memory only outside production and validates distrib
     NODE_ENV: 'production',
     MESTO_RATE_LIMIT_PROVIDER: 'upstash-redis',
     MESTO_RATE_LIMIT_REDIS_URL: 'https://redis.example/',
-    MESTO_RATE_LIMIT_REDIS_TOKEN: 'token'
+    MESTO_RATE_LIMIT_REDIS_TOKEN: 'token',
+    MESTO_REDIS_NAMESPACE: 'production'
   });
   assert.deepEqual(valid, {
     provider: 'upstash-redis',
+    namespace: 'production',
     endpoint: 'https://redis.example',
     token: 'token'
   });
+
+  const marketplace = configuration({
+    VERCEL_ENV: 'production',
+    MESTO_RATE_LIMIT_PROVIDER: 'upstash-redis',
+    KV_REST_API_URL: 'https://marketplace-redis.example',
+    KV_REST_API_TOKEN: 'marketplace-token',
+    MESTO_REDIS_NAMESPACE: 'production'
+  });
+  assert.equal(marketplace.endpoint, 'https://marketplace-redis.example');
+  assert.equal(marketplace.namespace, 'production');
+  assert.throws(() => configuration({
+    VERCEL_ENV: 'production',
+    MESTO_RATE_LIMIT_PROVIDER: 'upstash-redis',
+    MESTO_RATE_LIMIT_REDIS_URL: 'https://partial.example',
+    KV_REST_API_TOKEN: 'must-not-be-mixed'
+  }), /configured together/);
 });
 
 test('HTTP enforcement emits controlled 429 headers and fails honestly when production is unconfigured', async () => {

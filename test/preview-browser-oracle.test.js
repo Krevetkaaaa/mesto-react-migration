@@ -1,0 +1,261 @@
+const assert = require('node:assert/strict');
+const { test } = require('node:test');
+
+async function moduleUnderTest() {
+  return import('../scripts/preview-browser-oracle.mjs');
+}
+
+const baseUrl = 'https://mesto-city-guide-ab12cd34e-team.vercel.app';
+const targetUrl = `${baseUrl}/venue/acceptance-venue`;
+const executablePath = 'C:\\Program Files\\Chromium\\chrome.exe';
+const probeToken = 'acceptance-venue';
+
+function navigationRequest({ redirected = false } = {}) {
+  return {
+    frame: () => fakeFrame,
+    isNavigationRequest: () => true,
+    redirectedFrom: () => redirected ? {} : null,
+    url: () => targetUrl,
+  };
+}
+
+function navigationResponse(overrides = {}) {
+  const request = overrides.request || navigationRequest();
+  return {
+    request: () => request,
+    status: () => overrides.status ?? 200,
+    url: () => overrides.url ?? targetUrl,
+  };
+}
+
+const fakeFrame = {};
+
+function createHarness({
+  states,
+  initialResponse = navigationResponse(),
+  reloadResponses = [navigationResponse(), navigationResponse()],
+  duringGoto,
+  contextCloseError = null,
+  browserCloseError = null,
+} = {}) {
+  const listeners = new Map();
+  const observedStates = states || Array.from({ length: 3 }, () => ({
+    dialogPresent: true,
+    exactTitle: 'Acceptance Venue',
+    menuHasProbe: true,
+    promotionHasProbe: true,
+    executionFlagSet: false,
+    hasProbeImage: false,
+    hasInlineOnerror: false,
+  }));
+  const calls = {
+    addInitScript: 0,
+    browserClose: 0,
+    contextClose: 0,
+    evaluate: 0,
+    goto: 0,
+    launchOptions: null,
+    newContextOptions: null,
+    reload: 0,
+    routes: 0,
+  };
+
+  const page = {
+    evaluate: async () => observedStates[calls.evaluate++],
+    goto: async () => {
+      calls.goto += 1;
+      duringGoto?.({ emit, page });
+      return initialResponse;
+    },
+    mainFrame: () => fakeFrame,
+    on: (event, listener) => {
+      const current = listeners.get(event) || [];
+      current.push(listener);
+      listeners.set(event, current);
+    },
+    reload: async () => reloadResponses[calls.reload++],
+    setDefaultNavigationTimeout: () => {},
+    setDefaultTimeout: () => {},
+    url: () => targetUrl,
+    waitForLoadState: async () => {},
+    waitForSelector: async () => {},
+  };
+
+  function emit(event, value) {
+    for (const listener of listeners.get(event) || []) listener(value);
+  }
+
+  const context = {
+    addInitScript: async () => { calls.addInitScript += 1; },
+    close: async () => {
+      calls.contextClose += 1;
+      if (contextCloseError) throw contextCloseError;
+    },
+    newPage: async () => page,
+    route: async () => { calls.routes += 1; },
+  };
+  const browser = {
+    close: async () => {
+      calls.browserClose += 1;
+      if (browserCloseError) throw browserCloseError;
+    },
+    newContext: async (options) => {
+      calls.newContextOptions = options;
+      return context;
+    },
+  };
+  const launchBrowser = async (options) => {
+    calls.launchOptions = options;
+    return browser;
+  };
+  return { calls, emit, launchBrowser, page };
+}
+
+function validOptions(overrides = {}) {
+  return {
+    baseUrl,
+    venueSlug: 'acceptance-venue',
+    expectedTitle: 'Acceptance Venue',
+    probeToken,
+    bypassSecret: 'private-preview-bypass',
+    executablePath,
+    ...overrides,
+  };
+}
+
+test('browser oracle pins explicit Chromium, observes initial document and two real reloads, then closes', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const harness = createHarness();
+  const verify = createStoredXssBrowserVerifier({ launchBrowser: harness.launchBrowser });
+
+  assert.deepEqual(await verify(validOptions()), {
+    passed: true,
+    observations: 3,
+    reloads: 2,
+  });
+  assert.deepEqual(harness.calls.launchOptions, { executablePath, headless: true });
+  assert.equal(harness.calls.goto, 1);
+  assert.equal(harness.calls.reload, 2);
+  assert.equal(harness.calls.evaluate, 3);
+  assert.equal(harness.calls.addInitScript, 1);
+  assert.equal(harness.calls.routes, 1);
+  assert.equal(harness.calls.contextClose, 1);
+  assert.equal(harness.calls.browserClose, 1);
+  assert.equal(
+    harness.calls.newContextOptions.extraHTTPHeaders['x-vercel-protection-bypass'],
+    'private-preview-bypass',
+  );
+});
+
+test('browser oracle does not mistake the normal target navigation for a probe resource', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const harness = createHarness({
+    duringGoto: ({ emit }) => {
+      emit('request', {
+        url: () => targetUrl,
+      });
+    },
+  });
+  const verify = createStoredXssBrowserVerifier({ launchBrowser: harness.launchBrowser });
+
+  assert.equal((await verify(validOptions())).passed, true);
+});
+
+test('browser oracle closes context and browser after a stored-XSS execution oracle fails', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const harness = createHarness({
+    states: [{
+      dialogPresent: true,
+      exactTitle: 'Acceptance Venue',
+      menuHasProbe: true,
+      promotionHasProbe: true,
+      executionFlagSet: true,
+      hasProbeImage: false,
+      hasInlineOnerror: false,
+    }],
+  });
+  const verify = createStoredXssBrowserVerifier({ launchBrowser: harness.launchBrowser });
+
+  await assert.rejects(verify(validOptions()), (error) => error.code === 'STORED_XSS_EXECUTED');
+  assert.equal(harness.calls.reload, 0);
+  assert.equal(harness.calls.contextClose, 1);
+  assert.equal(harness.calls.browserClose, 1);
+});
+
+test('browser oracle forbids any redirect even when it lands on the requested URL', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const harness = createHarness({
+    initialResponse: navigationResponse({ request: navigationRequest({ redirected: true }) }),
+  });
+  const verify = createStoredXssBrowserVerifier({ launchBrowser: harness.launchBrowser });
+
+  await assert.rejects(verify(validOptions()), (error) => error.code === 'REDIRECT_FORBIDDEN');
+  assert.equal(harness.calls.contextClose, 1);
+  assert.equal(harness.calls.browserClose, 1);
+});
+
+test('browser oracle rejects probe resource requests and unexpected browser errors', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const harness = createHarness({
+    duringGoto: ({ emit }) => {
+      emit('request', {
+        url: () => `${baseUrl}/venue/x`,
+      });
+    },
+  });
+  const verify = createStoredXssBrowserVerifier({ launchBrowser: harness.launchBrowser });
+
+  await assert.rejects(verify(validOptions()), (error) => error.code === 'PROBE_RESOURCE_REQUESTED');
+  assert.equal(harness.calls.reload, 2);
+  assert.equal(harness.calls.browserClose, 1);
+});
+
+test('documented anonymous session 401 console noise is the only console error exception', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const allowed = createHarness({
+    duringGoto: ({ emit }) => {
+      emit('console', {
+        type: () => 'error',
+        text: () => 'Failed to load resource: the server responded with a status of 401 (Unauthorized)',
+        location: () => ({ url: `${baseUrl}/api/auth/session` }),
+      });
+    },
+  });
+  const allowedVerify = createStoredXssBrowserVerifier({ launchBrowser: allowed.launchBrowser });
+  assert.equal((await allowedVerify(validOptions())).passed, true);
+
+  const forbidden = createHarness({
+    duringGoto: ({ emit }) => {
+      emit('console', {
+        type: () => 'error',
+        text: () => 'Unexpected application failure',
+        location: () => ({ url: targetUrl }),
+      });
+    },
+  });
+  const forbiddenVerify = createStoredXssBrowserVerifier({ launchBrowser: forbidden.launchBrowser });
+  await assert.rejects(forbiddenVerify(validOptions()), (error) => error.code === 'UNEXPECTED_CONSOLE_ERROR');
+});
+
+test('browser oracle accepts only an origin-only immutable Preview URL and an explicit absolute executable', async () => {
+  const { validateImmutablePreviewOrigin, createStoredXssBrowserVerifier } = await moduleUnderTest();
+  assert.equal(validateImmutablePreviewOrigin(baseUrl), baseUrl);
+  assert.throws(
+    () => validateImmutablePreviewOrigin('https://mesto-city-guide.vercel.app'),
+    (error) => error.code === 'PRODUCTION_ORIGIN_FORBIDDEN',
+  );
+  assert.throws(
+    () => validateImmutablePreviewOrigin('https://mesto-city-guide-friendly-alias-team.vercel.app'),
+    (error) => error.code === 'IMMUTABLE_PREVIEW_HOST_REQUIRED',
+  );
+  assert.throws(
+    () => validateImmutablePreviewOrigin(`${baseUrl}/venue/example`),
+    (error) => error.code === 'PREVIEW_ORIGIN_ONLY',
+  );
+
+  const verify = createStoredXssBrowserVerifier({ launchBrowser: createHarness().launchBrowser });
+  await assert.rejects(
+    verify(validOptions({ executablePath: 'chrome.exe' })),
+    (error) => error.code === 'EXPLICIT_EXECUTABLE_PATH_REQUIRED',
+  );
+});

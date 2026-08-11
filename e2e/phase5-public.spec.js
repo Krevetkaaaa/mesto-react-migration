@@ -115,9 +115,24 @@ test.describe("Phase 5 catalog routes", () => {
     expect((await fixtureApi.read()).favorites).toBe(0);
 
     await authenticateFixture(page, "customer");
+    const restoredSession = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "GET"
+        && url.pathname === "/api/auth/session"
+        && response.status() === 200;
+    });
     await page.reload();
-    await favorite.click();
-    await expect(favorite).toHaveClass(/is-saved/);
+    await restoredSession;
+    const authenticatedFavorite = page.locator("#catalog-grid .fav").first();
+    await expect(authenticatedFavorite).toBeEnabled();
+    await expect(authenticatedFavorite).not.toHaveClass(/is-saved/);
+    const saved = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname === "/api/favorites";
+    });
+    await authenticatedFavorite.click();
+    expect((await saved).status()).toBe(201);
+    await expect(authenticatedFavorite).toHaveClass(/is-saved/);
     expect((await fixtureApi.read()).favorites).toBe(1);
   });
 

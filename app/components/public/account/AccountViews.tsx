@@ -45,11 +45,15 @@ export function AuthDialog({ actionData, mode, oauthCallbackError, providers, re
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (dialog.open) dialog.removeAttribute("open");
-    dialog.showModal();
     const close = () => returnHomeAndRestoreFocus(navigate, mode === "register" ? "register" : "auth");
     dialog.addEventListener("close", close);
-    return () => dialog.removeEventListener("close", close);
+    if (dialog.open) dialog.removeAttribute("open");
+    dialog.showModal();
+    dialog.dataset.reactDialogReady = "true";
+    return () => {
+      delete dialog.dataset.reactDialogReady;
+      dialog.removeEventListener("close", close);
+    };
   }, [mode, navigate]);
 
   useEffect(() => {
@@ -149,11 +153,15 @@ export function FavoritesDialog({ actionData, favorites }: {
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (dialog.open) dialog.removeAttribute("open");
-    dialog.showModal();
     const close = () => returnHomeAndRestoreFocus(navigate, "favorites");
     dialog.addEventListener("close", close);
-    return () => dialog.removeEventListener("close", close);
+    if (dialog.open) dialog.removeAttribute("open");
+    dialog.showModal();
+    dialog.dataset.reactDialogReady = "true";
+    return () => {
+      delete dialog.dataset.reactDialogReady;
+      dialog.removeEventListener("close", close);
+    };
   }, [navigate]);
 
   return (
