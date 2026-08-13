@@ -1,5 +1,7 @@
 # Baseline HTTP-контрактов Mesto
 
+> **Исторический checkpoint.** Это characterization до React migration, а не описание текущего API и не release-status документ. Актуальное состояние релизного кандидата и ссылки на superseding contracts находятся в [`PHASE12_CUTOVER.md`](./PHASE12_CUTOVER.md).
+
 Дата: 5 августа 2026 года
 
 Статус: characterization перед React migration
@@ -81,6 +83,8 @@ Known defect: `PATCH /api/admin/venues` без валидного id может 
 Исправление `lib/http.js` не должно делать все GET public по умолчанию. Безопасный default остаётся private/no-store; public policy задаётся только конкретным anonymous handler.
 
 ## Обязательные compatibility gaps
+
+Ниже сохранён migration-era backlog. Он не должен использоваться как текущий список дефектов: get-by-slug, cache/rate-limit и media contracts развивались в последующих фазах; актуальные незакрытые gates перечисляет Phase 12.
 
 - Добавить backward-compatible get-by-slug API или расширение `/api/venues`, потому что текущий ответ не содержит slug и не поддерживает `VenueCatalog.getBySlug`.
 - Сохранить `skip/nextSkip` до доказанного перехода legacy UI на cursor.

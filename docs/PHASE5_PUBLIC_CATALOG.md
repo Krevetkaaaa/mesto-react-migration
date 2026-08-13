@@ -1,5 +1,7 @@
 # Phase 5: public catalog and venue routes
 
+> **Historical checkpoint.** This file preserves Phase 5 scope and evidence; it is not the current release-status source. See [`PHASE12_CUTOVER.md`](./PHASE12_CUTOVER.md) for the exact active Preview, release gates, and production status.
+
 ## Scope and ownership
 
 Phase 5 moves the interactive public catalog from legacy DOM ownership to React Router while preserving the Phase 4 home and help contracts.
@@ -66,6 +68,8 @@ Local completion gates:
 These are deterministic local/lab checks. They are not a claim about production Core Web Vitals or real production database latency.
 
 ## Operations and rollback
+
+The deployment identifiers and restrictions below describe the Phase 5 Preview only. They must not be read as the current Preview or current cutover state.
 
 - No database migration is introduced.
 - No production deployment or alias change is part of Phase 5.

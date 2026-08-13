@@ -1,5 +1,7 @@
 # Этап 9. Backend-подготовка к росту
 
+> **Исторический checkpoint.** Документ сохраняет состояние и доказательства этапа 9. Он не является текущим release-status документом; exact Preview, применённые migrations, provider state и незакрытые gates находятся в [`PHASE12_CUTOVER.md`](./PHASE12_CUTOVER.md).
+
 Дата локального checkpoint: 7 августа 2026 года.
 
 Implementation commit: `dc8c9fbb4f4cdda46c343feb7d98d65f09889377`.
@@ -69,6 +71,8 @@ Implementation commit: `dc8c9fbb4f4cdda46c343feb7d98d65f09889377`.
 - Frozen UI, CSS и snapshots не менялись, поэтому новый visual baseline для backend-only checkpoint не создавался.
 
 ## Незакрытые критерии Phase 9
+
+Список ниже фиксирует backlog на дату этого checkpoint. Утверждения об отсутствии cache-purge adapter, direct signed upload/derivatives, Preview provider provisioning и migrations были superseded последующими этапами; это не означает завершённую release acceptance. Текущий остаток, включая representative `EXPLAIN`, load и telemetry evidence, ведётся в Phase 12.
 
 1. Подключить shared Redis/KV credentials в отдельном preview/pre-production environment и подтвердить один лимит между несколькими runtime instances.
 2. Разблокировать Vercel Preview author access, развернуть exact checkpoint и проверить фактические CDN response headers/ETag/304 и private responses.

@@ -1,5 +1,7 @@
 # Этап 8. Административная панель
 
+> **Исторический checkpoint.** Документ сохраняет состояние и доказательства этапа 8, а не текущий release status. Актуальные exact Preview, release-gates и состояние production приведены в [`PHASE12_CUTOVER.md`](./PHASE12_CUTOVER.md).
+
 Дата локального завершения: 7 августа 2026 года.
 
 ## Владение маршрутами
@@ -61,6 +63,8 @@ Visual regression не ослаблялся. Он выявил и помог и�
 
 ## Ограничения до production
 
+Это список на момент этапа 8. Пункты про distributed rate limiting и server-side admin revocation были superseded последующей реализацией; их актуальные внешние проверки и остальные release gaps следует брать только из Phase 12.
+
 - Обновление merchant profile и memberships остаётся двумя внешними записями без общей транзакции. Ввод полностью валидируется до первой записи, но редкий partial commit всё ещё возможен.
 - Основные dashboard slices `venues/submissions/reviews/stats` пока связаны одним store call; независимый partial failure реализован для merchant list. Более глубокое разбиение требует изменения backend contract.
 - Admin session использует отдельный секрет и role check, но minimum entropy, typed audience/version claims и server-side revocation ещё не введены. Это обязательная security-задача этапа 10 до production cutover.
@@ -69,6 +73,8 @@ Visual regression не ослаблялся. Он выявил и помог и�
 - GenericAgent в `C:\Users\kir21\GenericAgent` теперь запускает CLI: установлен отсутствовавший `psutil`, Windows launcher переведён в UTF-8. Однако `mykey.py` и LLM credentials отсутствуют, поэтому запуск агентной LLM-сессии без пользовательской локальной настройки невозможен и не имитировался.
 
 ## Preview и откат
+
+Ниже сохранён результат конкретного заблокированного Phase 8 deployment. Позднейший READY Preview не переписывает эту историческую проверку и отслеживается отдельно в Phase 12.
 
 - Implementation commit: `3b46732e8e5829f789b35276649165c06f3d2589`; migration remote подтверждён тем же hash.
 - Создан deployment `dpl_GYPSPwhXkvRhHYUjBsxtRtfvQWu5`, URL `https://mesto-city-guide-fqxje6hwj-krevetkaaaas-projects.vercel.app`, target `preview`, exact metadata commit `3b46732e8e5829f789b35276649165c06f3d2589`.

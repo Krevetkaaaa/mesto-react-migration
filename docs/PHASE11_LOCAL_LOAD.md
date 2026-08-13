@@ -1,5 +1,7 @@
 # Этап 11. Локальный нагрузочный regression probe
 
+> **Исторический checkpoint.** Документ сохраняет локальные Phase 11 результаты, включая честно зафиксированный 300-VU fail. Он не описывает текущий release candidate; exact Preview и статус удалённых acceptance/load gates находятся в [`PHASE12_CUTOVER.md`](./PHASE12_CUTOVER.md).
+
 Дата partial checkpoint: 8 августа 2026 года.
 
 Implementation commits: `6d24dcac1d95c92fabbbfbbbfb009d1640fd4b6c`, isolation fix `ea542198675b03917f0aa19429dab20012a0a7a5`, safety hardening `5b733153b85f07e54ef03fff83a04e96c0add924`, home SSR optimization `64a3c493b0b18ad280c74392f41a2ec9e23fbd05`.
@@ -116,6 +118,8 @@ Burst evidence, 300 VU:
 - `git diff --check`: чисто, кроме штатных CRLF notices Windows.
 
 ## Незакрытые критерии
+
+Это исторический список Phase 11. Изолированный Preview был создан позднее, однако результаты текущего remote burst/soak и release acceptance нельзя выводить из этого файла — они фиксируются только в Phase 12 после завершения соответствующих прогонов.
 
 1. Проверить formal burst на Vercel Preview после warmup и фактического `X-Vercel-Cache: HIT`/`Age`; локальный uncached burst провалился.
 2. Только после пройденного burst gate выполнить длительный soak expected-профиля с warmup, provider telemetry и повторениями.

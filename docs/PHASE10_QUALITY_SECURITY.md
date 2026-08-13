@@ -1,5 +1,7 @@
 # Этап 10. Производительность, безопасность и доступность
 
+> **Исторический checkpoint.** Этот файл сохраняет последовательность Phase 10 и её численные доказательства, но не задаёт текущую готовность релиза. Актуальные release-gates, exact Preview и production status находятся в [`PHASE12_CUTOVER.md`](./PHASE12_CUTOVER.md).
+
 Дата локального checkpoint: 7 августа 2026 года.
 
 Implementation commit: `ddff8daff8d702bb6c6cebaad7e810a5e26b2d03`.
@@ -82,6 +84,8 @@ Phase 6 controlled outage allowlist ограничен точной парой `
 
 ## Незакрытые критерии Phase 10
 
+Это исходный список на дату checkpoint. Последующий update ниже supersedes code-only пункты про CSP nonce, shared admin revocation, authenticated stored-XSS coverage и telemetry wiring; внешние измерения и release acceptance он не заменяет.
+
 1. Разблокировать production-like Preview и измерить mobile p75 LCP, INP и CLS на реальных маршрутах/данных.
 2. Принять и выполнить отдельную accessibility-задачу для contrast debt без нарушения Visual Freeze.
 3. Убрать CSP `unsafe-inline` через nonce/hash-compatible SSR и сузить разрешённые image origins.
@@ -96,10 +100,10 @@ Vercel Preview по-прежнему заблокирован `TEAM_ACCESS_REQUI
 
 ## Follow-up Phase 12 — 8 августа 2026 года
 
-Этот follow-up является текущим состоянием и заменяет только устаревшие численные показатели checkpoint выше, не переписывая его исторический контекст.
+На момент follow-up эта запись заменяла только устаревшие численные показатели checkpoint выше, не переписывая его исторический контекст. Текущий release status теперь ведётся в Phase 12.
 
 - Главная больше не загружает `/app.js`; переходный `680/185 KiB` override удалён. Все public routes используют единый бюджет `580 KiB raw / 160 KiB gzip`.
-- Текущая главная: `508,4 KiB raw / 152,1 KiB gzip`; максимальный измеренный public route (`/venue/:venueSlug`) — `522,9/156,4 KiB`.
+- Главная на этом checkpoint: `508,4 KiB raw / 152,1 KiB gzip`; максимальный измеренный public route (`/venue/:venueSlug`) — `522,9/156,4 KiB`.
 - Secret scanner проверил 49 production client assets, включая фактические непустые sensitive environment values с redacted reporting.
 - API router создаёт или сохраняет валидный UUID `X-Request-ID`; server adapters пересылают только allowlisted same-origin correlation header.
 - Application JSON limit измеряет authoritative raw body или восстановленный Vercel stream, а не нормализованный объект. Oversize возвращает `413`, invalid/mismatched `Content-Length` — `400`; lazy `req.body` getter не уничтожает исходное byte evidence.

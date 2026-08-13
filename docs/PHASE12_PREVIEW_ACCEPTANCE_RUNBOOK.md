@@ -48,7 +48,7 @@ The runner verifies:
 4. customer registration, logout/login, session, favorite, review and venue submission;
 5. pending moderation visibility;
 6. merchant creation and assignment, forced password change, session and dashboard;
-7. entity-tag cache isolation: both venue-content entries reach `HIT`, a mutation of A forces A through non-`HIT` revalidation, and B remains `HIT`;
+7. entity-tag cache isolation: both venue-content entries reach explicit `X-Vercel-Cache: HIT` in one PoP, a mutation of A requires `STALE` with the old ETag/body followed by a confirmed `HIT` with the new entity, and B remains an unchanged explicit `HIT`; the CDN-stripped `Vercel-Cache-Tag` response header is never treated as a public oracle;
 8. one generated 1200×800 JPEG through the real direct-signed media flow: exact-provider signed URL, denied anonymous staging access before and after PUT, finalize contract, private review variants, submission approval, public WebP dimensions and `max-age=31536000, immutable`;
 9. a second signed receipt for the same generated image, uploaded directly to private staging and intentionally left unfinalized as an isolated abandoned-media reaper probe;
 10. menu/promotion stored-XSS probes through persisted dashboard/API reload, two public document reloads and the pinned-Chrome browser oracle with blocked cross-origin/probe requests;
@@ -81,15 +81,13 @@ For each published URL, deletion polling checks both the exact warmed immutable 
 
 The current public API has no hard-delete operation for customer or merchant identities and intentionally retains rejected moderation/audit rows. The report therefore exposes only run-salted hashes for those unavoidable residual records. A failure of any available cleanup action is different: it makes `cleanup.complete=false` and the whole run fails.
 
-## Current Preview checkpoint — 2026-08-11
+## Current Preview checkpoint — 2026-08-13
 
-- Isolated Supabase ref: `foxqdoyqcfsqngfotayu`.
-- Backup before migration: `C:\Users\kir21\AppData\Local\Temp\mesto-preview-backup-20260811\data-and-buckets.json` (outside the repository).
-- Applied and remotely verified migrations remain exactly the historical three: `20260728_external_identities.sql`, `20260808_public_catalog_summary.sql`, `20260810222309_direct_signed_media_pipeline.sql`.
-- Four additive migrations are code-ready but have **not** been applied to Preview or Production: `20260811160000_media_publication_fencing.sql`, `20260811163000_signed_upload_tombstones.sql`, `20260811185937_submission_media_cleanup_receipts.sql`, `20260811212027_venue_media_cleanup_receipts.sql`.
-- Verified buckets: private `mesto-media-staging`, private `mesto-media-review`, public `mesto-media-public`, and existing public `venue-submissions`.
-- Current local evidence after the latest changes: `git diff --check` PASS; `npm run check` PASS; `318/318` server tests and `203/203` Vitest PASS; production smoke PASS; the high-severity production audit gate PASS with three transitive moderate AJV findings and no available fix.
-- Exact-Chrome E2E has **not** been rerun after the latest changes. Local attempts to download pinned Chrome for Testing `151.0.7922.72` from the official GCS URL and official `gvt1` mirror both returned HTTP 403, and no archive was retained. The `763.7 s` full E2E pass is historical evidence from the earlier working tree only and must not be reported as current; the pinned GitHub CI step remains required.
-- Read-only derivation currently yields the same Redis provider fingerprint for Preview and Production. The namespace remains `preview`, but logical namespacing is not physical provider isolation; acceptance and load must fail closed until a distinct Preview Redis provider is provisioned and both digest variables differ.
-- Production `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` variables exist with value length `0`. A canonical forbidden Production project ref cannot be derived from empty configuration, so Production is not ready and was not modified.
-- Preview still needs the four additive migrations applied with backup/rollback before a new immutable deployment can exercise the current contract; provider isolation is also not complete. No current full E2E, green CI for the current tree, live media/reaper acceptance, remote load gate, merge, Production migration or Production promotion is claimed by this checkpoint.
+- This checkpoint supersedes only the current status above; historical contracts and evidence remain historical.
+- Release-candidate HEAD is `5427a689c47635751ca76ba543bb15318932ca1b`. Draft PR #1 has all duplicate CI checks green after the targeted browser rerun.
+- The exact immutable Preview is deployment `dpl_6hdWFZ4jjV8CsuiHZCXVTeXwm8Es` at `https://mesto-city-guide-rzxk98vtr-krevetkaaaas-projects.vercel.app`.
+- The isolated Preview Supabase ref is `foxqdoyqcfsqngfotayu`; all seven migrations are applied and remotely verified there.
+- The isolated Preview Redis provider fingerprint differs from Production. Its temporary Free resource expires on 2026-08-14, so it is not a durable release configuration.
+- The first long acceptance run's result was lost with its terminal channel and cannot be classified as PASS. The persisted replacement run finished on 2026-08-12 with exit `1`, `passed:false`, the sole workflow failure `cache.warm-a/CACHE_TAG_CONTRACT_MISSING`, and exact `cleanup.complete:true` with no cleanup failures. The failure was a false-negative operator contract: Vercel consumes and strips `Vercel-Cache-Tag` before the client response. The working-tree oracle now requires explicit `X-Vercel-Cache` evidence and the fail-closed sequence `HIT(old) → STALE(old) → HIT(new)` in one PoP while an unrelated entity stays an unchanged explicit `HIT`. A new exact deployment and complete rerun are required; this checkpoint does **not** claim acceptance PASS.
+- The Production deployment and alias remain untouched. The active Production Supabase ref is `aelqtfzjvahpsdkabtny`, but the future Production environment, preflight, backup and migrations remain unresolved.
+- Remote load, stored-XSS browser proof from the full workflow, visual owner approval and Production promotion remain pending. No Production promotion is authorized by green CI or by the completed failed acceptance evidence.

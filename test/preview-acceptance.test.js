@@ -1990,21 +1990,187 @@ test('wrong valid mutation-response ids stay non-authoritative across every dest
   }
 });
 
-test('cache invalidation requires fresh data in the same explicit non-hit response', async () => {
+test('cache invalidation requires an explicit non-hit before accepting fresh entity data', async () => {
   const { observeEntityInvalidation } = await moduleUnderTest();
   const expectedItemId = '22222222-2222-4222-8222-222222222222';
   const misleading = [
-    { cache: 'UNKNOWN', data: { menu: [] } },
-    { cache: 'HIT', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'MISS', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
   ];
   await assert.rejects(observeEntityInvalidation({
     async request() { return misleading.shift(); },
-  }, { path: '/api/venue-content', expectedItemId, phase: 'cache.test', attempts: 2, wait: 0 }), {
-    code: 'RELEVANT_CACHE_TAG_NOT_INVALIDATED',
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 2,
+    wait: 0,
+  }), {
+    code: 'CACHE_INVALIDATION_STATE_INCONCLUSIVE',
   });
 
-  const valid = await observeEntityInvalidation({
-    async request() { return { cache: 'MISS', data: { menu: [{ id: expectedItemId }] } }; },
-  }, { path: '/api/venue-content', expectedItemId, phase: 'cache.test', attempts: 1, wait: 0 });
-  assert.equal(valid.state, 'MISS');
+  const staleThenFresh = [
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+  ];
+  const revalidated = await observeEntityInvalidation({
+    async request() { return staleThenFresh.shift(); },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 4,
+    wait: 0,
+  });
+  assert.deepEqual(revalidated, {
+    requests: 4,
+    state: 'STALE',
+    freshState: 'HIT',
+    observedFresh: true,
+  });
+
+  await assert.rejects(observeEntityInvalidation({
+    async request() {
+      return {
+        explicitCache: 'STALE',
+        etag: 'W/"new"',
+        bodyDigest: 'new',
+        cachePop: 'iad1',
+        data: { menu: [{ id: expectedItemId }] },
+      };
+    },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 1,
+    wait: 0,
+  }), {
+    code: 'CACHE_STALE_RESPONSE_ALREADY_FRESH',
+  });
+
+  const nonConsecutiveFresh = [
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+  ];
+  await assert.rejects(observeEntityInvalidation({
+    async request() { return nonConsecutiveFresh.shift(); },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 3,
+    wait: 0,
+  }), {
+    code: 'CACHE_FRESH_CONFIRMATION_STATE_CHANGED',
+  });
+
+  await assert.rejects(observeEntityInvalidation({
+    async request() {
+      return { explicitCache: 'PRERENDER', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } };
+    },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 1,
+    wait: 0,
+  }), {
+    code: 'CACHE_INVALIDATION_STATE_INCONCLUSIVE',
+  });
+
+  let currentTime = 0;
+  await assert.rejects(observeEntityInvalidation({
+    async request() {
+      currentTime = 45_001;
+      return { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } };
+    },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: 0,
+    attempts: 1,
+    wait: 0,
+    now: () => currentTime,
+  }), {
+    code: 'CACHE_INVALIDATION_BASELINE_EXPIRED',
+  });
+});
+
+test('cache warmup uses the public Vercel HIT contract and does not require stripped cache-tag headers', async () => {
+  const { warmEntityCache } = await moduleUnderTest();
+  const responses = [
+    { cache: 'MISS', explicitCache: 'MISS', etag: 'W/"entity"', bodyDigest: 'entity', cachePop: 'iad1', data: { menu: [] } },
+    { cache: 'HIT', explicitCache: 'HIT', etag: 'W/"entity"', bodyDigest: 'entity', cachePop: 'iad1', data: { menu: [] } },
+  ];
+  const observed = await warmEntityCache({
+    async request() { return responses.shift(); },
+  }, '/api/venue-content?venueId=11111111-1111-4111-8111-111111111111', 'cache.warm');
+
+  assert.equal(observed.attempts, 2);
+  assert.equal(observed.state, 'HIT');
+  assert.equal(observed.etag, 'W/"entity"');
+  assert.equal(observed.bodyDigest, 'entity');
+  assert.equal(observed.cachePop, 'iad1');
+  assert.equal(Number.isFinite(observed.warmedAt), true);
+
+  await assert.rejects(warmEntityCache({
+    async request() { return { cache: 'HIT', explicitCache: '', data: { menu: [] } }; },
+  }, '/api/venue-content?venueId=11111111-1111-4111-8111-111111111111', 'cache.warm'), {
+    code: 'CACHE_DID_NOT_WARM',
+  });
+});
+
+test('unrelated cache isolation requires an explicit unchanged HIT in the same PoP', async () => {
+  const { validateUnrelatedEntityCache } = await moduleUnderTest();
+  const baseline = {
+    etag: 'W/"venue-b"',
+    bodyDigest: 'venue-b-body',
+    cachePop: 'iad1',
+    warmedAt: Date.now(),
+  };
+  assert.equal(validateUnrelatedEntityCache({
+    explicitCache: 'HIT',
+    etag: baseline.etag,
+    bodyDigest: baseline.bodyDigest,
+    cachePop: baseline.cachePop,
+  }, baseline, 'cache.unrelated-b'), true);
+
+  for (const response of [
+    { cache: 'HIT', explicitCache: '', etag: baseline.etag, bodyDigest: baseline.bodyDigest, cachePop: baseline.cachePop },
+    { explicitCache: 'STALE', etag: baseline.etag, bodyDigest: baseline.bodyDigest, cachePop: baseline.cachePop },
+    { explicitCache: 'HIT', etag: 'W/"changed"', bodyDigest: baseline.bodyDigest, cachePop: baseline.cachePop },
+    { explicitCache: 'HIT', etag: baseline.etag, bodyDigest: baseline.bodyDigest, cachePop: 'fra1' },
+  ]) {
+    assert.throws(() => validateUnrelatedEntityCache(response, baseline, 'cache.unrelated-b'), {
+      name: 'AcceptanceError',
+    });
+  }
 });

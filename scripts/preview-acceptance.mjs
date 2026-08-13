@@ -27,6 +27,7 @@ const SIGNED_UPLOAD_MIN_HORIZON_MS = 110 * 60 * 1_000;
 const SIGNED_UPLOAD_MAX_HORIZON_MS = 130 * 60 * 1_000;
 const STAGING_TOMBSTONE_GRACE_MS = 5 * 60 * 1_000;
 const CLEANUP_CLOCK_BUFFER_MS = 30 * 1_000;
+const CACHE_INVALIDATION_BASELINE_MAX_AGE_MS = 45_000;
 const MEDIA_CLEANUP_ACTIONS = new Set(['submission.resolve', 'media.release', 'venue.delete']);
 const SESSION_LOGOUT_ACTIONS = new Set(['merchant.logout', 'customer.logout', 'admin-a.logout', 'admin-b.logout']);
 const MEDIA_REAPER_SUMMARY_KEYS = Object.freeze(['counts', 'drained', 'failures', 'hasMore', 'ok']);
@@ -321,6 +322,15 @@ function cacheState(headers) {
   if (state) return state.slice(0, 24);
   const age = Number(headers.get('age') || 0);
   return Number.isFinite(age) && age > 0 ? 'HIT' : 'UNKNOWN';
+}
+
+function explicitCacheState(headers) {
+  return String(headers.get('x-vercel-cache') || '').trim().toUpperCase().slice(0, 24);
+}
+
+function cachePop(headers) {
+  const value = String(headers.get('x-vercel-id') || '').trim().split('::', 1)[0].toLowerCase();
+  return /^[a-z0-9-]{2,24}$/.test(value) ? value : '';
 }
 
 export async function boundedResponseBody(response, phase, maximumBytes = MAX_RESPONSE_BYTES) {
@@ -816,7 +826,10 @@ class PreviewClient {
       status: response.status,
       data,
       cache: cacheState(response.headers),
-      cacheTag: String(response.headers.get('vercel-cache-tag') || ''),
+      explicitCache: explicitCacheState(response.headers),
+      etag: String(response.headers.get('etag') || '').trim().slice(0, 256),
+      bodyDigest: createHash('sha256').update(text).digest('base64url'),
+      cachePop: cachePop(response.headers),
       noStore: exactPrivateNoStore(response.headers),
     };
   }
@@ -1541,32 +1554,114 @@ export function validateSubmissionRejectionReceipt(receipt, phase) {
   return payload;
 }
 
-async function warmTaggedCache(client, path, expectedTag, phase) {
-  let lastState = 'UNKNOWN';
+export async function warmEntityCache(client, path, phase) {
+  let lastState = '';
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const response = await client.request({ phase, path });
-    invariant(response.cacheTag.split(',').map((value) => value.trim()).includes(expectedTag), phase, 'CACHE_TAG_CONTRACT_MISSING');
-    lastState = response.cache;
-    if (lastState === 'HIT') return { attempts: attempt + 1, state: lastState };
+    lastState = response.explicitCache || response.cache;
+    if (response.explicitCache === 'HIT') {
+      invariant(response.etag, phase, 'CACHE_ENTITY_TAG_MISSING');
+      invariant(response.bodyDigest, phase, 'CACHE_BODY_DIGEST_MISSING');
+      invariant(response.cachePop, phase, 'CACHE_POP_MISSING');
+      return {
+        attempts: attempt + 1,
+        state: response.explicitCache,
+        etag: response.etag,
+        bodyDigest: response.bodyDigest,
+        cachePop: response.cachePop,
+        warmedAt: Date.now(),
+      };
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
   throw new AcceptanceError(phase, 'CACHE_DID_NOT_WARM');
 }
 
-export async function observeEntityInvalidation(client, { path, expectedItemId, phase, attempts = 12, wait = 350 }) {
+export async function observeEntityInvalidation(client, {
+  path,
+  expectedItemId,
+  phase,
+  baselineEtag,
+  baselineBodyDigest,
+  baselineCachePop,
+  baselineWarmedAt,
+  attempts = 24,
+  wait = 500,
+  now = Date.now,
+}) {
+  const startedAt = now();
+  invariant(typeof baselineEtag === 'string' && baselineEtag, phase, 'CACHE_BASELINE_ENTITY_TAG_MISSING');
+  invariant(typeof baselineBodyDigest === 'string' && baselineBodyDigest,
+    phase, 'CACHE_BASELINE_BODY_DIGEST_MISSING');
+  invariant(typeof baselineCachePop === 'string' && baselineCachePop,
+    phase, 'CACHE_BASELINE_POP_MISSING');
+  invariant(Number.isFinite(baselineWarmedAt)
+    && baselineWarmedAt <= startedAt
+    && startedAt - baselineWarmedAt < CACHE_INVALIDATION_BASELINE_MAX_AGE_MS,
+  phase, 'CACHE_INVALIDATION_BASELINE_EXPIRED');
   let requests = 0;
-  const invalidatedStates = new Set(['MISS', 'STALE', 'REVALIDATED']);
+  let observedStale = false;
+  let freshResponse = null;
+  const allowedStates = new Set(['HIT', 'STALE']);
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    invariant(now() - baselineWarmedAt < CACHE_INVALIDATION_BASELINE_MAX_AGE_MS,
+      phase, 'CACHE_INVALIDATION_BASELINE_EXPIRED');
     const response = await client.request({ phase, path });
     requests += 1;
+    invariant(now() - baselineWarmedAt < CACHE_INVALIDATION_BASELINE_MAX_AGE_MS,
+      phase, 'CACHE_INVALIDATION_BASELINE_EXPIRED');
     const observedFresh = Array.isArray(response.data?.menu)
       && response.data.menu.some((item) => item?.id === expectedItemId);
-    if (invalidatedStates.has(response.cache) && observedFresh) {
-      return { requests, state: response.cache, observedFresh: true };
+    invariant(response.explicitCache, phase, 'CACHE_STATE_NOT_EXPLICIT');
+    invariant(response.cachePop === baselineCachePop, phase, 'CACHE_POP_CHANGED');
+    invariant(allowedStates.has(response.explicitCache), phase, 'CACHE_INVALIDATION_STATE_INCONCLUSIVE');
+    if (freshResponse) {
+      invariant(response.explicitCache === 'HIT', phase, 'CACHE_FRESH_CONFIRMATION_STATE_CHANGED');
+      invariant(observedFresh, phase, 'CACHE_FRESH_CONFIRMATION_LOST_MUTATION');
+      invariant(response.etag === freshResponse.etag
+        && response.bodyDigest === freshResponse.bodyDigest,
+      phase, 'CACHE_FRESH_CONFIRMATION_CHANGED');
+      return {
+        requests,
+        state: 'STALE',
+        freshState: 'HIT',
+        observedFresh: true,
+      };
+    }
+    if (!observedStale && response.explicitCache === 'HIT') {
+      invariant(!observedFresh, phase, 'CACHE_FRESH_BEFORE_INVALIDATION');
+      invariant(response.etag === baselineEtag
+        && response.bodyDigest === baselineBodyDigest,
+      phase, 'CACHE_BASELINE_CHANGED_BEFORE_INVALIDATION');
+    }
+    if (!observedStale && response.explicitCache === 'STALE') {
+      invariant(!observedFresh, phase, 'CACHE_STALE_RESPONSE_ALREADY_FRESH');
+      invariant(response.etag === baselineEtag, phase, 'CACHE_STALE_ENTITY_CHANGED');
+      invariant(response.bodyDigest === baselineBodyDigest, phase, 'CACHE_STALE_BODY_CHANGED');
+      observedStale = true;
+    }
+    if (observedStale && response.explicitCache === 'HIT') {
+      invariant(observedFresh, phase, 'CACHE_REFRESH_DID_NOT_INCLUDE_MUTATION');
+      invariant(response.etag && response.etag !== baselineEtag, phase, 'CACHE_FRESH_ENTITY_NOT_CHANGED');
+      invariant(response.bodyDigest && response.bodyDigest !== baselineBodyDigest,
+        phase, 'CACHE_FRESH_BODY_NOT_CHANGED');
+      freshResponse = response;
     }
     if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, wait));
   }
   throw new AcceptanceError(phase, 'RELEVANT_CACHE_TAG_NOT_INVALIDATED');
+}
+
+export function validateUnrelatedEntityCache(response, baseline, phase) {
+  invariant(response?.explicitCache === 'HIT', phase, 'UNRELATED_CACHE_TAG_WAS_INVALIDATED');
+  invariant(response.etag === baseline?.etag
+    && response.bodyDigest === baseline?.bodyDigest
+    && response.cachePop === baseline?.cachePop,
+  phase, 'UNRELATED_CACHE_ENTITY_CHANGED');
+  invariant(Number.isFinite(baseline?.warmedAt)
+    && Date.now() - baseline.warmedAt < CACHE_INVALIDATION_BASELINE_MAX_AGE_MS,
+  phase, 'CACHE_INVALIDATION_BASELINE_EXPIRED');
+  return true;
 }
 
 async function waitForPublicContent(client, { path, menuId, promotionId, phase }) {
@@ -2887,10 +2982,9 @@ export async function runPreviewAcceptance({
 
     const contentPathA = `${PREVIEW_API.venueContent}?venueId=${encodeURIComponent(venues[0].id)}`;
     const contentPathB = `${PREVIEW_API.venueContent}?venueId=${encodeURIComponent(venues[1].id)}`;
-    const tagA = `mesto-venue-${venues[0].id}`;
-    const tagB = `mesto-venue-${venues[1].id}`;
-    const warmA = await warmTaggedCache(publicClient, contentPathA, tagA, 'cache.warm-a');
-    const warmB = await warmTaggedCache(publicClient, contentPathB, tagB, 'cache.warm-b');
+    const warmA = await warmEntityCache(publicClient, contentPathA, 'cache.warm-a');
+    const warmB = await warmEntityCache(publicClient, contentPathB, 'cache.warm-b');
+    invariant(warmA.cachePop === warmB.cachePop, 'cache.warm', 'CACHE_BASELINE_POP_MISMATCH');
 
     const xssProbe = expectedStoredXssTitle(runId);
     armMutationIntent(state, 'merchant.menu-create');
@@ -2930,17 +3024,25 @@ export async function runPreviewAcceptance({
     acknowledgeMutationIntent(state, 'merchant.menu-create');
 
     const bAfterMutation = await publicClient.request({ phase: 'cache.unrelated-b', path: contentPathB });
-    invariant(bAfterMutation.cache === 'HIT', 'cache.unrelated-b', 'UNRELATED_CACHE_TAG_WAS_INVALIDATED');
+    validateUnrelatedEntityCache(bAfterMutation, warmB, 'cache.unrelated-b');
     const invalidation = await observeEntityInvalidation(publicClient, {
       path: contentPathA,
       expectedItemId: menuId,
       phase: 'cache.relevant-a',
+      baselineEtag: warmA.etag,
+      baselineBodyDigest: warmA.bodyDigest,
+      baselineCachePop: warmA.cachePop,
+      baselineWarmedAt: warmA.warmedAt,
     });
+    const bAfterRevalidation = await publicClient.request({ phase: 'cache.unrelated-b-confirm', path: contentPathB });
+    validateUnrelatedEntityCache(bAfterRevalidation, warmB, 'cache.unrelated-b-confirm');
     addCheck(report, 'cache', 'entity-tag-purge-isolation', {
       warmAttempts: warmA.attempts + warmB.attempts,
       unrelatedState: bAfterMutation.cache,
       revalidationRequests: invalidation.requests,
       invalidationState: invalidation.state,
+      freshState: invalidation.freshState,
+      unrelatedConfirmationState: bAfterRevalidation.explicitCache,
     });
 
     armMutationIntent(state, 'merchant.promotion-create');
