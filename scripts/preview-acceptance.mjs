@@ -1620,12 +1620,19 @@ export async function observeEntityInvalidation(client, {
     invariant(response.cachePop === baselineCachePop, phase, 'CACHE_POP_CHANGED');
     invariant(allowedStates.has(response.explicitCache), phase, 'CACHE_INVALIDATION_STATE_INCONCLUSIVE');
     if (response.explicitCache === 'STALE') {
-      invariant(!observedFresh, phase, 'CACHE_STALE_RESPONSE_ALREADY_FRESH');
-      invariant(response.etag === baselineEtag, phase, 'CACHE_STALE_ENTITY_CHANGED');
-      invariant(response.bodyDigest === baselineBodyDigest, phase, 'CACHE_STALE_BODY_CHANGED');
       observedStale = true;
-      // Tag invalidation converges across Vercel's cache layers. Another old
-      // cache node may be observed after the first fresh HIT, so it resets the
+      if (observedFresh) {
+        invariant(response.etag && response.etag !== baselineEtag,
+          phase, 'CACHE_STALE_FRESH_ENTITY_NOT_CHANGED');
+        invariant(response.bodyDigest && response.bodyDigest !== baselineBodyDigest,
+          phase, 'CACHE_STALE_FRESH_BODY_NOT_CHANGED');
+      } else {
+        invariant(response.etag === baselineEtag, phase, 'CACHE_STALE_ENTITY_CHANGED');
+        invariant(response.bodyDigest === baselineBodyDigest, phase, 'CACHE_STALE_BODY_CHANGED');
+      }
+      // STALE is the explicit invalidation signal, but the body may already be
+      // the revalidated representation when several CDN layers converge. It
+      // never counts as final freshness. Any STALE response resets the stable
       // candidate; only two consecutive identical fresh HITs prove stability.
       freshResponse = null;
     }

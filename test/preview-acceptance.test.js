@@ -2084,6 +2084,30 @@ test('cache invalidation requires an explicit non-hit before accepting fresh ent
     observedFresh: true,
   });
 
+  const freshStaleThenStableHits = [
+    { explicitCache: 'STALE', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+  ];
+  assert.deepEqual(await observeEntityInvalidation({
+    async request() { return freshStaleThenStableHits.shift(); },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 3,
+    wait: 0,
+  }), {
+    requests: 3,
+    state: 'STALE',
+    freshState: 'HIT',
+    observedFresh: true,
+  });
+
   await assert.rejects(observeEntityInvalidation({
     async request() {
       return {
@@ -2105,7 +2129,7 @@ test('cache invalidation requires an explicit non-hit before accepting fresh ent
     attempts: 1,
     wait: 0,
   }), {
-    code: 'CACHE_STALE_RESPONSE_ALREADY_FRESH',
+    code: 'RELEVANT_CACHE_TAG_NOT_INVALIDATED',
   });
 
   const nonConsecutiveFresh = [
