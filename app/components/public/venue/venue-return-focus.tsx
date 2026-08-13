@@ -1,4 +1,4 @@
-import { useEffect, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect } from "react";
 import { useInRouterContext, useLocation } from "react-router";
 
 export type VenueInvoker =
@@ -13,6 +13,16 @@ const FALLBACK_IDS = {
   catalog: "catalog-title",
   home: "guide-title",
 } as const;
+
+interface VenueLinkActivation {
+  readonly altKey: boolean;
+  readonly button: number;
+  readonly ctrlKey: boolean;
+  readonly currentTarget: HTMLAnchorElement;
+  readonly defaultPrevented: boolean;
+  readonly metaKey: boolean;
+  readonly shiftKey: boolean;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -66,7 +76,7 @@ export function venueFocusData(invoker: VenueInvoker) {
   } as const;
 }
 
-export function armVenueReturnFocus(event: ReactMouseEvent<HTMLAnchorElement>, invoker: VenueInvoker) {
+export function armVenueReturnFocus(event: VenueLinkActivation, invoker: VenueInvoker) {
   if (event.defaultPrevented
     || event.button !== 0
     || event.metaKey

@@ -1,10 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PublicHomeMarkup, type HomeFeaturedVenue } from "../../../app/components/public/PublicHomeMarkup";
+import { armVenueReturnFocus } from "../../../app/components/public/venue/venue-return-focus";
 import { HOME_FEATURED_VENUES } from "../../../app/data/home-featured-venues";
 import { PublicHomeView } from "../../../app/routes/public-home";
 
@@ -139,16 +140,43 @@ describe("React home cutover SSR contract", () => {
     }));
   });
 
-  it("does not arm the source history entry for a modified new-tab gesture", () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+  it.each([
+    ["Ctrl", { ctrlKey: true }],
+    ["Meta", { metaKey: true }],
+    ["Shift", { shiftKey: true }],
+    ["Alt", { altKey: true }],
+  ])("does not arm the source history entry for a %s-modified gesture", (_label, modifier) => {
     const replaceState = vi.spyOn(window.history, "replaceState");
-    render(
-      <MemoryRouter initialEntries={["/"]}>
-        <PublicHomeMarkup interactiveHome />
-      </MemoryRouter>,
-    );
+    const anchor = document.createElement("a");
+    armVenueReturnFocus({
+      altKey: false,
+      button: 0,
+      ctrlKey: false,
+      currentTarget: anchor,
+      defaultPrevented: false,
+      metaKey: false,
+      shiftKey: false,
+      ...modifier,
+    }, { surface: "home", venueKey: "marea", action: "overlay" });
 
-    fireEvent.click(screen.getByRole("link", { name: "Открыть карточку Баркас" }), { ctrlKey: true });
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it.each(["target", "download"])("does not arm a source link with %s navigation semantics", (attribute) => {
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    const anchor = document.createElement("a");
+    if (attribute === "target") anchor.target = "_blank";
+    else anchor.setAttribute("download", "venue.html");
+
+    armVenueReturnFocus({
+      altKey: false,
+      button: 0,
+      ctrlKey: false,
+      currentTarget: anchor,
+      defaultPrevented: false,
+      metaKey: false,
+      shiftKey: false,
+    }, { surface: "home", venueKey: "marea", action: "overlay" });
 
     expect(replaceState).not.toHaveBeenCalled();
   });
