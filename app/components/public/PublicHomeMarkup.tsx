@@ -20,6 +20,13 @@ import type { HomeCatalogSummary } from "../../modules/home-catalog-summary";
 import { useOptionalPublicAccount } from "./account/PublicAccountProvider";
 import { HomePresentationEffects } from "./home/HomePresentationEffects";
 import { PrettySelect } from "./home/PrettySelect";
+import {
+  VenueReturnFocusRestorer,
+  armVenueReturnFocus,
+  venueFocusData,
+  venueInvokerNavigationState,
+  type VenueInvoker,
+} from "./venue/venue-return-focus";
 
 export type HomeFeaturedVenue = Omit<CatalogVenue, "coordinates">;
 
@@ -133,18 +140,21 @@ function HomeRouteLink({
   className,
   id,
   to,
+  venueInvoker,
 }: {
   ariaLabel?: string;
   children: ReactNode;
   className?: string;
   id?: string;
   to: string;
+  venueInvoker?: VenueInvoker;
 }) {
   const inRouter = useInRouterContext();
+  const focusData = venueInvoker ? venueFocusData(venueInvoker) : {};
   if (inRouter) {
-    return <Link aria-label={ariaLabel} className={className} id={id} to={to}>{children}</Link>;
+    return <Link {...focusData} aria-label={ariaLabel} className={className} id={id} onClick={venueInvoker ? (event) => armVenueReturnFocus(event, venueInvoker) : undefined} state={venueInvoker ? venueInvokerNavigationState(venueInvoker) : undefined} to={to}>{children}</Link>;
   }
-  return <a aria-label={ariaLabel} className={className} href={to} id={id}>{children}</a>;
+  return <a {...focusData} aria-label={ariaLabel} className={className} href={to} id={id}>{children}</a>;
 }
 
 function animateFavorite(source: HTMLElement) {
@@ -250,6 +260,7 @@ function HomeFeaturedVenueGrid({ venues }: { venues: readonly HomeFeaturedVenue[
         {venues.map((venue) => {
           const view = homeCardView(venue);
           const detailHref = `/venue/${venue.slug}?from=${encodeURIComponent("/")}`;
+          const overlayInvoker: VenueInvoker = { surface: "home", venueKey: venue.key, action: "overlay" };
           const isDatabaseVenue = venue.databaseId !== null;
           const isSaved = account?.status === "authenticated" && account.favoriteKeys.has(venue.key);
           const isPending = account?.pendingFavoriteKeys.has(venue.key) ?? false;
@@ -275,7 +286,12 @@ function HomeFeaturedVenueGrid({ venues }: { venues: readonly HomeFeaturedVenue[
               data-search={view.search}
               key={venue.key}
             >
-              <HomeRouteLink className="home-venue-card-link" to={detailHref} ariaLabel={`Открыть карточку ${venue.name}`}>
+              <HomeRouteLink
+                className="home-venue-card-link"
+                to={detailHref}
+                venueInvoker={overlayInvoker}
+                ariaLabel={`Открыть карточку ${venue.name}`}
+              >
                 <span className="sr-only">Открыть карточку {venue.name}</span>
               </HomeRouteLink>
               <span className="venue-image">
@@ -513,6 +529,7 @@ export function PublicHomeMarkup({
     </header>
 
     <main data-react-route={standalone ? routeKind : "home"} data-home-catalog-source={catalogSummary.source}>
+      <VenueReturnFocusRestorer surface="home" />
       {!standalone || homeBackdrop ? (<>
       <section className="guide-screen" id="guide" aria-labelledby="guide-title">
         <div className="hero-photo" role="img" aria-label="Побережье Крыма с горами и Чёрным морем"></div>

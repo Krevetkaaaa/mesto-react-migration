@@ -106,6 +106,94 @@ test.describe("Phase 5 catalog routes", () => {
     expect((await page.request.get("/venue/INVALID--SLUG")).status()).toBe(400);
   });
 
+  test("venue close and native Escape restore the exact logical invoker without reopening on Back", async ({ page }) => {
+    test.skip((page.viewportSize()?.width || 0) !== 1440, "route-dialog focus history is exercised once at desktop");
+
+    await gotoCatalog(page);
+    const firstCard = page.locator("#catalog-grid .venue-card").first();
+    const titleInvoker = firstCard.locator(".venue-body strong a");
+    const actionInvoker = firstCard.locator(".venue-card-action");
+
+    const sourceHistory = await page.evaluate(() => {
+      const current = window.history.state;
+      window.history.replaceState({
+        ...current,
+        auditSentinel: "preserved",
+        usr: { ...(current?.usr ?? {}), unrelated: "kept" },
+      }, "");
+      return { idx: current?.idx, key: current?.key };
+    });
+    await titleInvoker.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#venue-dialog")).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(titleInvoker).toBeFocused();
+    await expect.poll(() => titleInvoker.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    })).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.history.state)).toMatchObject({
+      auditSentinel: "preserved",
+      idx: sourceHistory.idx,
+      key: sourceHistory.key,
+      usr: { unrelated: "kept" },
+    });
+    await expect(page.locator("#venue-dialog[open]")).toHaveCount(0);
+
+    await titleInvoker.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#venue-dialog")).toBeVisible();
+    await page.locator("#venue-dialog .dialog-close").click();
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(titleInvoker).toBeFocused();
+    await expect.poll(() => titleInvoker.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    })).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.history.state?.usr?.venueReturnFocus ?? null)).toBeNull();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(page.locator("#venue-dialog[open]")).toHaveCount(0);
+    await expect(titleInvoker).toBeFocused();
+    await expect.poll(() => page.evaluate(() => window.history.state?.usr?.venueReturnFocus ?? null)).toBeNull();
+
+    await actionInvoker.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#venue-dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(actionInvoker).toBeFocused();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/catalog$/);
+    await expect(page.locator("#venue-dialog[open]")).toHaveCount(0);
+
+    await page.goto("/");
+    const homeOverlayInvoker = page.locator("#popular .home-venue-card-link").first();
+    await homeOverlayInvoker.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#venue-dialog")).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(homeOverlayInvoker).toBeFocused();
+    await expect.poll(() => homeOverlayInvoker.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    })).toBe(true);
+    await expect(page.locator("#venue-dialog[open]")).toHaveCount(0);
+
+    await homeOverlayInvoker.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#venue-dialog")).toBeVisible();
+    await page.locator("#venue-dialog .dialog-close").click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(homeOverlayInvoker).toBeFocused();
+    await expect.poll(() => homeOverlayInvoker.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return box.bottom > 0 && box.top < window.innerHeight;
+    })).toBe(true);
+  });
+
   test("guest favorite prompts auth without writing; authenticated favorite saves", async ({ page, fixtureApi }) => {
     test.skip((page.viewportSize()?.width || 0) !== 1440, "functional contract is exercised once at desktop");
     await gotoCatalog(page);

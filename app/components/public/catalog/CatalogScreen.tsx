@@ -6,6 +6,12 @@ import { publicAssetUrl } from "../../../lib/public-asset";
 import { catalogHref, parseCatalogUrl } from "../../../modules/catalog-url-state";
 import type { PublicCatalogSnapshot } from "../../../modules/public-catalog-experience";
 import { usePublicAccount } from "../account/PublicAccountProvider";
+import {
+  VenueReturnFocusRestorer,
+  armVenueReturnFocus,
+  venueFocusData,
+  venueInvokerNavigationState,
+} from "../venue/venue-return-focus";
 
 type CatalogVenueView = Omit<CatalogVenue, "coordinates"> & {
   coordinates: readonly number[];
@@ -85,6 +91,8 @@ function VenueCard({
   const parking = /парков/i.test(item.features.join(" "));
   const image = imageFor(item);
   const detailHref = `/venue/${item.slug}?from=${encodeURIComponent(returnTo)}`;
+  const titleInvoker = { surface: "catalog", venueKey: item.key, action: "title" } as const;
+  const actionInvoker = { surface: "catalog", venueKey: item.key, action: "action" } as const;
   return (
     <article
       className="venue-card catalog-venue-card"
@@ -121,12 +129,12 @@ function VenueCard({
         ><svg aria-hidden="true"><use href="#heart" /></svg></button>
       </span>
       <span className="venue-body">
-        <strong><Link to={detailHref}>{item.name}</Link></strong>
+        <strong><Link {...venueFocusData(titleInvoker)} onClick={(event) => armVenueReturnFocus(event, titleInvoker)} state={venueInvokerNavigationState(titleInvoker)} to={detailHref}>{item.name}</Link></strong>
         <small>{item.category} · {item.city}</small>
         {item.address ? <span className="venue-meta venue-meta--source"><svg aria-hidden="true"><use href="#pin" /></svg>{item.address}</span> : null}
         {item.description ? <span className="venue-card-description">{item.description}</span> : null}
         <span className="venue-source-note">Опубликовано в каталоге «Места»</span>
-        <Link className="venue-card-action" to={detailHref}>Открыть карточку <svg aria-hidden="true"><use href="#arrow" /></svg></Link>
+        <Link {...venueFocusData(actionInvoker)} className="venue-card-action" onClick={(event) => armVenueReturnFocus(event, actionInvoker)} state={venueInvokerNavigationState(actionInvoker)} to={detailHref}>Открыть карточку <svg aria-hidden="true"><use href="#arrow" /></svg></Link>
       </span>
     </article>
   );
@@ -170,6 +178,7 @@ export function CatalogScreen({ snapshot, cityLanding = false }: {
 
   return (
     <div className={`catalog-inner${pending ? " is-catalog-loading" : ""}`}>
+      <VenueReturnFocusRestorer surface="catalog" />
       <div className="catalog-hero" id="catalog-hero">
         <span className="catalog-hero-glow" aria-hidden="true"></span>
         <Link className="back-link" to="/">← Вернуться на главную</Link>

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { publicAssetUrl } from "../../../lib/public-asset";
 import type { PublicVenueDetail } from "../../../modules/public-catalog.server";
 import { usePublicAccount } from "../account/PublicAccountProvider";
 import { ReviewDialog } from "./ReviewDialog";
+import { venueReturnNavigationState } from "./venue-return-focus";
 
 function safeReturnPath(value: string | null) {
   if (!value) return "/catalog";
@@ -26,6 +27,7 @@ export function VenueDialog({ detail, returnTo }: {
   returnTo: string | null;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const location = useLocation();
   const navigate = useNavigate();
   const account = usePublicAccount();
   const { venue, menuItems, promotions } = detail;
@@ -44,10 +46,15 @@ export function VenueDialog({ detail, returnTo }: {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (!dialog.open) dialog.showModal();
-    const onClose = () => { void navigate(returnPath, { replace: true }); };
+    const onClose = () => {
+      void navigate(returnPath, {
+        replace: true,
+        state: venueReturnNavigationState(location.state, returnPath),
+      });
+    };
     dialog.addEventListener("close", onClose);
     return () => dialog.removeEventListener("close", onClose);
-  }, [navigate, returnPath]);
+  }, [location.state, navigate, returnPath]);
 
   const toggleFavorite = async () => {
     if (account.status !== "authenticated") {

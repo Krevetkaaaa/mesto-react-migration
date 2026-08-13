@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter, useLocation } from "react-router";
@@ -33,7 +33,7 @@ const databaseVenue: HomeFeaturedVenue = {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{location.pathname}{location.search}</output>;
+  return <output data-location-state={JSON.stringify(location.state)} data-testid="location">{location.pathname}{location.search}</output>;
 }
 
 afterEach(() => {
@@ -126,10 +126,30 @@ describe("React home cutover SSR contract", () => {
     );
 
     const cardLink = screen.getByRole("link", { name: "Открыть карточку Баркас" });
+    expect(cardLink).toHaveAttribute("data-venue-focus-surface", "home");
+    expect(cardLink).toHaveAttribute("data-venue-focus-key", "marea");
+    expect(cardLink).toHaveAttribute("data-venue-focus-action", "overlay");
     cardLink.focus();
     expect(cardLink).toHaveFocus();
     await user.keyboard("{Enter}");
 
     expect(screen.getByTestId("location")).toHaveTextContent("/venue/barkas?from=%2F");
+    expect(screen.getByTestId("location")).toHaveAttribute("data-location-state", JSON.stringify({
+      venueInvoker: { surface: "home", venueKey: "marea", action: "overlay" },
+    }));
+  });
+
+  it("does not arm the source history entry for a modified new-tab gesture", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <PublicHomeMarkup interactiveHome />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "Открыть карточку Баркас" }), { ctrlKey: true });
+
+    expect(replaceState).not.toHaveBeenCalled();
   });
 });

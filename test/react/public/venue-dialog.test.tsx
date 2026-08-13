@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, useLocation } from "react-router";
+import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router";
 
 import type { PublicAccountStatus } from "../../../app/components/public/account/PublicAccountProvider";
 import type { User } from "../../../app/lib/domain";
@@ -53,6 +53,7 @@ vi.mock("../../../app/adapters/submissions-http", () => ({
 }));
 
 import { VenueDialog } from "../../../app/components/public/venue/VenueDialog";
+import { VenueReturnFocusRestorer, venueFocusData, venueInvokerNavigationState } from "../../../app/components/public/venue/venue-return-focus";
 
 const detail = {
   venue: {
@@ -86,6 +87,55 @@ const detail = {
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname}{location.search}</output>;
+}
+
+const catalogTitleInvoker = { surface: "catalog", venueKey: "marea", action: "title" } as const;
+const catalogActionInvoker = { surface: "catalog", venueKey: "marea", action: "action" } as const;
+
+function CatalogHarness() {
+  return (
+    <>
+      <VenueReturnFocusRestorer surface="catalog" />
+      <h1 id="catalog-title">Каталог</h1>
+      <a {...venueFocusData(catalogTitleInvoker)} href={`/venue/${detail.venue.slug}?from=%2Fcatalog`} onClick={(event) => event.preventDefault()}>Баркас</a>
+      <a {...venueFocusData(catalogActionInvoker)} href={`/venue/${detail.venue.slug}?from=%2Fcatalog`} onClick={(event) => event.preventDefault()}>Открыть карточку</a>
+      <LocationProbe />
+    </>
+  );
+}
+
+function renderVenueRoute({
+  direct = false,
+  invoker = catalogTitleInvoker,
+  additionalState,
+  unsafeState,
+}: {
+  additionalState?: Record<string, unknown>;
+  direct?: boolean;
+  invoker?: typeof catalogTitleInvoker | typeof catalogActionInvoker;
+  unsafeState?: unknown;
+} = {}) {
+  const router = createMemoryRouter([{
+    path: "/catalog",
+    element: <CatalogHarness />,
+  }, {
+    path: "/venue/:venueSlug",
+    element: <><VenueDialog detail={detail} returnTo="/catalog" /><LocationProbe /></>,
+  }], {
+    initialEntries: direct
+      ? [{
+        pathname: `/venue/${detail.venue.slug}`,
+        search: "?from=%2Fcatalog",
+        state: unsafeState,
+      }]
+      : ["/catalog", {
+        pathname: `/venue/${detail.venue.slug}`,
+        search: "?from=%2Fcatalog",
+        state: { ...additionalState, ...venueInvokerNavigationState(invoker) },
+      }],
+    initialIndex: direct ? 0 : 1,
+  });
+  return { router, ...render(<RouterProvider router={router} />) };
 }
 
 function renderVenue(returnTo = "/catalog") {
@@ -232,6 +282,45 @@ describe("VenueDialog review flow", () => {
     renderVenue("/");
     await user.click(screen.getByRole("button", { name: "Закрыть" }));
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
+  });
+
+  it.each([
+    ["close button", catalogTitleInvoker, async (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole("button", { name: "Закрыть" }))],
+    ["native Escape lifecycle", catalogActionInvoker, () => {
+      const dialog = screen.getByRole<HTMLDialogElement>("dialog", { name: "Баркас" });
+      fireEvent(dialog, new Event("cancel", { cancelable: true }));
+      dialog.close();
+    }],
+  ])("replaces the venue route and restores the exact logical catalog invoker after %s", async (_label, invoker, close) => {
+    const user = userEvent.setup();
+    const { router } = renderVenueRoute({ additionalState: { unrelated: "kept" }, invoker });
+    await close(user);
+
+    const expectedName = invoker.action === "title" ? "Баркас" : "Открыть карточку";
+    await waitFor(() => expect(screen.getByRole("link", { name: expectedName })).toHaveFocus());
+    expect(router.state.location.pathname).toBe("/catalog");
+    expect(router.state.location.state).toEqual({
+      unrelated: "kept",
+      venueReturnFocus: invoker,
+    });
+
+    await router.navigate(-1);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/catalog"));
+    expect(screen.queryByRole("dialog", { name: "Баркас" })).not.toBeInTheDocument();
+  });
+
+  it("falls back to the catalog heading for a direct route without trusting arbitrary state", async () => {
+    const user = userEvent.setup();
+    const { router } = renderVenueRoute({
+      direct: true,
+      unsafeState: {
+        venueInvoker: { surface: "catalog", venueKey: 'marea"][autofocus]', action: "title" },
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Закрыть" }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Каталог" })).toHaveFocus());
+    expect(router.state.location.pathname).toBe("/catalog");
   });
 
   it("uses the stable legacy key when favoriting an editorial route slug", async () => {
