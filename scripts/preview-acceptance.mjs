@@ -1619,37 +1619,42 @@ export async function observeEntityInvalidation(client, {
     invariant(response.explicitCache, phase, 'CACHE_STATE_NOT_EXPLICIT');
     invariant(response.cachePop === baselineCachePop, phase, 'CACHE_POP_CHANGED');
     invariant(allowedStates.has(response.explicitCache), phase, 'CACHE_INVALIDATION_STATE_INCONCLUSIVE');
-    if (freshResponse) {
-      invariant(response.explicitCache === 'HIT', phase, 'CACHE_FRESH_CONFIRMATION_STATE_CHANGED');
-      invariant(observedFresh, phase, 'CACHE_FRESH_CONFIRMATION_LOST_MUTATION');
-      invariant(response.etag === freshResponse.etag
-        && response.bodyDigest === freshResponse.bodyDigest,
-      phase, 'CACHE_FRESH_CONFIRMATION_CHANGED');
-      return {
-        requests,
-        state: 'STALE',
-        freshState: 'HIT',
-        observedFresh: true,
-      };
-    }
-    if (!observedStale && response.explicitCache === 'HIT') {
-      invariant(!observedFresh, phase, 'CACHE_FRESH_BEFORE_INVALIDATION');
-      invariant(response.etag === baselineEtag
-        && response.bodyDigest === baselineBodyDigest,
-      phase, 'CACHE_BASELINE_CHANGED_BEFORE_INVALIDATION');
-    }
-    if (!observedStale && response.explicitCache === 'STALE') {
+    if (response.explicitCache === 'STALE') {
       invariant(!observedFresh, phase, 'CACHE_STALE_RESPONSE_ALREADY_FRESH');
       invariant(response.etag === baselineEtag, phase, 'CACHE_STALE_ENTITY_CHANGED');
       invariant(response.bodyDigest === baselineBodyDigest, phase, 'CACHE_STALE_BODY_CHANGED');
       observedStale = true;
+      // Tag invalidation converges across Vercel's cache layers. Another old
+      // cache node may be observed after the first fresh HIT, so it resets the
+      // candidate; only two consecutive identical fresh HITs prove stability.
+      freshResponse = null;
     }
-    if (observedStale && response.explicitCache === 'HIT') {
-      invariant(observedFresh, phase, 'CACHE_REFRESH_DID_NOT_INCLUDE_MUTATION');
-      invariant(response.etag && response.etag !== baselineEtag, phase, 'CACHE_FRESH_ENTITY_NOT_CHANGED');
-      invariant(response.bodyDigest && response.bodyDigest !== baselineBodyDigest,
-        phase, 'CACHE_FRESH_BODY_NOT_CHANGED');
-      freshResponse = response;
+    if (response.explicitCache === 'HIT') {
+      if (!observedStale || !observedFresh) {
+        invariant(!observedFresh, phase, 'CACHE_FRESH_BEFORE_INVALIDATION');
+        invariant(response.etag === baselineEtag
+          && response.bodyDigest === baselineBodyDigest,
+        phase, observedStale
+          ? 'CACHE_REFRESH_OLD_RESPONSE_CHANGED'
+          : 'CACHE_BASELINE_CHANGED_BEFORE_INVALIDATION');
+        freshResponse = null;
+      } else {
+        invariant(response.etag && response.etag !== baselineEtag, phase, 'CACHE_FRESH_ENTITY_NOT_CHANGED');
+        invariant(response.bodyDigest && response.bodyDigest !== baselineBodyDigest,
+          phase, 'CACHE_FRESH_BODY_NOT_CHANGED');
+        if (freshResponse) {
+          invariant(response.etag === freshResponse.etag
+            && response.bodyDigest === freshResponse.bodyDigest,
+          phase, 'CACHE_FRESH_CONFIRMATION_CHANGED');
+          return {
+            requests,
+            state: 'STALE',
+            freshState: 'HIT',
+            observedFresh: true,
+          };
+        }
+        freshResponse = response;
+      }
     }
     if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, wait));
   }

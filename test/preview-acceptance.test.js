@@ -2126,7 +2126,81 @@ test('cache invalidation requires an explicit non-hit before accepting fresh ent
     attempts: 3,
     wait: 0,
   }), {
-    code: 'CACHE_FRESH_CONFIRMATION_STATE_CHANGED',
+    code: 'RELEVANT_CACHE_TAG_NOT_INVALIDATED',
+  });
+
+  const convergingCacheLayers = [
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+  ];
+  assert.deepEqual(await observeEntityInvalidation({
+    async request() { return convergingCacheLayers.shift(); },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 6,
+    wait: 0,
+  }), {
+    requests: 6,
+    state: 'STALE',
+    freshState: 'HIT',
+    observedFresh: true,
+  });
+
+  const exactLiveFailureConverges = [
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"new"', bodyDigest: 'new', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+  ];
+  assert.deepEqual(await observeEntityInvalidation({
+    async request() { return exactLiveFailureConverges.shift(); },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 5,
+    wait: 0,
+  }), {
+    requests: 5,
+    state: 'STALE',
+    freshState: 'HIT',
+    observedFresh: true,
+  });
+
+  const changedFreshConfirmation = [
+    { explicitCache: 'STALE', etag: 'W/"old"', bodyDigest: 'old', cachePop: 'iad1', data: { menu: [] } },
+    { explicitCache: 'HIT', etag: 'W/"new-1"', bodyDigest: 'new-1', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+    { explicitCache: 'HIT', etag: 'W/"new-2"', bodyDigest: 'new-2', cachePop: 'iad1', data: { menu: [{ id: expectedItemId }] } },
+  ];
+  await assert.rejects(observeEntityInvalidation({
+    async request() { return changedFreshConfirmation.shift(); },
+  }, {
+    path: '/api/venue-content',
+    expectedItemId,
+    phase: 'cache.test',
+    baselineEtag: 'W/"old"',
+    baselineBodyDigest: 'old',
+    baselineCachePop: 'iad1',
+    baselineWarmedAt: Date.now(),
+    attempts: 3,
+    wait: 0,
+  }), {
+    code: 'CACHE_FRESH_CONFIRMATION_CHANGED',
   });
 
   await assert.rejects(observeEntityInvalidation({
