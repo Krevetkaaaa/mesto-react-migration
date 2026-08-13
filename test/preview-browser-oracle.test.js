@@ -93,7 +93,10 @@ function createHarness({
       if (contextCloseError) throw contextCloseError;
     },
     newPage: async () => page,
-    route: async () => { calls.routes += 1; },
+    route: async (_pattern, handler) => {
+      calls.routes += 1;
+      calls.routeHandler = handler;
+    },
   };
   const browser = {
     close: async () => {
@@ -160,6 +163,64 @@ test('browser oracle does not mistake the normal target navigation for a probe r
   const verify = createStoredXssBrowserVerifier({ launchBrowser: harness.launchBrowser });
 
   assert.equal((await verify(validOptions())).passed, true);
+});
+
+test('browser oracle permits only exact passive Google Fonts reads and keeps all other cross-origin traffic forbidden', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const request = ({ url, method = 'GET', resourceType }) => ({
+    method: () => method,
+    resourceType: () => resourceType,
+    url: () => url,
+  });
+  const stylesheetRequest = request({
+    url: 'https://fonts.googleapis.com/css2?family=Manrope:wght@400;700&display=swap',
+    resourceType: 'stylesheet',
+  });
+  const fontRequest = request({
+    url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.woff2',
+    resourceType: 'font',
+  });
+  const allowed = createHarness({
+    duringGoto: ({ emit }) => {
+      emit('request', stylesheetRequest);
+      emit('request', fontRequest);
+    },
+  });
+  assert.equal((await createStoredXssBrowserVerifier({ launchBrowser: allowed.launchBrowser })(validOptions())).passed, true);
+
+  for (const allowedRequest of [stylesheetRequest, fontRequest]) {
+    const routeCalls = { abort: 0, continue: 0 };
+    await allowed.calls.routeHandler({
+      abort: async () => { routeCalls.abort += 1; },
+      continue: async () => { routeCalls.continue += 1; },
+      request: () => allowedRequest,
+    });
+    assert.deepEqual(routeCalls, { abort: 0, continue: 1 });
+  }
+
+  for (const forbiddenRequest of [
+    request({ url: 'https://fonts.googleapis.com/css2?display=swap', resourceType: 'stylesheet' }),
+    request({ url: 'https://fonts.googleapis.com/css2?family=Manrope', method: 'POST', resourceType: 'stylesheet' }),
+    request({ url: 'https://fonts.googleapis.com/css2?family=Manrope', resourceType: 'script' }),
+    request({ url: 'https://fonts.googleapis.com/css?family=Manrope', resourceType: 'stylesheet' }),
+    request({ url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.woff2?token=unexpected', resourceType: 'font' }),
+    request({ url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.js', resourceType: 'font' }),
+    request({ url: 'https://example.com/font.woff2', resourceType: 'font' }),
+  ]) {
+    const forbidden = createHarness({
+      duringGoto: ({ emit }) => emit('request', forbiddenRequest),
+    });
+    const verify = createStoredXssBrowserVerifier({ launchBrowser: forbidden.launchBrowser });
+    await assert.rejects(verify(validOptions()), (error) => error.code === 'CROSS_ORIGIN_REQUEST_FORBIDDEN');
+
+    const routeCalls = { abort: 0, continue: 0 };
+    await forbidden.calls.routeHandler({
+      abort: async () => { routeCalls.abort += 1; },
+      continue: async () => { routeCalls.continue += 1; },
+      request: () => forbiddenRequest,
+    });
+    assert.deepEqual(routeCalls, { abort: 1, continue: 0 });
+  }
 });
 
 test('browser oracle closes context and browser after a stored-XSS execution oracle fails', async () => {

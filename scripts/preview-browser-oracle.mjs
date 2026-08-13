@@ -72,6 +72,34 @@ function requestUrl(request) {
   }
 }
 
+function isAllowedPassiveCrossOriginRequest(request) {
+  const url = requestUrl(request);
+  if (!url || url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) return false;
+
+  let method;
+  let resourceType;
+  try {
+    method = request.method();
+    resourceType = request.resourceType();
+  } catch {
+    return false;
+  }
+  if (method !== 'GET') return false;
+
+  if (url.origin === 'https://fonts.googleapis.com') {
+    return resourceType === 'stylesheet'
+      && url.pathname === '/css2'
+      && url.searchParams.has('family')
+      && Array.from(url.searchParams.keys()).every((key) => key === 'family' || key === 'display');
+  }
+  if (url.origin === 'https://fonts.gstatic.com') {
+    return resourceType === 'font'
+      && !url.search
+      && /^\/s\/[A-Za-z0-9._/-]+\.woff2$/.test(url.pathname);
+  }
+  return false;
+}
+
 function isAnonymousSessionUrl(value, origin) {
   try {
     const candidate = new URL(value);
@@ -176,7 +204,10 @@ function attachEventOracles(page, origin, targetUrl, probeToken) {
   });
   page.on('request', (request) => {
     const url = requestUrl(request);
-    if (url && /^https?:$/.test(url.protocol) && url.origin !== origin) failures.crossOriginRequests += 1;
+    if (url
+      && /^https?:$/.test(url.protocol)
+      && url.origin !== origin
+      && !isAllowedPassiveCrossOriginRequest(request)) failures.crossOriginRequests += 1;
     if (isProbeResourceRequest(request, targetUrl, probeToken)) failures.probeResourceRequests += 1;
   });
   page.on('requestfailed', () => {
@@ -248,7 +279,9 @@ export function createStoredXssBrowserVerifier({ launchBrowser } = {}) {
           await route.abort('blockedbyclient');
           return;
         }
-        if (/^https?:$/.test(url.protocol) && url.origin !== origin) {
+        if (/^https?:$/.test(url.protocol)
+          && url.origin !== origin
+          && !isAllowedPassiveCrossOriginRequest(route.request())) {
           await route.abort('blockedbyclient');
           return;
         }
