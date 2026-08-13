@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
+const { text: canonicalizeHttpText } = require('../lib/http');
 
 async function moduleUnderTest() {
   return import('../scripts/preview-acceptance.mjs');
@@ -1759,7 +1760,7 @@ test('lost committed merchant menu response is GET-reconciled by exact run probe
   const menuItem = {
     id: menuId,
     venue_id: venueId,
-    title: `\"><img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1>`,
+    title: `\" img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1`,
     description: `Stored-XSS menu probe ${runId}`,
   };
   const merchant = {
@@ -1962,7 +1963,7 @@ test('wrong valid mutation-response ids stay non-authoritative across every dest
     promotionIds: [],
     promotionCandidateIds: [],
   };
-  const probeTitle = `\"><img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1>`;
+  const persistedProbeTitle = `\" img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1`;
   for (const kind of ['menu', 'promotion']) {
     const candidateField = kind === 'menu' ? 'menuItemCandidateIds' : 'promotionCandidateIds';
     const authoritativeField = kind === 'menu' ? 'menuItemIds' : 'promotionIds';
@@ -1977,7 +1978,7 @@ test('wrong valid mutation-response ids stay non-authoritative across every dest
     assert.throws(
       () => confirmAuthoritativeMerchantContent(contentState, [{
         id: actualId,
-        title: probeTitle,
+        title: persistedProbeTitle,
         description: `Stored-XSS ${kind} probe ${runId}`,
         venue_id: venueId,
       }], wrongId, { kind, runId, venueId, phase: `${kind}.authoritative` }),
@@ -1988,6 +1989,50 @@ test('wrong valid mutation-response ids stay non-authoritative across every dest
     assert.deepEqual(contentState[candidateField], [wrongId]);
     assert.deepEqual(contentState[authoritativeField], []);
   }
+});
+
+test('merchant content authority matches the server-canonical XSS probe title and rejects the raw request variant', async () => {
+  const { confirmAuthoritativeMerchantContent } = await moduleUnderTest();
+  const runId = 'canonical-xss-probe';
+  const venueId = '11111111-1111-4111-8111-111111111111';
+  const menuId = '22222222-2222-4222-8222-222222222222';
+  const promotionId = '33333333-3333-4333-8333-333333333333';
+  const canonicalTitle = `\" img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1`;
+  const rawRequestTitle = `\"><img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1>`;
+  const state = { menuItemIds: [], promotionIds: [] };
+
+  for (const [kind, id, field, errorCode] of [
+    ['menu', menuId, 'menuItemIds', 'MENU_AUTHORITATIVE_IDENTITY_MISMATCH'],
+    ['promotion', promotionId, 'promotionIds', 'PROMOTION_AUTHORITATIVE_IDENTITY_MISMATCH'],
+  ]) {
+    const description = `Stored-XSS ${kind} probe ${runId}`;
+    const authoritative = confirmAuthoritativeMerchantContent(state, [{
+      id,
+      title: canonicalTitle,
+      description,
+      venue_id: venueId,
+    }], id, { kind, runId, venueId, phase: `${kind}.authoritative.canonical` });
+    assert.equal(authoritative.title, canonicalTitle);
+    assert.deepEqual(state[field], [id]);
+
+    assert.throws(
+      () => confirmAuthoritativeMerchantContent({ menuItemIds: [], promotionIds: [] }, [{
+        id,
+        title: rawRequestTitle,
+        description,
+        venue_id: venueId,
+      }], id, { kind, runId, venueId, phase: `${kind}.authoritative.raw-request` }),
+      { code: errorCode },
+    );
+  }
+});
+
+test('the real HTTP text sanitizer produces the exact persisted XSS probe title expected by acceptance', () => {
+  const runId = 'canonical-xss-probe';
+  const rawRequestTitle = `\"><img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1>`;
+  const expectedPersistedTitle = `\" img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1`;
+
+  assert.equal(canonicalizeHttpText(rawRequestTitle, 160), expectedPersistedTitle);
 });
 
 test('cache invalidation requires an explicit non-hit before accepting fresh entity data', async () => {

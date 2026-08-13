@@ -1274,8 +1274,12 @@ function expectedSubmissionDescription(runId) {
   return `Disposable venue submission for provider-backed acceptance run ${runId}.`;
 }
 
-function expectedStoredXssTitle(runId) {
+function storedXssProbeInput(runId) {
   return `\"><img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1>`;
+}
+
+function expectedStoredXssPersistedTitle(runId) {
+  return `\" img data-mesto-acceptance=\"${runId}\" src=x onerror=globalThis.__mestoAcceptance=1`;
 }
 
 function expectedStoredXssDescription(runId, kind) {
@@ -1330,7 +1334,7 @@ function merchantMatchesRun(merchant, { id = '', identity }) {
 
 function merchantContentMatchesRun(item, { id = '', kind, runId, venueId }) {
   return (!id || item?.id === id)
-    && item?.title === expectedStoredXssTitle(runId)
+    && item?.title === expectedStoredXssPersistedTitle(runId)
     && item?.description === expectedStoredXssDescription(runId, kind)
     && item?.venue_id === venueId;
 }
@@ -2986,7 +2990,8 @@ export async function runPreviewAcceptance({
     const warmB = await warmEntityCache(publicClient, contentPathB, 'cache.warm-b');
     invariant(warmA.cachePop === warmB.cachePop, 'cache.warm', 'CACHE_BASELINE_POP_MISMATCH');
 
-    const xssProbe = expectedStoredXssTitle(runId);
+    const xssProbeInput = storedXssProbeInput(runId);
+    const expectedPersistedXssTitle = expectedStoredXssPersistedTitle(runId);
     armMutationIntent(state, 'merchant.menu-create');
     const menu = await merchant.request({
       phase: 'merchant.menu-create',
@@ -2995,7 +3000,7 @@ export async function runPreviewAcceptance({
       body: {
         venueId: venues[0].id,
         section: 'Acceptance',
-        title: xssProbe,
+        title: xssProbeInput,
         description: expectedStoredXssDescription(runId, 'menu'),
         price: 1,
         isAvailable: true,
@@ -3052,7 +3057,7 @@ export async function runPreviewAcceptance({
       path: PREVIEW_API.merchantPromotions,
       body: {
         venueId: venues[0].id,
-        title: xssProbe,
+        title: xssProbeInput,
         description: expectedStoredXssDescription(runId, 'promotion'),
         status: 'active',
       },
@@ -3097,8 +3102,16 @@ export async function runPreviewAcceptance({
       'MERCHANT_VENUE_UPDATE_NOT_PERSISTED',
     );
     acknowledgeMutationIntent(state, 'merchant.venue-update');
-    invariant(storedMenu && storedMenu.title === xssProbe, 'merchant.dashboard-reload', 'MENU_PAYLOAD_NOT_PERSISTED');
-    invariant(storedPromotion && storedPromotion.title === xssProbe, 'merchant.dashboard-reload', 'PROMOTION_PAYLOAD_NOT_PERSISTED');
+    invariant(
+      storedMenu && storedMenu.title === expectedPersistedXssTitle,
+      'merchant.dashboard-reload',
+      'MENU_PAYLOAD_NOT_PERSISTED',
+    );
+    invariant(
+      storedPromotion && storedPromotion.title === expectedPersistedXssTitle,
+      'merchant.dashboard-reload',
+      'PROMOTION_PAYLOAD_NOT_PERSISTED',
+    );
 
     const publicContent = await waitForPublicContent(publicClient, {
       path: contentPathA,
