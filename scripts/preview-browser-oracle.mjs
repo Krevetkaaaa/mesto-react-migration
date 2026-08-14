@@ -7,6 +7,8 @@ const UNIQUE_PREVIEW_HOST_PATTERN = /^[a-z0-9-]+-[a-z0-9]{9}-[a-z0-9-]+\.vercel\
 const SAFE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?$/;
 const SAFE_PROBE_PATTERN = /^[a-zA-Z0-9_-]{8,160}$/;
 const PRODUCTION_ORIGIN = 'https://mesto-city-guide.vercel.app';
+const PROTECTION_BYPASS_HEADER = 'x-vercel-protection-bypass';
+const SKIP_TOOLBAR_HEADER = 'x-vercel-skip-toolbar';
 
 export class PreviewBrowserOracleError extends Error {
   constructor(code) {
@@ -135,6 +137,45 @@ function isMainFrameNavigation(request, page) {
   }
 }
 
+function removeHeader(headers, expectedName) {
+  for (const name of Object.keys(headers)) {
+    if (name.toLowerCase() === expectedName) delete headers[name];
+  }
+}
+
+async function routeBrowserRequest(route, origin, bypassSecret) {
+  const request = route.request();
+  let url;
+  try {
+    url = new URL(request.url());
+  } catch {
+    await route.abort('blockedbyclient');
+    return;
+  }
+
+  if (/^https?:$/.test(url.protocol)
+    && url.origin !== origin
+    && !isAllowedPassiveCrossOriginRequest(request)) {
+    await route.abort('blockedbyclient');
+    return;
+  }
+
+  let headers;
+  try {
+    headers = { ...await request.allHeaders() };
+  } catch {
+    await route.abort('blockedbyclient');
+    return;
+  }
+  removeHeader(headers, PROTECTION_BYPASS_HEADER);
+  removeHeader(headers, SKIP_TOOLBAR_HEADER);
+  if (url.origin === origin) {
+    if (bypassSecret) headers[PROTECTION_BYPASS_HEADER] = bypassSecret;
+    headers[SKIP_TOOLBAR_HEADER] = '1';
+  }
+  await route.continue({ headers });
+}
+
 function assertNavigationResponse(response, page, targetUrl) {
   invariant(response, 'NAVIGATION_RESPONSE_MISSING');
   invariant(response.status() >= 200 && response.status() < 300, 'NAVIGATION_HTTP_STATUS');
@@ -261,9 +302,6 @@ export function createStoredXssBrowserVerifier({ launchBrowser } = {}) {
       }
 
       context = await browser.newContext({
-        extraHTTPHeaders: bypassSecret
-          ? { 'x-vercel-protection-bypass': bypassSecret }
-          : {},
         ignoreHTTPSErrors: false,
         serviceWorkers: 'block',
       });
@@ -271,22 +309,7 @@ export function createStoredXssBrowserVerifier({ launchBrowser } = {}) {
         delete globalThis.__mestoAcceptance;
         delete globalThis.__storedXssExecuted;
       });
-      await context.route('**/*', async (route) => {
-        let url;
-        try {
-          url = new URL(route.request().url());
-        } catch {
-          await route.abort('blockedbyclient');
-          return;
-        }
-        if (/^https?:$/.test(url.protocol)
-          && url.origin !== origin
-          && !isAllowedPassiveCrossOriginRequest(route.request())) {
-          await route.abort('blockedbyclient');
-          return;
-        }
-        await route.continue();
-      });
+      await context.route('**/*', (route) => routeBrowserRequest(route, origin, bypassSecret));
 
       const page = await context.newPage();
       page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);

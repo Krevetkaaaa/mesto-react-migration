@@ -11,6 +11,20 @@ const targetUrl = `${baseUrl}/venue/acceptance-venue`;
 const executablePath = resolve(__dirname, 'fixtures', 'chromium');
 const probeToken = 'acceptance-venue';
 
+function browserRequest({
+  url = targetUrl,
+  method = 'GET',
+  resourceType = 'document',
+  headers = { accept: 'text/html' },
+} = {}) {
+  return {
+    allHeaders: async () => ({ ...headers }),
+    method: () => method,
+    resourceType: () => resourceType,
+    url: () => url,
+  };
+}
+
 function navigationRequest({ redirected = false } = {}) {
   return {
     frame: () => fakeFrame,
@@ -59,6 +73,7 @@ function createHarness({
     newContextOptions: null,
     reload: 0,
     routes: 0,
+    routeContinueOptions: [],
   };
 
   const page = {
@@ -145,10 +160,24 @@ test('browser oracle pins explicit Chromium, observes initial document and two r
   assert.equal(harness.calls.routes, 1);
   assert.equal(harness.calls.contextClose, 1);
   assert.equal(harness.calls.browserClose, 1);
+  assert.equal(harness.calls.newContextOptions.extraHTTPHeaders, undefined);
+
+  const routeCalls = { abort: 0, continue: 0 };
+  await harness.calls.routeHandler({
+    abort: async () => { routeCalls.abort += 1; },
+    continue: async (options) => {
+      routeCalls.continue += 1;
+      harness.calls.routeContinueOptions.push(options);
+    },
+    request: () => browserRequest(),
+  });
+  assert.deepEqual(routeCalls, { abort: 0, continue: 1 });
   assert.equal(
-    harness.calls.newContextOptions.extraHTTPHeaders['x-vercel-protection-bypass'],
+    harness.calls.routeContinueOptions[0].headers['x-vercel-protection-bypass'],
     'private-preview-bypass',
   );
+  assert.equal(harness.calls.routeContinueOptions[0].headers['x-vercel-skip-toolbar'], '1');
+  assert.equal(harness.calls.routeContinueOptions[0].headers.accept, 'text/html');
 });
 
 test('browser oracle does not mistake the normal target navigation for a probe resource', async () => {
@@ -165,18 +194,37 @@ test('browser oracle does not mistake the normal target navigation for a probe r
   assert.equal((await verify(validOptions())).passed, true);
 });
 
+test('browser oracle disables the Preview Toolbar even when no protection bypass is required', async () => {
+  const { createStoredXssBrowserVerifier } = await moduleUnderTest();
+  const harness = createHarness();
+  const verify = createStoredXssBrowserVerifier({ launchBrowser: harness.launchBrowser });
+
+  assert.equal((await verify(validOptions({ bypassSecret: '' }))).passed, true);
+  let continuedHeaders = null;
+  await harness.calls.routeHandler({
+    abort: async () => assert.fail('same-origin request must not be aborted'),
+    continue: async ({ headers }) => { continuedHeaders = headers; },
+    request: () => browserRequest(),
+  });
+  assert.equal(continuedHeaders['x-vercel-skip-toolbar'], '1');
+  assert.equal(
+    Object.keys(continuedHeaders).some((name) => name.toLowerCase() === 'x-vercel-protection-bypass'),
+    false,
+  );
+});
+
 test('browser oracle permits only exact passive Google Fonts reads and keeps all other cross-origin traffic forbidden', async () => {
   const { createStoredXssBrowserVerifier } = await moduleUnderTest();
-  const request = ({ url, method = 'GET', resourceType }) => ({
-    method: () => method,
-    resourceType: () => resourceType,
-    url: () => url,
-  });
-  const stylesheetRequest = request({
+  const stylesheetRequest = browserRequest({
     url: 'https://fonts.googleapis.com/css2?family=Manrope:wght@400;700&display=swap',
     resourceType: 'stylesheet',
+    headers: {
+      accept: 'text/css',
+      'X-Vercel-Protection-Bypass': 'must-not-leave-preview-origin',
+      'X-Vercel-Skip-Toolbar': '1',
+    },
   });
-  const fontRequest = request({
+  const fontRequest = browserRequest({
     url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.woff2',
     resourceType: 'font',
   });
@@ -189,23 +237,31 @@ test('browser oracle permits only exact passive Google Fonts reads and keeps all
   assert.equal((await createStoredXssBrowserVerifier({ launchBrowser: allowed.launchBrowser })(validOptions())).passed, true);
 
   for (const allowedRequest of [stylesheetRequest, fontRequest]) {
-    const routeCalls = { abort: 0, continue: 0 };
+    const routeCalls = { abort: 0, continue: 0, options: null };
     await allowed.calls.routeHandler({
       abort: async () => { routeCalls.abort += 1; },
-      continue: async () => { routeCalls.continue += 1; },
+      continue: async (options) => {
+        routeCalls.continue += 1;
+        routeCalls.options = options;
+      },
       request: () => allowedRequest,
     });
-    assert.deepEqual(routeCalls, { abort: 0, continue: 1 });
+    assert.equal(routeCalls.abort, 0);
+    assert.equal(routeCalls.continue, 1);
+    const forwardedHeaderNames = Object.keys(routeCalls.options.headers).map((name) => name.toLowerCase());
+    assert.equal(forwardedHeaderNames.includes('x-vercel-protection-bypass'), false);
+    assert.equal(forwardedHeaderNames.includes('x-vercel-skip-toolbar'), false);
   }
 
   for (const forbiddenRequest of [
-    request({ url: 'https://fonts.googleapis.com/css2?display=swap', resourceType: 'stylesheet' }),
-    request({ url: 'https://fonts.googleapis.com/css2?family=Manrope', method: 'POST', resourceType: 'stylesheet' }),
-    request({ url: 'https://fonts.googleapis.com/css2?family=Manrope', resourceType: 'script' }),
-    request({ url: 'https://fonts.googleapis.com/css?family=Manrope', resourceType: 'stylesheet' }),
-    request({ url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.woff2?token=unexpected', resourceType: 'font' }),
-    request({ url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.js', resourceType: 'font' }),
-    request({ url: 'https://example.com/font.woff2', resourceType: 'font' }),
+    browserRequest({ url: 'https://fonts.googleapis.com/css2?display=swap', resourceType: 'stylesheet' }),
+    browserRequest({ url: 'https://fonts.googleapis.com/css2?family=Manrope', method: 'POST', resourceType: 'stylesheet' }),
+    browserRequest({ url: 'https://fonts.googleapis.com/css2?family=Manrope', resourceType: 'script' }),
+    browserRequest({ url: 'https://fonts.googleapis.com/css?family=Manrope', resourceType: 'stylesheet' }),
+    browserRequest({ url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.woff2?token=unexpected', resourceType: 'font' }),
+    browserRequest({ url: 'https://fonts.gstatic.com/s/manrope/v20/font-file.js', resourceType: 'font' }),
+    browserRequest({ url: 'https://example.com/font.woff2', resourceType: 'font' }),
+    browserRequest({ url: 'https://vercel.live/_next-live/feedback/feedback.js', resourceType: 'script' }),
   ]) {
     const forbidden = createHarness({
       duringGoto: ({ emit }) => emit('request', forbiddenRequest),
