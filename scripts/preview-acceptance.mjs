@@ -3150,6 +3150,8 @@ export async function runPreviewAcceptance({
         probeToken: runId,
         bypassSecret,
         executablePath: browserExecutablePath,
+        expectedSupabaseProjectRef,
+        allowedPublicMediaUrls: state.publicMediaUrls,
       });
     } catch (error) {
       throw new AcceptanceError(

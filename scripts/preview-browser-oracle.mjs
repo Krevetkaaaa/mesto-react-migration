@@ -6,6 +6,9 @@ const NAVIGATION_TIMEOUT_MS = 15_000;
 const UNIQUE_PREVIEW_HOST_PATTERN = /^[a-z0-9-]+-[a-z0-9]{9}-[a-z0-9-]+\.vercel\.app$/;
 const SAFE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?$/;
 const SAFE_PROBE_PATTERN = /^[a-zA-Z0-9_-]{8,160}$/;
+const SUPABASE_PROJECT_REF_PATTERN = /^[a-z0-9]{8,40}$/;
+const PUBLIC_MEDIA_PATH_PATTERN = /^\/storage\/v1\/object\/public\/mesto-media-public\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:thumb|card|hero)\.webp$/i;
+const MAX_ALLOWED_PUBLIC_MEDIA_URLS = 36;
 const PRODUCTION_ORIGIN = 'https://mesto-city-guide.vercel.app';
 const PROTECTION_BYPASS_HEADER = 'x-vercel-protection-bypass';
 const SKIP_TOOLBAR_HEADER = 'x-vercel-skip-toolbar';
@@ -45,7 +48,60 @@ export function validateImmutablePreviewOrigin(value) {
   return candidate.origin;
 }
 
-function validateInputs({ baseUrl, venueSlug, expectedTitle, probeToken, executablePath }) {
+function validateAllowedPublicMediaUrls({
+  expectedSupabaseProjectRef,
+  allowedPublicMediaUrls,
+  probeToken,
+}) {
+  const projectRef = String(expectedSupabaseProjectRef || '').trim();
+  const candidates = allowedPublicMediaUrls ?? [];
+  invariant(Array.isArray(candidates), 'ALLOWED_PUBLIC_MEDIA_URLS_INVALID');
+  invariant(candidates.length <= MAX_ALLOWED_PUBLIC_MEDIA_URLS, 'ALLOWED_PUBLIC_MEDIA_URLS_INVALID');
+  if (candidates.length === 0) {
+    invariant(!projectRef || SUPABASE_PROJECT_REF_PATTERN.test(projectRef), 'EXPECTED_SUPABASE_PROJECT_REF_INVALID');
+    return new Set();
+  }
+
+  invariant(SUPABASE_PROJECT_REF_PATTERN.test(projectRef), 'EXPECTED_SUPABASE_PROJECT_REF_REQUIRED');
+  const expectedOrigin = `https://${projectRef}.supabase.co`;
+  const allowed = new Set();
+  for (const candidate of candidates) {
+    invariant(typeof candidate === 'string' && candidate === candidate.trim(), 'ALLOWED_PUBLIC_MEDIA_URL_INVALID');
+    let url;
+    try {
+      url = new URL(candidate);
+    } catch {
+      throw new PreviewBrowserOracleError('ALLOWED_PUBLIC_MEDIA_URL_INVALID');
+    }
+    invariant(
+      url.protocol === 'https:'
+        && url.origin === expectedOrigin
+        && !url.username
+        && !url.password
+        && !url.port,
+      'ALLOWED_PUBLIC_MEDIA_PROVIDER_MISMATCH',
+    );
+    invariant(!url.search && !url.hash && url.href === candidate, 'ALLOWED_PUBLIC_MEDIA_URL_INVALID');
+    invariant(PUBLIC_MEDIA_PATH_PATTERN.test(url.pathname), 'ALLOWED_PUBLIC_MEDIA_PATH_INVALID');
+    invariant(
+      !candidate.includes(probeToken) && !candidate.includes(encodeURIComponent(probeToken)),
+      'PROBE_TOKEN_IN_ALLOWED_PUBLIC_MEDIA_URL',
+    );
+    invariant(!allowed.has(candidate), 'ALLOWED_PUBLIC_MEDIA_URL_DUPLICATE');
+    allowed.add(candidate);
+  }
+  return allowed;
+}
+
+function validateInputs({
+  baseUrl,
+  venueSlug,
+  expectedTitle,
+  probeToken,
+  executablePath,
+  expectedSupabaseProjectRef,
+  allowedPublicMediaUrls,
+}) {
   const origin = validateImmutablePreviewOrigin(baseUrl);
   const slug = String(venueSlug || '').trim();
   const title = String(expectedTitle || '');
@@ -56,6 +112,11 @@ function validateInputs({ baseUrl, venueSlug, expectedTitle, probeToken, executa
   invariant(title.length > 0 && title.length <= 240, 'INVALID_EXPECTED_TITLE');
   invariant(SAFE_PROBE_PATTERN.test(probe), 'INVALID_PROBE_TOKEN');
   invariant(browserExecutable.length > 0 && isAbsolute(browserExecutable), 'EXPLICIT_EXECUTABLE_PATH_REQUIRED');
+  const allowedPublicMedia = validateAllowedPublicMediaUrls({
+    expectedSupabaseProjectRef,
+    allowedPublicMediaUrls,
+    probeToken: probe,
+  });
 
   return {
     origin,
@@ -63,6 +124,7 @@ function validateInputs({ baseUrl, venueSlug, expectedTitle, probeToken, executa
     expectedTitle: title,
     probeToken: probe,
     executablePath: browserExecutable,
+    allowedPublicMedia,
   };
 }
 
@@ -74,7 +136,7 @@ function requestUrl(request) {
   }
 }
 
-function isAllowedPassiveCrossOriginRequest(request) {
+function isAllowedPassiveCrossOriginRequest(request, allowedPublicMedia = new Set()) {
   const url = requestUrl(request);
   if (!url || url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) return false;
 
@@ -87,6 +149,8 @@ function isAllowedPassiveCrossOriginRequest(request) {
     return false;
   }
   if (method !== 'GET') return false;
+
+  if (allowedPublicMedia.has(url.href)) return resourceType === 'image';
 
   if (url.origin === 'https://fonts.googleapis.com') {
     return resourceType === 'stylesheet'
@@ -143,7 +207,7 @@ function removeHeader(headers, expectedName) {
   }
 }
 
-async function routeBrowserRequest(route, origin, bypassSecret) {
+async function routeBrowserRequest(route, origin, bypassSecret, allowedPublicMedia) {
   const request = route.request();
   let url;
   try {
@@ -155,7 +219,7 @@ async function routeBrowserRequest(route, origin, bypassSecret) {
 
   if (/^https?:$/.test(url.protocol)
     && url.origin !== origin
-    && !isAllowedPassiveCrossOriginRequest(request)) {
+    && !isAllowedPassiveCrossOriginRequest(request, allowedPublicMedia)) {
     await route.abort('blockedbyclient');
     return;
   }
@@ -225,7 +289,7 @@ async function settleAndAssert(page, expectedTitle, probeToken) {
   assertOracleState(await readOracleState(page, expectedTitle, probeToken), expectedTitle);
 }
 
-function attachEventOracles(page, origin, targetUrl, probeToken) {
+function attachEventOracles(page, origin, targetUrl, probeToken, allowedPublicMedia) {
   const failures = {
     consoleErrors: 0,
     crossOriginRequests: 0,
@@ -248,7 +312,7 @@ function attachEventOracles(page, origin, targetUrl, probeToken) {
     if (url
       && /^https?:$/.test(url.protocol)
       && url.origin !== origin
-      && !isAllowedPassiveCrossOriginRequest(request)) failures.crossOriginRequests += 1;
+      && !isAllowedPassiveCrossOriginRequest(request, allowedPublicMedia)) failures.crossOriginRequests += 1;
     if (isProbeResourceRequest(request, targetUrl, probeToken)) failures.probeResourceRequests += 1;
   });
   page.on('requestfailed', () => {
@@ -283,6 +347,7 @@ export function createStoredXssBrowserVerifier({ launchBrowser } = {}) {
       expectedTitle,
       probeToken,
       executablePath,
+      allowedPublicMedia,
     } = validateInputs(options || {});
     const bypassSecret = String(options?.bypassSecret || '');
 
@@ -309,12 +374,23 @@ export function createStoredXssBrowserVerifier({ launchBrowser } = {}) {
         delete globalThis.__mestoAcceptance;
         delete globalThis.__storedXssExecuted;
       });
-      await context.route('**/*', (route) => routeBrowserRequest(route, origin, bypassSecret));
+      await context.route('**/*', (route) => routeBrowserRequest(
+        route,
+        origin,
+        bypassSecret,
+        allowedPublicMedia,
+      ));
 
       const page = await context.newPage();
       page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
       page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
-      const eventFailures = attachEventOracles(page, origin, targetUrl, probeToken);
+      const eventFailures = attachEventOracles(
+        page,
+        origin,
+        targetUrl,
+        probeToken,
+        allowedPublicMedia,
+      );
 
       const initialResponse = await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
       assertNavigationResponse(initialResponse, page, targetUrl);
@@ -367,6 +443,8 @@ export function verifyStoredXssBrowser({
   probeToken,
   bypassSecret = '',
   executablePath,
+  expectedSupabaseProjectRef = '',
+  allowedPublicMediaUrls = [],
 }) {
   return defaultVerifier({
     baseUrl,
@@ -375,5 +453,7 @@ export function verifyStoredXssBrowser({
     probeToken,
     bypassSecret,
     executablePath,
+    expectedSupabaseProjectRef,
+    allowedPublicMediaUrls,
   });
 }
