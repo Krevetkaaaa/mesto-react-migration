@@ -11,6 +11,15 @@ const PROJECT_ID_PATTERN = /^prj_[A-Za-z0-9]+$/;
 const TEAM_ID_PATTERN = /^team_[A-Za-z0-9]+$/;
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const SUPABASE_PROJECT_REF_PATTERN = /^[a-z0-9]{8,40}$/;
+const LOAD_ERROR_CATEGORIES = Object.freeze(['timeout', 'aborted', 'transport', 'response-validation']);
+
+class PreviewLoadResponseValidationError extends Error {
+  constructor(code, message = 'Preview response validation failed') {
+    super(message);
+    this.name = 'PreviewLoadResponseValidationError';
+    this.code = code;
+  }
+}
 
 export const PREVIEW_LOAD_STAGES = Object.freeze({
   expected: Object.freeze({
@@ -253,7 +262,7 @@ async function boundedBytes(response, maximumBytes = MAX_RESPONSE_BYTES) {
   const declared = Number(response.headers.get('content-length') || 0);
   if (Number.isFinite(declared) && declared > maximumBytes) {
     await response.body?.cancel().catch(() => {});
-    throw new Error('Preview response exceeded the byte cap');
+    throw new PreviewLoadResponseValidationError('BODY_CAP', 'Preview response exceeded the byte cap');
   }
   if (!response.body) return { bytes: 0, buffer: Buffer.alloc(0) };
   const reader = response.body.getReader();
@@ -265,7 +274,7 @@ async function boundedBytes(response, maximumBytes = MAX_RESPONSE_BYTES) {
     total += value.byteLength;
     if (total > maximumBytes) {
       await reader.cancel().catch(() => {});
-      throw new Error('Preview response exceeded the byte cap');
+      throw new PreviewLoadResponseValidationError('BODY_CAP', 'Preview response exceeded the byte cap');
     }
     chunks.push(Buffer.from(value));
   }
@@ -411,8 +420,7 @@ export async function verifyPreviewReleaseFingerprint({
   });
 }
 
-async function requestDocument(url, headers = {}, fetchImpl = fetch) {
-  const startedAt = performance.now();
+async function requestDocument(url, headers = {}, fetchImpl = fetch, now = () => performance.now(), startedAt = now()) {
   const response = await fetchImpl(url, {
     headers,
     redirect: 'manual',
@@ -420,18 +428,65 @@ async function requestDocument(url, headers = {}, fetchImpl = fetch) {
   });
   const body = await boundedBytes(response);
   if (response.status === 200) {
-    validateEdgeDocumentResponse({
-      url,
-      response,
-      body: new TextDecoder('utf-8', { fatal: true }).decode(body.buffer)
-    });
+    try {
+      validateEdgeDocumentResponse({
+        url,
+        response,
+        body: new TextDecoder('utf-8', { fatal: true }).decode(body.buffer)
+      });
+    } catch {
+      throw new PreviewLoadResponseValidationError('DOCUMENT');
+    }
   }
   return {
     bytes: body.bytes,
     edgeDocumentCacheHit: edgeDocumentCacheHit(response.headers),
-    latencyMs: performance.now() - startedAt,
+    latencyMs: now() - startedAt,
     status: response.status
   };
+}
+
+function errorMetadata(error) {
+  if (error instanceof PreviewLoadResponseValidationError) {
+    return { category: 'response-validation', code: `RESPONSE_${error.code}` };
+  }
+  const name = String(error?.name || '');
+  const code = String(error?.code || '');
+  if (name === 'TimeoutError') return { category: 'timeout', code: 'REQUEST_TIMEOUT' };
+  if (name === 'AbortError' || code === 'ABORT_ERR') return { category: 'aborted', code: 'REQUEST_ABORTED' };
+  return { category: 'transport', code: 'NETWORK_FAILURE' };
+}
+
+function measuredLatency(elapsedMs, category) {
+  if (category === 'timeout' || category === 'aborted') return REQUEST_TIMEOUT_MS;
+  const numericElapsed = Number(elapsedMs);
+  return Number.isFinite(numericElapsed) && numericElapsed >= 0
+    ? Number(numericElapsed.toFixed(2))
+    : 0;
+}
+
+export async function collectPreviewLoadSample({
+  url,
+  headers = {},
+  fetchImpl = fetch,
+  now = () => performance.now()
+}) {
+  const startedAt = now();
+  try {
+    return await requestDocument(url, headers, fetchImpl, now, startedAt);
+  } catch (error) {
+    const failure = errorMetadata(error);
+    return {
+      bytes: 0,
+      edgeDocumentCacheHit: false,
+      latencyMs: measuredLatency(now() - startedAt, failure.category),
+      status: 0,
+      transportError: failure.category !== 'response-validation',
+      responseValidationError: failure.category === 'response-validation',
+      errorCategory: failure.category,
+      errorCode: failure.code
+    };
+  }
 }
 
 export async function warmPreviewCache(baseUrl, { bypassSecret = '', fetchImpl = fetch } = {}) {
@@ -457,8 +512,18 @@ export function summarizePreviewLoad(samples, elapsedMs) {
   let edgeDocumentCacheHits = 0;
   let bytes = 0;
   let transportErrors = 0;
+  let responseValidationErrors = 0;
+  const errorCategories = Object.fromEntries(LOAD_ERROR_CATEGORIES.map((category) => [category, 0]));
+  const errorCodes = {};
   for (const sample of samples) {
     if (sample.transportError) transportErrors += 1;
+    if (sample.responseValidationError) responseValidationErrors += 1;
+    if (LOAD_ERROR_CATEGORIES.includes(sample.errorCategory)) {
+      errorCategories[sample.errorCategory] += 1;
+    }
+    if (/^[A-Z_]+$/.test(String(sample.errorCode || ''))) {
+      errorCodes[sample.errorCode] = (errorCodes[sample.errorCode] || 0) + 1;
+    }
     if (sample.status) statuses[sample.status] = (statuses[sample.status] || 0) + 1;
     if (sample.edgeDocumentCacheHit) edgeDocumentCacheHits += 1;
     bytes += sample.bytes || 0;
@@ -475,6 +540,9 @@ export function summarizePreviewLoad(samples, elapsedMs) {
     },
     statuses,
     transportErrors,
+    responseValidationErrors,
+    errorCategories,
+    errorCodes,
     responseBytes: bytes,
     edgeDocumentCacheHits,
     edgeDocumentCacheHitRatio: Number((edgeDocumentCacheHits / Math.max(1, samples.length)).toFixed(4))
@@ -488,6 +556,7 @@ export function evaluatePreviewLoad(summary, stage) {
     .filter(([status]) => Number(status) !== 200)
     .reduce((total, [, count]) => total + count, 0);
   if (summary.transportErrors) failures.push(`${summary.transportErrors} transport errors`);
+  if (summary.responseValidationErrors) failures.push(`${summary.responseValidationErrors} response validation errors`);
   if (summary.requests !== expectedRequests) failures.push(`${summary.requests} requests completed, expected ${expectedRequests}`);
   if (unexpectedStatuses) failures.push(`${unexpectedStatuses} non-200 responses`);
   if (summary.latencyMs.p95 === null || summary.latencyMs.p95 > stage.latency.p95) {
@@ -553,32 +622,20 @@ export async function runPreviewLoad({
   await warmPreviewCache(target, { bypassSecret, fetchImpl: appFetch });
   const headers = bypassSecret ? { 'x-vercel-protection-bypass': bypassSecret } : {};
   const samples = [];
-  let abortReason = '';
   let sequence = 0;
   const loadStartedAt = performance.now();
 
   async function worker(workerIndex) {
-    for (let cycle = 0; cycle < stage.cycles && !abortReason; cycle += 1) {
+    for (let cycle = 0; cycle < stage.cycles; cycle += 1) {
       const pathname = stageName === 'burst'
         ? '/venue/barkas'
         : EDGE_DOCUMENT_PATHS[(sequence++) % EDGE_DOCUMENT_PATHS.length];
-      try {
-        samples.push(await requestDocument(new URL(pathname, target), headers, appFetch));
-      } catch {
-        samples.push({
-          bytes: 0,
-          edgeDocumentCacheHit: false,
-          latencyMs: REQUEST_TIMEOUT_MS,
-          status: 0,
-          transportError: true
-        });
-      }
-      if (samples.length >= 100) {
-        const recent = samples.slice(-100);
-        const failures = recent.filter((sample) => sample.transportError || sample.status !== 200).length;
-        if (failures / recent.length > 0.02) abortReason = 'rolling transport/non-200 rate exceeded 2%';
-      }
-      if (cycle + 1 < stage.cycles && !abortReason) {
+      samples.push(await collectPreviewLoadSample({
+        url: new URL(pathname, target),
+        headers,
+        fetchImpl: appFetch
+      }));
+      if (cycle + 1 < stage.cycles) {
         const jitter = (workerIndex * 37 + cycle * 17) % 251;
         await delay(stage.thinkTimeMs + jitter);
       }
@@ -588,10 +645,6 @@ export async function runPreviewLoad({
   await Promise.all(Array.from({ length: stage.virtualUsers }, (_, index) => worker(index)));
   const summary = summarizePreviewLoad(samples, performance.now() - loadStartedAt);
   const slo = evaluatePreviewLoad(summary, stage);
-  if (abortReason) {
-    slo.passed = false;
-    slo.failures.push(abortReason);
-  }
   return {
     schemaVersion: 1,
     kind: 'mesto.preview.edge-document-load',

@@ -391,6 +391,127 @@ test('Preview load summary names cache evidence as edge document cache evidence'
   assert.equal(Object.hasOwn(summary, 'cacheHits'), false);
 });
 
+test('Load samples retain measured latency for an immediate sanitized network failure', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const ticks = [10, 17];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => {
+      throw new Error(`network failed for ${secret}`);
+    },
+    now: () => ticks.shift()
+  });
+  assert.deepEqual(sample, {
+    bytes: 0,
+    edgeDocumentCacheHit: false,
+    latencyMs: 7,
+    status: 0,
+    transportError: true,
+    responseValidationError: false,
+    errorCategory: 'transport',
+    errorCode: 'NETWORK_FAILURE'
+  });
+  assert.equal(JSON.stringify(sample).includes(secret), false);
+});
+
+test('Load samples reserve the timeout latency only for timeout or abort failures', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const ticks = [10, 11];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => {
+      const error = new Error('request exceeded a private URL deadline');
+      error.name = 'TimeoutError';
+      throw error;
+    },
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 10_000);
+  assert.equal(sample.errorCategory, 'timeout');
+  assert.equal(sample.errorCode, 'REQUEST_TIMEOUT');
+  assert.equal(sample.transportError, true);
+});
+
+test('Load samples classify malformed successful responses as response-validation failures', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const ticks = [20, 26];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => htmlResponse('<!doctype html><main>not the expected route</main>'),
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 6);
+  assert.equal(sample.transportError, false);
+  assert.equal(sample.responseValidationError, true);
+  assert.equal(sample.errorCategory, 'response-validation');
+  assert.equal(sample.errorCode, 'RESPONSE_DOCUMENT');
+});
+
+test('Load samples keep response stream failures in the sanitized transport category', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const ticks = [30, 34];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.error(new Error(`stream failed for ${secret}`));
+      }
+    }), { status: 200, headers: { 'content-type': 'text/html' } }),
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 4);
+  assert.equal(sample.transportError, true);
+  assert.equal(sample.responseValidationError, false);
+  assert.equal(sample.errorCategory, 'transport');
+  assert.equal(sample.errorCode, 'NETWORK_FAILURE');
+  assert.equal(JSON.stringify(sample).includes(secret), false);
+});
+
+test('Load samples classify the response byte cap as sanitized response validation', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const ticks = [40, 43];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => new Response('<!doctype html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html', 'content-length': String(3 * 1024 * 1024) }
+    }),
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 3);
+  assert.equal(sample.transportError, false);
+  assert.equal(sample.responseValidationError, true);
+  assert.equal(sample.errorCategory, 'response-validation');
+  assert.equal(sample.errorCode, 'RESPONSE_BODY_CAP');
+});
+
+test('Load summary aggregates only sanitized failure categories and codes', async () => {
+  const { summarizePreviewLoad } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const summary = summarizePreviewLoad([
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 5, status: 0, transportError: true, errorCategory: 'transport', errorCode: 'NETWORK_FAILURE' },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 10_000, status: 0, transportError: true, errorCategory: 'timeout', errorCode: 'REQUEST_TIMEOUT' },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 3, status: 0, responseValidationError: true, errorCategory: 'response-validation', errorCode: 'RESPONSE_DOCUMENT' },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 2, status: 0, transportError: true, errorCategory: 'transport', errorCode: secret }
+  ], 10_010);
+  assert.equal(summary.transportErrors, 3);
+  assert.equal(summary.responseValidationErrors, 1);
+  assert.deepEqual(summary.errorCategories, {
+    timeout: 1,
+    aborted: 0,
+    transport: 2,
+    'response-validation': 1
+  });
+  assert.deepEqual(summary.errorCodes, {
+    NETWORK_FAILURE: 1,
+    REQUEST_TIMEOUT: 1,
+    RESPONSE_DOCUMENT: 1
+  });
+  assert.equal(JSON.stringify(summary).includes(secret), false);
+});
+
 test('Preview load SLO rejects poor edge cache ratio and tail latency without relaxing limits', async () => {
   const { evaluatePreviewLoad, PREVIEW_LOAD_STAGES } = await moduleUnderTest();
   const outcome = evaluatePreviewLoad({
@@ -417,6 +538,40 @@ test('Preview load SLO cannot pass with a partial sample', async () => {
   }, PREVIEW_LOAD_STAGES.burst);
   assert.equal(outcome.passed, false);
   assert.match(outcome.failures[0], /expected 300/);
+});
+
+test('Burst reports all scheduled samples even when every post-warmup response fails', async () => {
+  const { runPreviewLoad } = await moduleUnderTest();
+  let warmupRequests = 0;
+  const appFetch = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/api/release-fingerprint') return Response.json(fingerprintPayload());
+    if (warmupRequests < 4) {
+      warmupRequests += 1;
+      const marker = pathname === '/' ? 'data-react-route="home" id="guide"'
+        : pathname === '/catalog' ? 'data-react-route="catalog" id="catalog-view"'
+          : 'data-react-route="catalog" id="venue-dialog"';
+      return htmlResponse(`<!doctype html><main ${marker}></main>`);
+    }
+    return new Response('unavailable', { status: 503, headers: { 'content-type': 'text/html' } });
+  };
+  const result = await runPreviewLoad({
+    baseUrl: preview,
+    allowedOrigin: preview,
+    deploymentId,
+    expectedCommitSha: commitSha,
+    projectId,
+    stageName: 'burst',
+    ...providerExpectation,
+    teamId,
+    vercelToken: 'token',
+    deploymentFetch: async () => Response.json(deploymentPayload()),
+    appFetch
+  });
+  assert.equal(result.summary.requests, 300);
+  assert.deepEqual(result.summary.statuses, { 503: 300 });
+  assert.equal(result.slo.passed, false);
+  assert.equal(result.slo.failures.some((failure) => /rolling/.test(failure)), false);
 });
 
 test('Preview load byte cap cancels a chunked body before buffering the remainder', async () => {
