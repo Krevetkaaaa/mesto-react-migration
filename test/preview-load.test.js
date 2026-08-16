@@ -415,6 +415,126 @@ test('Load samples retain measured latency for an immediate sanitized network fa
   assert.equal(JSON.stringify(sample).includes(secret), false);
 });
 
+test('Load samples retain an allowlisted nested ENOBUFS transport code without exposing error details', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const ticks = [10, 17];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => {
+      const cause = new Error(`connection reset for ${secret}`);
+      cause.code = 'ENOBUFS';
+      throw new TypeError(`fetch failed for ${secret}`, { cause });
+    },
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 7);
+  assert.equal(sample.errorCategory, 'transport');
+  assert.equal(sample.errorCode, 'ENOBUFS');
+  assert.equal(JSON.stringify(sample).includes(secret), false);
+});
+
+test('Load samples redact unknown, secret, overly deep, cyclic, and aggregate transport codes', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 12];
+      return () => ticks.shift();
+    })()
+  });
+
+  const unknown = new Error(`network failed for ${secret}`);
+  unknown.code = secret;
+  const cyclic = new Error('cycle');
+  cyclic.cause = cyclic;
+  cyclic.code = 'PRIVATE_CYCLE_CODE';
+  const deep = new Error('outer');
+  deep.cause = { cause: { cause: { cause: { code: 'ECONNRESET' } } } };
+  const aggregate = new AggregateError([
+    Object.assign(new Error('unknown'), { code: 'PRIVATE_AGGREGATE_CODE' }),
+    Object.assign(new Error('safe'), { code: 'EAI_AGAIN' })
+  ], `aggregate for ${secret}`);
+
+  for (const error of [unknown, cyclic, deep]) {
+    const sample = await sampleFor(error);
+    assert.equal(sample.errorCode, 'NETWORK_FAILURE');
+    assert.equal(JSON.stringify(sample).includes(secret), false);
+  }
+  const aggregateSample = await sampleFor(aggregate);
+  assert.equal(aggregateSample.errorCode, 'EAI_AGAIN');
+  assert.equal(JSON.stringify(aggregateSample).includes(secret), false);
+});
+
+test('Load sample error traversal keeps aggregate, node, and cause ordering bounds', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 12];
+      return () => ticks.shift();
+    })()
+  });
+  const safe = (code) => Object.assign(new Error(code), { code });
+  const aggregateSlice = new AggregateError([
+    new Error('first'),
+    new Error('second'),
+    new Error('third'),
+    safe('ECONNRESET')
+  ], 'aggregate slice bound');
+  assert.equal((await sampleFor(aggregateSlice)).errorCode, 'NETWORK_FAILURE');
+
+  const first = new Error('first');
+  const second = new Error('second');
+  const third = new Error('third');
+  const firstCause = new Error('first cause');
+  const secondCause = new Error('second cause');
+  const thirdCause = new Error('third cause');
+  first.cause = firstCause;
+  second.cause = secondCause;
+  third.cause = thirdCause;
+  firstCause.cause = new Error('eighth node');
+  secondCause.cause = safe('ECONNRESET');
+  const nodeLimit = new AggregateError([first, second, third], 'node bound');
+  assert.equal((await sampleFor(nodeLimit)).errorCode, 'NETWORK_FAILURE');
+
+  const causeFirst = new Error('outer');
+  causeFirst.cause = safe('ENOTFOUND');
+  causeFirst.errors = [safe('EAI_AGAIN')];
+  assert.equal((await sampleFor(causeFirst)).errorCode, 'ENOTFOUND');
+});
+
+test('Load samples fail closed when error metadata getters or proxies throw', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 12];
+      return () => ticks.shift();
+    })()
+  });
+  const throwingGetter = Object.defineProperties({}, {
+    name: { get() { throw new Error(secret); } },
+    code: { get() { throw new Error(secret); } },
+    cause: { get() { throw new Error(secret); } },
+    errors: { get() { throw new Error(secret); } }
+  });
+  const throwingProxy = new Proxy({}, {
+    get() { throw new Error(secret); },
+    getPrototypeOf() { throw new Error(secret); }
+  });
+  for (const error of [throwingGetter, throwingProxy]) {
+    const sample = await sampleFor(error);
+    assert.equal(sample.errorCode, 'NETWORK_FAILURE');
+    assert.equal(JSON.stringify(sample).includes(secret), false);
+  }
+});
+
 test('Load samples reserve the timeout latency only for timeout or abort failures', async () => {
   const { collectPreviewLoadSample } = await moduleUnderTest();
   const ticks = [10, 11];
@@ -431,6 +551,31 @@ test('Load samples reserve the timeout latency only for timeout or abort failure
   assert.equal(sample.errorCategory, 'timeout');
   assert.equal(sample.errorCode, 'REQUEST_TIMEOUT');
   assert.equal(sample.transportError, true);
+});
+
+test('Load samples preserve outer timeout and abort semantics over nested transport codes', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 11];
+      return () => ticks.shift();
+    })()
+  });
+  const timeout = new Error('timed out', { cause: Object.assign(new Error('socket'), { code: 'ECONNRESET' }) });
+  timeout.name = 'TimeoutError';
+  const aborted = Object.assign(new Error('aborted', { cause: Object.assign(new Error('socket'), { code: 'ECONNRESET' }) }), { code: 'ABORT_ERR' });
+  const timeoutSample = await sampleFor(timeout);
+  const abortedSample = await sampleFor(aborted);
+  assert.deepEqual(
+    { errorCategory: timeoutSample.errorCategory, errorCode: timeoutSample.errorCode },
+    { errorCategory: 'timeout', errorCode: 'REQUEST_TIMEOUT' }
+  );
+  assert.deepEqual(
+    { errorCategory: abortedSample.errorCategory, errorCode: abortedSample.errorCode },
+    { errorCategory: 'aborted', errorCode: 'REQUEST_ABORTED' }
+  );
 });
 
 test('Load samples classify malformed successful responses as response-validation failures', async () => {
@@ -494,20 +639,22 @@ test('Load summary aggregates only sanitized failure categories and codes', asyn
     { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 5, status: 0, transportError: true, errorCategory: 'transport', errorCode: 'NETWORK_FAILURE' },
     { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 10_000, status: 0, transportError: true, errorCategory: 'timeout', errorCode: 'REQUEST_TIMEOUT' },
     { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 3, status: 0, responseValidationError: true, errorCategory: 'response-validation', errorCode: 'RESPONSE_DOCUMENT' },
-    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 2, status: 0, transportError: true, errorCategory: 'transport', errorCode: secret }
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 2, status: 0, transportError: true, errorCategory: 'transport', errorCode: secret },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 2, status: 0, transportError: true, errorCategory: 'transport', errorCode: 'ECONNREFUSED' }
   ], 10_010);
-  assert.equal(summary.transportErrors, 3);
+  assert.equal(summary.transportErrors, 4);
   assert.equal(summary.responseValidationErrors, 1);
   assert.deepEqual(summary.errorCategories, {
     timeout: 1,
     aborted: 0,
-    transport: 2,
+    transport: 3,
     'response-validation': 1
   });
   assert.deepEqual(summary.errorCodes, {
     NETWORK_FAILURE: 1,
     REQUEST_TIMEOUT: 1,
-    RESPONSE_DOCUMENT: 1
+    RESPONSE_DOCUMENT: 1,
+    ECONNREFUSED: 1
   });
   assert.equal(JSON.stringify(summary).includes(secret), false);
 });

@@ -12,6 +12,32 @@ const TEAM_ID_PATTERN = /^team_[A-Za-z0-9]+$/;
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const SUPABASE_PROJECT_REF_PATTERN = /^[a-z0-9]{8,40}$/;
 const LOAD_ERROR_CATEGORIES = Object.freeze(['timeout', 'aborted', 'transport', 'response-validation']);
+const MAX_ERROR_CAUSE_DEPTH = 3;
+const MAX_ERROR_NODES = 8;
+const MAX_AGGREGATE_ERRORS = 3;
+const SAFE_TRANSPORT_ERROR_CODES = new Set([
+  'ECONNRESET',
+  'EADDRNOTAVAIL',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ENOBUFS',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_OVERFLOW'
+]);
+const SAFE_RESPONSE_VALIDATION_CODES = new Set(['BODY_CAP', 'DOCUMENT']);
+const SAFE_LOAD_ERROR_CODES = new Set([
+  'REQUEST_TIMEOUT',
+  'REQUEST_ABORTED',
+  'NETWORK_FAILURE',
+  'RESPONSE_VALIDATION_FAILURE',
+  ...SAFE_TRANSPORT_ERROR_CODES,
+  ...[...SAFE_RESPONSE_VALIDATION_CODES].map((code) => `RESPONSE_${code}`)
+]);
 
 class PreviewLoadResponseValidationError extends Error {
   constructor(code, message = 'Preview response validation failed') {
@@ -446,14 +472,80 @@ async function requestDocument(url, headers = {}, fetchImpl = fetch, now = () =>
   };
 }
 
-function errorMetadata(error) {
-  if (error instanceof PreviewLoadResponseValidationError) {
-    return { category: 'response-validation', code: `RESPONSE_${error.code}` };
+function safeErrorProperty(error, property) {
+  try {
+    return error?.[property];
+  } catch {
+    return undefined;
   }
-  const name = String(error?.name || '');
-  const code = String(error?.code || '');
+}
+
+function safeErrorCode(error) {
+  const code = safeErrorProperty(error, 'code');
+  return typeof code === 'string' ? code : '';
+}
+
+function safeAggregateEntries(errors) {
+  try {
+    if (!Array.isArray(errors)) return [];
+    const length = Number.isSafeInteger(errors.length) ? Math.min(errors.length, MAX_AGGREGATE_ERRORS) : 0;
+    const entries = [];
+    for (let index = 0; index < length; index += 1) entries.push(errors[index]);
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
+function isResponseValidationError(error) {
+  try {
+    return error instanceof PreviewLoadResponseValidationError;
+  } catch {
+    return false;
+  }
+}
+
+function errorNodes(error) {
+  const nodes = [];
+  const queue = [{ error, depth: 0 }];
+  const seen = new Set();
+  while (queue.length && nodes.length < MAX_ERROR_NODES) {
+    const { error: current, depth } = queue.shift();
+    if ((!current || (typeof current !== 'object' && typeof current !== 'function')) || seen.has(current)) continue;
+    seen.add(current);
+    nodes.push(current);
+    if (depth >= MAX_ERROR_CAUSE_DEPTH) continue;
+    const cause = safeErrorProperty(current, 'cause');
+    if (cause && (typeof cause === 'object' || typeof cause === 'function')) {
+      queue.push({ error: cause, depth: depth + 1 });
+    }
+    for (const nested of safeAggregateEntries(safeErrorProperty(current, 'errors'))) {
+      queue.push({ error: nested, depth: depth + 1 });
+    }
+  }
+  return nodes;
+}
+
+function errorMetadata(error) {
+  if (isResponseValidationError(error)) {
+    const responseCode = safeErrorCode(error);
+    return {
+      category: 'response-validation',
+      code: SAFE_RESPONSE_VALIDATION_CODES.has(responseCode)
+        ? `RESPONSE_${responseCode}`
+        : 'RESPONSE_VALIDATION_FAILURE'
+    };
+  }
+  const name = safeErrorProperty(error, 'name');
+  const code = safeErrorCode(error);
   if (name === 'TimeoutError') return { category: 'timeout', code: 'REQUEST_TIMEOUT' };
   if (name === 'AbortError' || code === 'ABORT_ERR') return { category: 'aborted', code: 'REQUEST_ABORTED' };
+  for (const current of errorNodes(error)) {
+    const nestedCode = safeErrorCode(current);
+    if (SAFE_TRANSPORT_ERROR_CODES.has(nestedCode)) {
+      return { category: 'transport', code: nestedCode };
+    }
+  }
   return { category: 'transport', code: 'NETWORK_FAILURE' };
 }
 
@@ -521,7 +613,7 @@ export function summarizePreviewLoad(samples, elapsedMs) {
     if (LOAD_ERROR_CATEGORIES.includes(sample.errorCategory)) {
       errorCategories[sample.errorCategory] += 1;
     }
-    if (/^[A-Z_]+$/.test(String(sample.errorCode || ''))) {
+    if (SAFE_LOAD_ERROR_CODES.has(sample.errorCode)) {
       errorCodes[sample.errorCode] = (errorCodes[sample.errorCode] || 0) + 1;
     }
     if (sample.status) statuses[sample.status] = (statuses[sample.status] || 0) + 1;
