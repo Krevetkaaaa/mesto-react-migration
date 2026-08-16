@@ -307,7 +307,7 @@ function HomeFeaturedVenueGrid({ venues }: { venues: readonly HomeFeaturedVenue[
                 ><svg aria-hidden="true"><use href="#heart" /></svg></button>
                 {!isDatabaseVenue ? <span className="tag">{view.tag}</span> : null}
                 <span className="card-rating-badge"><svg aria-hidden="true"><use href={venue.rating === null ? "#logo-star" : "#star"} /></svg><b>{venue.rating === null ? "Проверяем" : view.rating}</b></span>
-                {view.pet ? <span className="pet-badge" data-tooltip="Можно с питомцами" aria-label="Можно с питомцами"><svg aria-hidden="true"><use href="#paw" /></svg></span> : null}
+                {view.pet ? <span className="pet-badge" data-tooltip="Можно с питомцами" role="img" aria-label="Можно с питомцами"><svg aria-hidden="true"><use href="#paw" /></svg></span> : null}
               </span>
               <span className="venue-body">
                 <strong>{venue.name}</strong>

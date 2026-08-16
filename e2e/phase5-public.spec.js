@@ -269,7 +269,7 @@ test.describe("Phase 5 catalog routes", () => {
 
   test("new routes have no serious WCAG axe violations", async ({ page }) => {
     test.skip((page.viewportSize()?.width || 0) !== 1440, "axe contract is exercised once at desktop");
-    for (const path of ["/catalog", "/city/simferopol", "/venue/tihiy-sad"]) {
+    for (const path of ["/", "/catalog", "/city/simferopol", "/venue/tihiy-sad"]) {
       await page.goto(path);
       await waitForStableUi(page);
       await expectNoSeriousAxeViolations(page);
@@ -378,6 +378,13 @@ for (const [name, path] of [
 for (const theme of ["graphite", "midnight"]) {
   test.describe(`Phase 5 ${theme} theme`, () => {
     test.use({ colorTheme: theme });
+    test(`Phase 5 theme ${theme} home has no serious WCAG axe violations`, async ({ page }) => {
+      test.skip((page.viewportSize()?.width || 0) !== 1440, "theme axe contract is exercised once at desktop");
+      await page.goto("/");
+      await waitForStableUi(page);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await expectNoSeriousAxeViolations(page);
+    });
     for (const [name, path] of [["catalog", "/catalog"], ["venue", "/venue/tihiy-sad"]]) {
       test(`Phase 5 theme ${theme} ${name}`, async ({ page }) => {
         test.skip((page.viewportSize()?.width || 0) !== 1440, "theme baseline is frozen at 1440px");

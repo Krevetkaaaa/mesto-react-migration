@@ -85,6 +85,14 @@ describe("React home cutover SSR contract", () => {
     }
   });
 
+  it("gives the pet-friendly icon an ARIA role that permits its accessible name", () => {
+    const document = renderDocument();
+    const badge = document.querySelector('.pet-badge[aria-label="Можно с питомцами"]');
+
+    expect(badge?.getAttribute("role")).toBe("img");
+    expect(badge?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("keeps database cards on the legacy address/source presentation", () => {
     const markup = renderToStaticMarkup(
       <PublicHomeView featuredVenues={[...HOME_FEATURED_VENUES, databaseVenue]} />,
