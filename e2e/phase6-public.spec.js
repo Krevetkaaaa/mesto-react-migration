@@ -17,6 +17,15 @@ async function expectNoUnexpectedSeriousAxeViolations(page) {
   expect(unexpected, JSON.stringify(unexpected, null, 2)).toEqual([]);
 }
 
+async function expectNoSeriousAxeViolations(page) {
+  const result = await runAxeWithCspNonce(
+    page,
+    () => new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze(),
+  );
+  const blocking = result.violations.filter(({ impact }) => impact === "critical" || impact === "serious");
+  expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+}
+
 test.describe("Phase 6 public account routes", () => {
   test("home account dialogs replace history and restore their keyboard triggers", async ({ page }, testInfo) => {
     functionalOnly(testInfo);
@@ -212,6 +221,24 @@ test.describe("Phase 6 public account routes", () => {
       await waitForStableUi(page);
       await expectNoUnexpectedSeriousAxeViolations(page);
     }
+  });
+
+  test("light login dialog has no serious or critical WCAG axe violations", async ({ page, fixtureApi }, testInfo) => {
+    functionalOnly(testInfo);
+    await page.addInitScript(() => window.localStorage.setItem("mesto-color-theme", "light"));
+    await page.goto("/login");
+    await waitForStableUi(page);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(page.locator(".social-auth-note")).toContainText("Внешние способы входа временно недоступны.");
+    await expectNoSeriousAxeViolations(page);
+
+    await fixtureApi.set({ oauthProviders: { google: true, yandex: true, vk: true } });
+    await page.goto("/login");
+    await waitForStableUi(page);
+    for (const provider of ["Google", "Яндекс", "ВКонтакте"]) {
+      await expect(page.locator(".social-grid button").filter({ hasText: provider })).toBeEnabled();
+    }
+    await expectNoSeriousAxeViolations(page);
   });
 });
 

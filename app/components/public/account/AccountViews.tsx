@@ -82,7 +82,7 @@ export function AuthDialog({ actionData, mode, oauthCallbackError, providers, re
   const error = oauthError || oauthCallbackError || actionData?.error || "";
 
   return (
-    <dialog ref={dialogRef} open className="form-dialog" aria-labelledby="account-auth-title">
+    <dialog ref={dialogRef} open className="form-dialog auth-dialog" aria-labelledby="account-auth-title">
       <button className="dialog-close" type="button" aria-label="Закрыть" onClick={() => dialogRef.current?.close()}>×</button>
       <div className="form-dialog-inner">
         <p className="eyebrow">{mode === "login" ? "Добро пожаловать в Место" : "Новый аккаунт"}</p>

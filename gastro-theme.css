@@ -900,6 +900,14 @@ main[data-react-route="home"] .card-rating-badge b { position:relative; top:-1px
 .form-dialog input,.form-dialog textarea,.form-dialog select { border-color:#e4dcd3; border-radius:8px; background:#fff; }
 .form-dialog .primary-action { color:#fff; background:var(--g-black); }
 .social-grid button { color:#4d4741; border-color:#e3dad0; background:#f8f3ed; }
+
+/* The compact account dialog uses small utility copy. Keep every light-theme
+   text/icon pairing comfortably above WCAG AA contrast on its paper surface. */
+:is(html:not([data-theme]),html[data-theme="light"]) .auth-dialog .eyebrow { color:#80613b; }
+:is(html:not([data-theme]),html[data-theme="light"]) .auth-dialog .form-lead { color:#665b51; }
+:is(html:not([data-theme]),html[data-theme="light"]) .auth-dialog .form-divider { color:#5f5a54; }
+:is(html:not([data-theme]),html[data-theme="light"]) .auth-dialog .social-auth-note { color:#746c63; }
+:is(html:not([data-theme]),html[data-theme="light"]) .auth-dialog .social-grid button:nth-child(3) b { background:#176ec5; }
 .toast { color:#fff; background:#292725; box-shadow:0 16px 40px rgba(31,26,21,.2); }
 .home-favorite-toast { width:min(560px,calc(100vw - 32px)); display:flex; align-items:center; justify-content:space-between; gap:16px; line-height:1.45; }
 .home-favorite-toast.is-actionable { pointer-events:auto; }
