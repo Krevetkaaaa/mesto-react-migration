@@ -10,8 +10,10 @@ const {
   FOREIGN_KEYS,
   PRIMARY_KEYS,
   REQUIRED_ACL_MIGRATION_VERSION,
+  REQUIRED_ADVISOR_MIGRATION_VERSION,
   REQUIRED_COLUMNS,
   RPCS,
+  SUPPORTING_INDEXES,
   UNIQUE_INDEXES,
   buildSupabaseSchemaPreflightSql,
   childEnvironment,
@@ -45,9 +47,11 @@ test('migration discovery is exact, ordered, and rejects malformed or duplicate 
   const versions = readMigrationVersions({ rootDirectory });
   assert.deepEqual(versions, [
     '20260728', '20260808', '20260810222309', '20260811160000',
-    '20260811163000', '20260811185937', '20260811212027', '20260817092029'
+    '20260811163000', '20260811185937', '20260811212027', '20260817092029',
+    '20260817121310'
   ]);
   assert.equal(versions.includes(REQUIRED_ACL_MIGRATION_VERSION), true);
+  assert.equal(versions.includes(REQUIRED_ADVISOR_MIGRATION_VERSION), true);
   assert.throws(
     () => readMigrationVersions({ migrationNames: ['20260101_one.sql', '20260101_two.sql'] }),
     /versions must be unique/
@@ -56,6 +60,10 @@ test('migration discovery is exact, ordered, and rejects malformed or duplicate 
   assert.throws(
     () => readMigrationVersions({ migrationNames: ['20260101_one.sql'] }),
     /Required Supabase ACL migration/
+  );
+  assert.throws(
+    () => readMigrationVersions({ migrationNames: ['20260817092029_acl.sql'] }),
+    /Required Supabase advisor migration/
   );
 });
 
@@ -76,6 +84,9 @@ test('SQL contract is one repeatable-read read-only snapshot with fail-closed re
   assert.match(sql, /pg_get_indexdef\(i\.oid\)/);
   assert.match(sql, /coalesce\(c\.contype::text,''\) IS DISTINCT FROM expected\.constraint_type/);
   assert.match(sql, /MESTO_SCHEMA_PREFLIGHT_RLS/);
+  assert.match(sql, /MESTO_SCHEMA_PREFLIGHT_SUPPORTING_INDEXES/);
+  assert.match(sql, /MESTO_SCHEMA_PREFLIGHT_RLS_POLICIES/);
+  assert.match(sql, /selectauth\.uid\(\)/);
   assert.match(sql, /NOT c\.relrowsecurity OR c\.relforcerowsecurity/);
   assert.match(sql, /has_schema_privilege\('anon','public','CREATE'\)/);
   assert.match(sql, /has_schema_privilege\('anon','public','USAGE'\)/);
@@ -105,8 +116,9 @@ test('SQL contract is one repeatable-read read-only snapshot with fail-closed re
   assert.equal(FOREIGN_KEYS.length, 20);
   assert.equal(CHECK_CONSTRAINTS.length, 22);
   assert.equal(UNIQUE_INDEXES.length, 8);
+  assert.equal(SUPPORTING_INDEXES.length, 9);
   assert.equal(RPCS.length, 6);
-  assert.equal(EXPECTED_CHECK_COUNT, 19);
+  assert.equal(EXPECTED_CHECK_COUNT, 21);
 });
 
 test('connection validation binds a TLS PostgreSQL DSN to the canonical Supabase project', () => {
@@ -188,10 +200,10 @@ test('runner returns only redacted aggregate evidence and invokes psql without c
     validatePsqlPathFn: () => trustedPsqlPath,
     spawnSyncFn(command, args, options) {
       invocation = { command, args, options };
-      return { status: 0, stdout: '{"status":"pass","checks":19,"workflow":{"publishing":0,"backlog":0}}\n', stderr: '' };
+      return { status: 0, stdout: `{"status":"pass","checks":${EXPECTED_CHECK_COUNT},"workflow":{"publishing":0,"backlog":0}}\n`, stderr: '' };
     }
   });
-  assert.deepEqual(result, { target: 'production', checks: 19, workflow: { publishing: 0, backlog: 0 } });
+  assert.deepEqual(result, { target: 'production', checks: EXPECTED_CHECK_COUNT, workflow: { publishing: 0, backlog: 0 } });
   assert.equal(invocation.command, trustedPsqlPath);
   assert.equal(invocation.args.some((arg) => arg.includes(projectRef) || arg.includes('opaque')), false);
   assert.match(invocation.options.input, /READ ONLY/);

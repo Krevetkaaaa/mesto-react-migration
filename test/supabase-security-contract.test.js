@@ -6,7 +6,9 @@ const test = require('node:test');
 const root = path.join(__dirname, '..');
 const migrationDirectory = path.join(root, 'supabase', 'migrations');
 const hardeningMigrationName = '20260817092029_explicit_data_api_acl_and_function_hardening.sql';
+const advisorMigrationName = '20260817121310_close_database_advisor_findings.sql';
 const migration = fs.readFileSync(path.join(migrationDirectory, hardeningMigrationName), 'utf8');
+const advisorMigration = fs.readFileSync(path.join(migrationDirectory, advisorMigrationName), 'utf8');
 const schema = fs.readFileSync(path.join(root, 'supabase', 'schema.sql'), 'utf8');
 
 const appTables = [
@@ -66,6 +68,7 @@ test('Supabase migration versions are unique and the ACL hardening migration fol
   assert.equal(versions.every(Boolean), true);
   assert.equal(new Set(versions).size, versions.length);
   assert.ok(names.indexOf(hardeningMigrationName) > names.indexOf('20260811212027_venue_media_cleanup_receipts.sql'));
+  assert.ok(names.indexOf(advisorMigrationName) > names.indexOf(hardeningMigrationName));
 });
 
 test('every app table is RLS-enabled, closed to browser roles, and minimally granted to service_role', () => {
@@ -153,6 +156,52 @@ test('every SECURITY DEFINER function has an empty search_path in the final sche
         );
       }
     }
+  }
+});
+
+test('trigger helpers pin an empty search_path and remain uncallable', () => {
+  for (const functionName of ['touch_updated_at', 'guard_media_staging_tombstone']) {
+    assert.match(advisorMigration, new RegExp(`alter function public\\.${functionName}\\(\\) set search_path = '';`, 'i'));
+    assert.match(schema, new RegExp(`function public\\.${functionName}\\(\\)[\\s\\S]*?language plpgsql set search_path = '' as \\$\\$`, 'i'));
+  }
+});
+
+test('authenticated ownership policies use one initplan auth lookup', () => {
+  const policies = [
+    ['profiles', 'Users can read own profile', 'id'],
+    ['favorites', 'Users manage own favorites', 'user_id'],
+    ['venue_memberships', 'Merchants read own memberships', 'user_id']
+  ];
+  for (const [table, policy, column] of policies) {
+    const policyPattern = new RegExp(
+      `create policy "${policy}"[\\s\\S]*?on public\\.${table}[\\s\\S]*?to authenticated[\\s\\S]*?\\(\\(select auth\\.uid\\(\\)\\) = ${column}\\)`,
+      'i'
+    );
+    assert.match(advisorMigration, policyPattern);
+    assert.match(schema, policyPattern);
+  }
+  assert.doesNotMatch(schema, /using \(auth\.uid\(\) = (?:id|user_id)\)/i);
+});
+
+test('every advisor-reported foreign key has an exact partial covering index', () => {
+  const indexes = [
+    ['audit_log_actor_id_idx', 'audit_log', 'actor_id'],
+    ['favorites_venue_id_idx', 'favorites', 'venue_id'],
+    ['review_submissions_submitted_by_idx', 'review_submissions', 'submitted_by'],
+    ['review_submissions_venue_id_idx', 'review_submissions', 'venue_id'],
+    ['reviews_author_id_idx', 'reviews', 'author_id'],
+    ['reviews_venue_id_idx', 'reviews', 'venue_id'],
+    ['venue_submissions_submitted_by_idx', 'venue_submissions', 'submitted_by'],
+    ['venues_created_by_idx', 'venues', 'created_by'],
+    ['venues_owner_id_idx', 'venues', 'owner_id']
+  ];
+  for (const [name, table, column] of indexes) {
+    const definition = new RegExp(
+      `create index if not exists ${name}\\s+on public\\.${table}\\(${column}\\) where ${column} is not null;`,
+      'i'
+    );
+    assert.match(advisorMigration, definition);
+    assert.match(schema, definition);
   }
 });
 

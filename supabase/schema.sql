@@ -103,7 +103,7 @@ create index if not exists media_assets_staging_cleanup_due_idx on public.media_
   where staging_cleanup_pending;
 
 create or replace function public.guard_media_staging_tombstone() returns trigger
-language plpgsql as $$
+language plpgsql set search_path = '' as $$
 begin
   if tg_op = 'DELETE' then
     if old.staging_cleanup_pending then
@@ -266,6 +266,15 @@ create index if not exists favorites_user_idx on public.favorites(user_id,create
 create index if not exists venue_memberships_user_idx on public.venue_memberships(user_id,venue_id);
 create index if not exists menu_items_venue_idx on public.menu_items(venue_id,section,sort_order);
 create index if not exists promotions_venue_idx on public.promotions(venue_id,status,created_at desc);
+create index if not exists audit_log_actor_id_idx on public.audit_log(actor_id) where actor_id is not null;
+create index if not exists favorites_venue_id_idx on public.favorites(venue_id) where venue_id is not null;
+create index if not exists review_submissions_submitted_by_idx on public.review_submissions(submitted_by) where submitted_by is not null;
+create index if not exists review_submissions_venue_id_idx on public.review_submissions(venue_id) where venue_id is not null;
+create index if not exists reviews_author_id_idx on public.reviews(author_id) where author_id is not null;
+create index if not exists reviews_venue_id_idx on public.reviews(venue_id) where venue_id is not null;
+create index if not exists venue_submissions_submitted_by_idx on public.venue_submissions(submitted_by) where submitted_by is not null;
+create index if not exists venues_created_by_idx on public.venues(created_by) where created_by is not null;
+create index if not exists venues_owner_id_idx on public.venues(owner_id) where owner_id is not null;
 
 create or replace function public.public_catalog_summary()
 returns jsonb
@@ -303,7 +312,7 @@ as $$
 $$;
 
 create or replace function public.touch_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = '' as $$
 begin
   new.updated_at = now();
   return new;
@@ -581,12 +590,12 @@ create policy "Public can read published venues" on public.venues for select usi
 drop policy if exists "Public can read approved reviews" on public.reviews;
 create policy "Public can read approved reviews" on public.reviews for select using (true);
 drop policy if exists "Users can read own profile" on public.profiles;
-create policy "Users can read own profile" on public.profiles for select using (auth.uid() = id);
+create policy "Users can read own profile" on public.profiles for select to authenticated using ((select auth.uid()) = id);
 drop policy if exists "Users can update own profile" on public.profiles;
 drop policy if exists "Users manage own favorites" on public.favorites;
-create policy "Users manage own favorites" on public.favorites for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "Users manage own favorites" on public.favorites for all to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists "Merchants read own memberships" on public.venue_memberships;
-create policy "Merchants read own memberships" on public.venue_memberships for select using (auth.uid() = user_id);
+create policy "Merchants read own memberships" on public.venue_memberships for select to authenticated using ((select auth.uid()) = user_id);
 drop policy if exists "Public can read available menu" on public.menu_items;
 create policy "Public can read available menu" on public.menu_items for select using (is_available = true);
 drop policy if exists "Public can read active promotions" on public.promotions;
