@@ -86,7 +86,8 @@ test('SQL contract is one repeatable-read read-only snapshot with fail-closed re
   assert.match(sql, /MESTO_SCHEMA_PREFLIGHT_RLS/);
   assert.match(sql, /MESTO_SCHEMA_PREFLIGHT_SUPPORTING_INDEXES/);
   assert.match(sql, /MESTO_SCHEMA_PREFLIGHT_RLS_POLICIES/);
-  assert.match(sql, /selectauth\.uid\(\)/);
+  assert.equal((sql.match(/position\('selectauth\.uid' in/g) ?? []).length, 2);
+  assert.doesNotMatch(sql, /selectauth\.uid\(\)/);
   assert.match(sql, /NOT c\.relrowsecurity OR c\.relforcerowsecurity/);
   assert.match(sql, /has_schema_privilege\('anon','public','CREATE'\)/);
   assert.match(sql, /has_schema_privilege\('anon','public','USAGE'\)/);
