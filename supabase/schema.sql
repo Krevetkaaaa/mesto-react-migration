@@ -1,5 +1,15 @@
 create extension if not exists pgcrypto;
 
+revoke all on schema public from public, anon, authenticated, service_role;
+grant usage on schema public to service_role;
+
+alter default privileges for role postgres in schema public
+  revoke all on tables from public, anon, authenticated, service_role;
+alter default privileges for role postgres in schema public
+  revoke all on sequences from public, anon, authenticated, service_role;
+alter default privileges for role postgres in schema public
+  revoke execute on functions from public, anon, authenticated, service_role;
+
 create table if not exists public.venues (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique,
@@ -318,7 +328,7 @@ create or replace function public.create_venue_submission_with_media(
   p_media_ids uuid[],
   p_owner uuid
 ) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = '' as $$
 declare
   normalized_ids uuid[] := coalesce(p_media_ids, '{}'::uuid[]);
   media_count integer;
@@ -353,7 +363,7 @@ create or replace function public.moderate_venue_submission(
   p_note text default '',
   p_moderator text default null
 ) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = '' as $$
 declare
   item public.venue_submissions%rowtype;
   venue_id uuid;
@@ -387,7 +397,7 @@ create or replace function public.moderate_venue_submission_with_media(
   p_media_public_manifests jsonb default '{}'::jsonb,
   p_media_publication_lease_id uuid default null
 ) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = '' as $$
 declare
   item public.venue_submissions%rowtype;
   venue_id uuid;
@@ -457,7 +467,7 @@ $$;
 create or replace function public.delete_venue_with_media(
   p_venue_id uuid
 ) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = '' as $$
 declare
   target_id uuid;
   claimed_media_ids uuid[] := '{}'::uuid[];
@@ -505,7 +515,7 @@ create or replace function public.moderate_review_submission(
   p_note text default '',
   p_moderator text default null
 ) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = '' as $$
 declare
   item public.review_submissions%rowtype;
   published_review_id uuid;
@@ -537,8 +547,34 @@ alter table public.menu_items enable row level security;
 alter table public.promotions enable row level security;
 alter table public.audit_log enable row level security;
 
-revoke all on table public.media_assets from public, anon, authenticated;
+revoke all on table public.venues from public, anon, authenticated, service_role;
+revoke all on table public.venue_submissions from public, anon, authenticated, service_role;
+revoke all on table public.media_assets from public, anon, authenticated, service_role;
+revoke all on table public.review_submissions from public, anon, authenticated, service_role;
+revoke all on table public.reviews from public, anon, authenticated, service_role;
+revoke all on table public.profiles from public, anon, authenticated, service_role;
+revoke all on table public.external_identities from public, anon, authenticated, service_role;
+revoke all on table public.favorites from public, anon, authenticated, service_role;
+revoke all on table public.venue_memberships from public, anon, authenticated, service_role;
+revoke all on table public.menu_items from public, anon, authenticated, service_role;
+revoke all on table public.promotions from public, anon, authenticated, service_role;
+revoke all on table public.audit_log from public, anon, authenticated, service_role;
+
+grant select, insert, update, delete on table public.venues to service_role;
+grant select, insert on table public.venue_submissions to service_role;
 grant select, insert, update, delete on table public.media_assets to service_role;
+grant select, insert on table public.review_submissions to service_role;
+grant select on table public.reviews to service_role;
+grant select, insert, update on table public.profiles to service_role;
+grant select, insert on table public.external_identities to service_role;
+grant select, insert, update, delete on table public.favorites to service_role;
+grant select, insert, update, delete on table public.venue_memberships to service_role;
+grant select, insert, update, delete on table public.menu_items to service_role;
+grant select, insert, update, delete on table public.promotions to service_role;
+grant insert on table public.audit_log to service_role;
+
+revoke all on sequence public.audit_log_id_seq from public, anon, authenticated, service_role;
+grant usage on sequence public.audit_log_id_seq to service_role;
 
 drop policy if exists "Public can read published venues" on public.venues;
 create policy "Public can read published venues" on public.venues for select using (status = 'published');
@@ -556,12 +592,14 @@ create policy "Public can read available menu" on public.menu_items for select u
 drop policy if exists "Public can read active promotions" on public.promotions;
 create policy "Public can read active promotions" on public.promotions for select using (status = 'active');
 
-revoke execute on function public.moderate_venue_submission(uuid,text,text,text) from public, anon, authenticated;
-revoke execute on function public.create_venue_submission_with_media(jsonb,uuid[],uuid) from public, anon, authenticated;
-revoke execute on function public.moderate_venue_submission_with_media(uuid,text,text,text,jsonb,uuid) from public, anon, authenticated;
-revoke execute on function public.delete_venue_with_media(uuid) from public, anon, authenticated;
-revoke execute on function public.moderate_review_submission(uuid,text,text,text) from public, anon, authenticated;
-revoke execute on function public.public_catalog_summary() from public, anon, authenticated;
+revoke execute on function public.touch_updated_at() from public, anon, authenticated, service_role;
+revoke execute on function public.guard_media_staging_tombstone() from public, anon, authenticated, service_role;
+revoke execute on function public.moderate_venue_submission(uuid,text,text,text) from public, anon, authenticated, service_role;
+revoke execute on function public.create_venue_submission_with_media(jsonb,uuid[],uuid) from public, anon, authenticated, service_role;
+revoke execute on function public.moderate_venue_submission_with_media(uuid,text,text,text,jsonb,uuid) from public, anon, authenticated, service_role;
+revoke execute on function public.delete_venue_with_media(uuid) from public, anon, authenticated, service_role;
+revoke execute on function public.moderate_review_submission(uuid,text,text,text) from public, anon, authenticated, service_role;
+revoke execute on function public.public_catalog_summary() from public, anon, authenticated, service_role;
 grant execute on function public.moderate_venue_submission(uuid,text,text,text) to service_role;
 grant execute on function public.create_venue_submission_with_media(jsonb,uuid[],uuid) to service_role;
 grant execute on function public.moderate_venue_submission_with_media(uuid,text,text,text,jsonb,uuid) to service_role;
