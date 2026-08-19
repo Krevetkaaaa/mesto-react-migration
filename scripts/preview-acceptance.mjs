@@ -15,6 +15,8 @@ import { verifyStoredXssBrowser } from './preview-browser-oracle.mjs';
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_MEDIA_REAPER_RESPONSE_BYTES = 64 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
+const IDEMPOTENT_MEDIA_TRANSPORT_ATTEMPTS = 3;
+const MEDIA_TRANSPORT_RETRY_BASE_DELAY_MS = 250;
 export const MEDIA_REAPER_REQUEST_TIMEOUT_MS = 135_000;
 const PRODUCTION_ORIGIN = 'https://mesto-city-guide.vercel.app';
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -471,21 +473,42 @@ export function registerSignedUploadReceipt(state, receipt, options = {}) {
   return validateSignedUploadReceipt(receipt, { ...options, observedAtMs, phase });
 }
 
-async function externalRequest(fetchImpl, url, phase, options = {}) {
-  let response;
-  try {
-    response = await fetchImpl(url, {
-      ...options,
-      redirect: 'manual',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch {
-    throw new AcceptanceError(phase, options.method && options.method !== 'GET'
-      ? 'AMBIGUOUS_MEDIA_TRANSPORT_FAILURE'
-      : 'MEDIA_TRANSPORT_FAILURE');
+export async function externalRequest(fetchImpl, url, phase, options = {}, {
+  sleep = sleepMilliseconds,
+  attempts = IDEMPOTENT_MEDIA_TRANSPORT_ATTEMPTS,
+} = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const idempotent = method === 'GET';
+  const allowedAttempts = idempotent ? attempts : 1;
+  invariant(
+    Number.isSafeInteger(allowedAttempts) && allowedAttempts >= 1 && allowedAttempts <= IDEMPOTENT_MEDIA_TRANSPORT_ATTEMPTS,
+    phase,
+    'MEDIA_TRANSPORT_ATTEMPTS_INVALID',
+  );
+  invariant(typeof sleep === 'function', phase, 'MEDIA_TRANSPORT_SLEEP_INVALID');
+
+  for (let attempt = 0; attempt < allowedAttempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        ...options,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      if (attempt + 1 < allowedAttempts) {
+        await sleep(MEDIA_TRANSPORT_RETRY_BASE_DELAY_MS * (2 ** attempt));
+        continue;
+      }
+      throw new AcceptanceError(
+        phase,
+        idempotent ? 'MEDIA_TRANSPORT_FAILURE' : 'AMBIGUOUS_MEDIA_TRANSPORT_FAILURE',
+      );
+    }
+    invariant(response.status < 300 || response.status >= 400, phase, 'MEDIA_REDIRECT_FORBIDDEN', response.status);
+    return response;
   }
-  invariant(response.status < 300 || response.status >= 400, phase, 'MEDIA_REDIRECT_FORBIDDEN', response.status);
-  return response;
+  throw new AcceptanceError(phase, 'MEDIA_TRANSPORT_FAILURE');
 }
 
 function assertSupabaseStorageError(response, bytes, phase, expectedErrors) {

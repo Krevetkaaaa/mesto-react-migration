@@ -734,6 +734,64 @@ test('published media headers require exact WebP media type and parsed immutable
   }
 });
 
+test('external media GET retries only transport failures with bounded deterministic backoff', async () => {
+  const { externalRequest } = await moduleUnderTest();
+  const sleeps = [];
+  const observed = [];
+  const response = await externalRequest(async (_url, init) => {
+    observed.push(init);
+    if (observed.length < 3) throw new TypeError('sanitized network failure');
+    return new Response('ok', { status: 200 });
+  }, 'https://previewproject.supabase.co/media.webp', 'media.public-hero', {}, {
+    sleep: async (milliseconds) => sleeps.push(milliseconds),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(observed.length, 3);
+  assert.deepEqual(sleeps, [250, 500]);
+  for (const init of observed) {
+    assert.equal(init.redirect, 'manual');
+    assert.ok(init.signal instanceof AbortSignal);
+  }
+});
+
+test('external media GET fails closed after three transport attempts and never retries HTTP responses', async () => {
+  const { externalRequest } = await moduleUnderTest();
+  let transportAttempts = 0;
+  await assert.rejects(externalRequest(async () => {
+    transportAttempts += 1;
+    throw new TypeError('sanitized network failure');
+  }, 'https://previewproject.supabase.co/media.webp', 'media.public-hero', {}, {
+    sleep: async () => {},
+  }), { code: 'MEDIA_TRANSPORT_FAILURE' });
+  assert.equal(transportAttempts, 3);
+
+  let httpAttempts = 0;
+  const unavailable = await externalRequest(async () => {
+    httpAttempts += 1;
+    return new Response('unavailable', { status: 503 });
+  }, 'https://previewproject.supabase.co/media.webp', 'media.public-hero', {}, {
+    sleep: async () => { throw new Error('HTTP responses must not be retried'); },
+  });
+  assert.equal(unavailable.status, 503);
+  assert.equal(httpAttempts, 1);
+});
+
+test('external media mutation never retries an ambiguous transport failure', async () => {
+  const { externalRequest } = await moduleUnderTest();
+  let attempts = 0;
+  await assert.rejects(externalRequest(async () => {
+    attempts += 1;
+    throw new TypeError('sanitized network failure');
+  }, 'https://previewproject.supabase.co/upload', 'media.direct-upload', {
+    method: 'PUT',
+    body: new Uint8Array([1]),
+  }, {
+    sleep: async () => { throw new Error('mutations must not be retried'); },
+  }), { code: 'AMBIGUOUS_MEDIA_TRANSPORT_FAILURE' });
+  assert.equal(attempts, 1);
+});
+
 test('preview acceptance cancels an oversized chunked response before buffering it', async () => {
   const { boundedResponseBody } = await moduleUnderTest();
   let cancelled = false;
