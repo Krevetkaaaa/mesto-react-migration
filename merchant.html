@@ -278,10 +278,10 @@
   <dialog class="form-dialog form-dialog--small" id="password-dialog" aria-labelledby="password-dialog-title">
     <form method="dialog" class="dialog-card" id="password-form" novalidate>
       <div class="dialog-heading"><div><p class="eyebrow">Безопасность</p><h2 id="password-dialog-title">Новый пароль</h2></div><button class="dialog-close" type="button" data-close-password aria-label="Закрыть"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
-      <p class="dialog-lead">Используйте не менее 10 символов, хотя бы одну букву и одну цифру.</p>
+      <p class="dialog-lead" data-password-requirements></p>
       <label class="field" id="current-password-field"><span>Текущий пароль</span><span class="input-shell"><svg aria-hidden="true"><use href="#icon-lock"></use></svg><input name="currentPassword" type="password" autocomplete="current-password" required /></span></label>
-      <label class="field"><span>Новый пароль</span><span class="input-shell"><svg aria-hidden="true"><use href="#icon-lock"></use></svg><input name="password" type="password" minlength="10" autocomplete="new-password" required /><button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль"><svg aria-hidden="true"><use href="#icon-eye"></use></svg></button></span></label>
-      <label class="field"><span>Повторите пароль</span><span class="input-shell"><svg aria-hidden="true"><use href="#icon-lock"></use></svg><input name="confirmPassword" type="password" minlength="10" autocomplete="new-password" required /></span></label>
+      <label class="field"><span>Новый пароль</span><span class="input-shell"><svg aria-hidden="true"><use href="#icon-lock"></use></svg><input name="password" type="password" autocomplete="new-password" required /><button class="password-toggle" type="button" data-password-toggle aria-label="Показать пароль"><svg aria-hidden="true"><use href="#icon-eye"></use></svg></button></span></label>
+      <label class="field"><span>Повторите пароль</span><span class="input-shell"><svg aria-hidden="true"><use href="#icon-lock"></use></svg><input name="confirmPassword" type="password" autocomplete="new-password" required /></span></label>
       <p class="dialog-message" id="password-form-message" role="alert"></p>
       <div class="dialog-actions"><button class="button button--ghost" type="button" data-close-password>Позже</button><button class="button button--primary" type="submit">Сохранить пароль</button></div>
     </form>

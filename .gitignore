@@ -17,3 +17,5 @@ coverage
 /.react-router/
 /build/
 /dist/
+/.legacy-public/
+/.legacy-public.stage-*/

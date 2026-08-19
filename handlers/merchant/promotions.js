@@ -1,4 +1,7 @@
 const { json, methodNotAllowed, readJson, text, uuid } = require('../../lib/http');
+const { attemptPostCommit, merchantHandlerError, setMerchantResponseHeaders } = require('../../lib/merchant-operations');
+const { invalidatePublicVenueCache } = require('../../lib/public-cache');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { merchantWorkspace, requireVenue } = require('../../lib/venue-access');
 
 function dateValue(value) {
@@ -8,10 +11,14 @@ function dateValue(value) {
 }
 
 module.exports = async function handler(req, res) {
+  setMerchantResponseHeaders(res);
   if (!['POST', 'PATCH', 'DELETE'].includes(req.method)) return methodNotAllowed(res, ['POST', 'PATCH', 'DELETE']);
   try {
     const workspace = await merchantWorkspace(req, res);
     if (!workspace) return;
+    if (!await enforceRateLimit(req, res, {
+      policy: 'mutation', scope: 'merchant-promotions', identifier: workspace.profile.id
+    })) return;
     const body = await readJson(req, 250_000);
     const id = req.method === 'POST' ? '' : uuid(body.id);
     if (req.method !== 'POST' && !id) return json(res, 400, { message: 'Укажите корректную акцию.' });
@@ -25,6 +32,7 @@ module.exports = async function handler(req, res) {
     if (!requireVenue(workspace, res, venueId, 'promotions')) return;
     if (req.method === 'DELETE') {
       await workspace.store.deletePromotion(id, workspace.profile.id);
+      await attemptPostCommit(() => invalidatePublicVenueCache({ id: venueId, reason: 'promotion.deleted' }));
       return json(res, 200, { ok: true });
     }
     const startsAt = dateValue(body.startsAt);
@@ -41,8 +49,10 @@ module.exports = async function handler(req, res) {
       status: ['draft', 'active', 'archived'].includes(body.status) ? body.status : 'draft'
     };
     if (!payload.title) return json(res, 400, { message: 'Укажите название акции.' });
-    return json(res, id ? 200 : 201, { promotion: await workspace.store.savePromotion(payload, id, workspace.profile.id) });
+    const promotion = await workspace.store.savePromotion(payload, id, workspace.profile.id);
+    await attemptPostCommit(() => invalidatePublicVenueCache({ id: venueId, reason: id ? 'promotion.updated' : 'promotion.created' }));
+    return json(res, id ? 200 : 201, { promotion });
   } catch (error) {
-    return json(res, error.statusCode || 500, { message: error.message || 'Не удалось сохранить акцию.' });
+    return merchantHandlerError(res, error, 'Не удалось сохранить акцию.');
   }
 };

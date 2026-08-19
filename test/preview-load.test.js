@@ -1,0 +1,830 @@
+const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
+const { test } = require('node:test');
+
+async function moduleUnderTest() {
+  return import('../scripts/preview-load.mjs');
+}
+
+async function gateUnderTest() {
+  return import('../scripts/run-preview-load-gate.mjs');
+}
+
+const preview = 'https://mesto-city-guide-example-team.vercel.app';
+const deploymentId = 'dpl_1234567890abcdef';
+const projectId = 'prj_1234567890abcdef';
+const teamId = 'team_example';
+const commitSha = '0123456789abcdef0123456789abcdef01234567';
+const previewRedisProvidersFingerprint = 'r'.repeat(43);
+const productionRedisProvidersFingerprint = 'p'.repeat(43);
+const providerExpectation = {
+  expectedSupabaseProjectRef: 'previewproject',
+  forbiddenProductionSupabaseProjectRef: 'productionproject',
+  expectedRedisNamespace: 'preview',
+  expectedRedisProvidersFingerprint: previewRedisProvidersFingerprint,
+  forbiddenProductionRedisProvidersFingerprint: productionRedisProvidersFingerprint,
+};
+
+function deploymentPayload(overrides = {}) {
+  return {
+    id: deploymentId,
+    projectId,
+    target: null,
+    readyState: 'READY',
+    url: new URL(preview).hostname,
+    meta: { githubCommitSha: commitSha },
+    ...overrides
+  };
+}
+
+function fingerprintPayload(overrides = {}) {
+  const payload = {
+    kind: 'mesto.release-provider-identity',
+    environment: 'preview',
+    deploymentId,
+    projectId,
+    deploymentHost: new URL(preview).hostname,
+    redisNamespace: 'preview',
+    redisProvidersFingerprint: previewRedisProvidersFingerprint,
+    supabaseProjectRef: 'previewproject',
+    ...overrides
+  };
+  return {
+    ...payload,
+    fingerprint: overrides.fingerprint || createHash('sha256')
+      .update(JSON.stringify([
+        payload.environment,
+        payload.deploymentId,
+        payload.projectId,
+        payload.deploymentHost,
+        payload.redisNamespace,
+        payload.redisProvidersFingerprint,
+        payload.supabaseProjectRef
+      ]))
+      .digest('base64url')
+  };
+}
+
+function htmlResponse(body, headers = {}) {
+  return new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'x-vercel-cache': 'HIT', ...headers }
+  });
+}
+
+test('Preview load target is exact-allowlisted; production and nonstandard ports are forbidden', async () => {
+  const { validatePreviewLoadTarget } = await moduleUnderTest();
+  assert.equal(validatePreviewLoadTarget(preview, preview), preview);
+  assert.throws(
+    () => validatePreviewLoadTarget('https://mesto-city-guide.vercel.app', 'https://mesto-city-guide.vercel.app'),
+    /Production load is forbidden/
+  );
+  assert.throws(() => validatePreviewLoadTarget(preview, 'https://different-preview.vercel.app'), /exactly match/);
+  assert.throws(() => validatePreviewLoadTarget('http://127.0.0.1:4173', 'http://127.0.0.1:4173'), /HTTPS/);
+  assert.throws(
+    () => validatePreviewLoadTarget(`${preview}:8443`, `${preview}:8443`),
+    /nonstandard port/
+  );
+});
+
+test('Preview load CLI requires acknowledgement, exact deployment/commit, and a known stage', async () => {
+  const { parsePreviewLoadArguments } = await moduleUnderTest();
+  const environment = { MESTO_LOAD_ALLOWED_PREVIEW_ORIGIN: preview };
+  assert.deepEqual(
+    parsePreviewLoadArguments([
+      '--base-url', preview,
+      '--deployment-id', deploymentId,
+      '--expected-commit-sha', commitSha,
+      '--stage', 'burst',
+      '--acknowledge-preview-load'
+    ], environment),
+    { baseUrl: preview, deploymentId, expectedCommitSha: commitSha, stageName: 'burst' }
+  );
+  assert.throws(
+    () => parsePreviewLoadArguments(['--base-url', preview, '--deployment-id', deploymentId, '--stage', 'burst'], environment),
+    /acknowledge/
+  );
+  assert.throws(
+    () => parsePreviewLoadArguments([
+      '--base-url', preview,
+      '--deployment-id', deploymentId,
+      '--expected-commit-sha', commitSha,
+      '--stage', 'unknown',
+      '--acknowledge-preview-load'
+    ], environment),
+    /expected, burst, or soak/
+  );
+  assert.throws(
+    () => parsePreviewLoadArguments([
+      '--base-url', preview,
+      '--deployment-id', deploymentId,
+      '--stage', 'burst',
+      '--acknowledge-preview-load'
+    ], environment),
+    /exactly 40 hexadecimal/
+  );
+  assert.equal(parsePreviewLoadArguments([
+    '--base-url', preview,
+    '--deployment-id', deploymentId,
+    '--stage', 'burst',
+    '--acknowledge-preview-load'
+  ], { ...environment, MESTO_EXPECTED_PREVIEW_COMMIT_SHA: commitSha }).expectedCommitSha, commitSha);
+});
+
+test('Full Preview load gate uses the same explicit CLI/env expected commit contract', async () => {
+  const { parsePreviewLoadGateArguments } = await gateUnderTest();
+  const environment = { MESTO_LOAD_ALLOWED_PREVIEW_ORIGIN: preview };
+  assert.deepEqual(parsePreviewLoadGateArguments([
+    '--base-url', preview,
+    '--deployment-id', deploymentId,
+    '--expected-commit-sha', commitSha.toUpperCase(),
+    '--acknowledge-preview-load'
+  ], environment), { baseUrl: preview, deploymentId, expectedCommitSha: commitSha });
+  assert.equal(parsePreviewLoadGateArguments([
+    '--base-url', preview,
+    '--deployment-id', deploymentId,
+    '--acknowledge-preview-load'
+  ], { ...environment, MESTO_EXPECTED_PREVIEW_COMMIT_SHA: commitSha }).expectedCommitSha, commitSha);
+  assert.throws(() => parsePreviewLoadGateArguments([
+    '--base-url', preview,
+    '--deployment-id', deploymentId,
+    '--acknowledge-preview-load'
+  ], environment), /exactly 40 hexadecimal/);
+});
+
+test('Preview load proves exact deployment, project, commit, READY state, and Preview target', async () => {
+  const { verifyPreviewDeployment } = await moduleUnderTest();
+  const valid = async () => Response.json(deploymentPayload());
+  assert.deepEqual(
+    await verifyPreviewDeployment({
+      baseUrl: preview,
+      deploymentId,
+      projectId,
+      expectedCommitSha: commitSha,
+      teamId,
+      token: 'token',
+      fetchImpl: valid
+    }),
+    { deploymentId, projectId, commitSha, expectedCommitSha: commitSha, actualCommitSha: commitSha, readyState: 'READY', target: 'preview' }
+  );
+  await assert.rejects(
+    verifyPreviewDeployment({
+      baseUrl: preview,
+      deploymentId,
+      projectId,
+      expectedCommitSha: commitSha,
+      teamId,
+      token: 'token',
+      fetchImpl: async () => Response.json(deploymentPayload({ projectId: 'prj_different' }))
+    }),
+    /different project/
+  );
+  await assert.rejects(
+    verifyPreviewDeployment({
+      baseUrl: preview,
+      deploymentId,
+      projectId,
+      expectedCommitSha: commitSha,
+      teamId,
+      token: 'token',
+      fetchImpl: async () => Response.json(deploymentPayload({ target: 'production' }))
+    }),
+    /Only an immutable Preview deployment/
+  );
+  await assert.rejects(
+    verifyPreviewDeployment({
+      baseUrl: preview,
+      deploymentId,
+      projectId,
+      expectedCommitSha: commitSha,
+      teamId,
+      token: 'token',
+      fetchImpl: async () => Response.json(deploymentPayload({ meta: {} }))
+    }),
+    /commit proof/
+  );
+});
+
+test('Runtime fingerprint must identify the expected isolated Preview providers', async () => {
+  const { verifyPreviewReleaseFingerprint } = await moduleUnderTest();
+  const valid = await verifyPreviewReleaseFingerprint({
+    baseUrl: preview,
+    expectedDeploymentId: deploymentId,
+    expectedProjectId: projectId,
+    ...providerExpectation,
+    fetchImpl: async () => Response.json(fingerprintPayload())
+  });
+  assert.deepEqual(
+    { environment: valid.environment, redisNamespace: valid.redisNamespace, supabaseProjectRef: valid.supabaseProjectRef },
+    { environment: 'preview', redisNamespace: 'preview', supabaseProjectRef: 'previewproject' }
+  );
+  await assert.rejects(
+    verifyPreviewReleaseFingerprint({
+      baseUrl: preview,
+      expectedDeploymentId: deploymentId,
+      expectedProjectId: projectId,
+      ...providerExpectation,
+      fetchImpl: async () => Response.json(fingerprintPayload({ environment: 'production', redisNamespace: 'production' }))
+    }),
+    /Production runtime fingerprint is forbidden/
+  );
+  await assert.rejects(
+    verifyPreviewReleaseFingerprint({
+      baseUrl: preview,
+      expectedDeploymentId: deploymentId,
+      expectedProjectId: projectId,
+      ...providerExpectation,
+      fetchImpl: async () => Response.json(fingerprintPayload({
+        redisProvidersFingerprint: productionRedisProvidersFingerprint,
+      })),
+    }),
+    /Production Redis providers are forbidden/,
+  );
+});
+
+test('Preview provider expectations are explicit and deny known Production providers', async () => {
+  const { previewProviderExpectation } = await moduleUnderTest();
+  assert.deepEqual(previewProviderExpectation({
+    MESTO_EXPECTED_PREVIEW_SUPABASE_PROJECT_REF: 'previewproject',
+    MESTO_FORBIDDEN_PRODUCTION_SUPABASE_PROJECT_REF: 'productionproject',
+    MESTO_EXPECTED_PREVIEW_REDIS_PROVIDERS_FINGERPRINT: previewRedisProvidersFingerprint,
+    MESTO_FORBIDDEN_PRODUCTION_REDIS_PROVIDERS_FINGERPRINT: productionRedisProvidersFingerprint,
+  }), {
+    supabaseProjectRef: 'previewproject',
+    forbiddenProductionSupabaseProjectRef: 'productionproject',
+    redisNamespace: 'preview',
+    redisProvidersFingerprint: previewRedisProvidersFingerprint,
+    forbiddenProductionRedisProvidersFingerprint: productionRedisProvidersFingerprint,
+  });
+  assert.throws(
+    () => previewProviderExpectation({ MESTO_SUPABASE_PROJECT_REF: 'previewproject' }),
+    /MESTO_EXPECTED_PREVIEW_SUPABASE_PROJECT_REF/,
+  );
+});
+
+test('Exported load run revalidates and makes zero document requests on fingerprint mismatch', async () => {
+  const { runPreviewLoad } = await moduleUnderTest();
+  let fingerprintRequests = 0;
+  let documentRequests = 0;
+  const appFetch = async (url) => {
+    if (new URL(url).pathname === '/api/release-fingerprint') fingerprintRequests += 1;
+    else documentRequests += 1;
+    return Response.json(fingerprintPayload({ supabaseProjectRef: 'wrongproject' }));
+  };
+  await assert.rejects(
+    runPreviewLoad({
+      baseUrl: preview,
+      allowedOrigin: preview,
+      deploymentId,
+      expectedCommitSha: commitSha,
+      projectId,
+      stageName: 'burst',
+      ...providerExpectation,
+      teamId,
+      vercelToken: 'token',
+      deploymentFetch: async () => Response.json(deploymentPayload()),
+      appFetch
+    }),
+    /Supabase project ref does not match Preview/
+  );
+  assert.equal(fingerprintRequests, 1);
+  assert.equal(documentRequests, 0);
+});
+
+test('Exported load run rejects a non-allowlisted target before deployment or app requests', async () => {
+  const { runPreviewLoad } = await moduleUnderTest();
+  let deploymentRequests = 0;
+  let appRequests = 0;
+  await assert.rejects(runPreviewLoad({
+    baseUrl: preview,
+    allowedOrigin: 'https://different-preview.vercel.app',
+    deploymentId,
+    expectedCommitSha: commitSha,
+    projectId,
+    stageName: 'burst',
+    ...providerExpectation,
+    teamId,
+    vercelToken: 'token',
+    deploymentFetch: async () => { deploymentRequests += 1; return Response.json(deploymentPayload()); },
+    appFetch: async () => { appRequests += 1; return Response.json(fingerprintPayload()); }
+  }), /exactly match/);
+  assert.equal(deploymentRequests, 0);
+  assert.equal(appRequests, 0);
+});
+
+test('Exported load run rejects missing/mismatched expected commit before any app request', async () => {
+  const { runPreviewLoad } = await moduleUnderTest();
+  let deploymentRequests = 0;
+  let appRequests = 0;
+  const baseOptions = {
+    baseUrl: preview,
+    allowedOrigin: preview,
+    deploymentId,
+    projectId,
+    stageName: 'burst',
+    ...providerExpectation,
+    teamId,
+    vercelToken: 'token',
+    deploymentFetch: async () => {
+      deploymentRequests += 1;
+      return Response.json(deploymentPayload());
+    },
+    appFetch: async () => {
+      appRequests += 1;
+      return Response.json(fingerprintPayload());
+    }
+  };
+
+  await assert.rejects(runPreviewLoad(baseOptions), /exactly 40 hexadecimal/);
+  assert.equal(deploymentRequests, 0);
+  assert.equal(appRequests, 0);
+
+  await assert.rejects(
+    runPreviewLoad({ ...baseOptions, expectedCommitSha: 'f'.repeat(40) }),
+    /does not match expected Preview commit SHA/
+  );
+  assert.equal(deploymentRequests, 1);
+  assert.equal(appRequests, 0);
+});
+
+test('Explicit X-Vercel-Cache state wins over Age fallback', async () => {
+  const { edgeDocumentCacheHit } = await moduleUnderTest();
+  assert.equal(edgeDocumentCacheHit(new Headers({ 'x-vercel-cache': 'MISS', age: '120' })), false);
+  assert.equal(edgeDocumentCacheHit(new Headers({ 'x-vercel-cache': '', age: '120' })), false);
+  assert.equal(edgeDocumentCacheHit(new Headers({ 'x-vercel-cache': 'HIT', age: '0' })), true);
+  assert.equal(edgeDocumentCacheHit(new Headers({ age: '120' })), true);
+});
+
+test('Edge document validation rejects protection and generic SPA fallback HTML', async () => {
+  const { validateEdgeDocumentResponse } = await moduleUnderTest();
+  const url = new URL('/catalog', preview);
+  assert.equal(validateEdgeDocumentResponse({
+    url,
+    response: htmlResponse('<!doctype html><main data-react-route="catalog"><section id="catalog-view"></section></main>'),
+    body: '<!doctype html><main data-react-route="catalog"><section id="catalog-view"></section></main>'
+  }), true);
+  assert.throws(() => validateEdgeDocumentResponse({
+    url,
+    response: htmlResponse('<!doctype html><main>Sign in to Vercel</main>'),
+    body: '<!doctype html><main>Sign in to Vercel</main>'
+  }), /route marker/);
+  assert.throws(() => validateEdgeDocumentResponse({
+    url,
+    response: new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    body: '{}'
+  }), /not HTML/);
+});
+
+test('Preview load summary names cache evidence as edge document cache evidence', async () => {
+  const { summarizePreviewLoad } = await moduleUnderTest();
+  const summary = summarizePreviewLoad([
+    { bytes: 100, edgeDocumentCacheHit: true, latencyMs: 10, status: 200 },
+    { bytes: 50, edgeDocumentCacheHit: false, latencyMs: 20, status: 503 },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 10000, status: 0, transportError: true }
+  ], 1_000);
+  assert.equal(summary.profile, 'edge-document-cache');
+  assert.deepEqual(summary.statuses, { 200: 1, 503: 1 });
+  assert.equal(summary.transportErrors, 1);
+  assert.equal(summary.edgeDocumentCacheHits, 1);
+  assert.equal(summary.responseBytes, 150);
+  assert.equal(summary.throughputRps, 3);
+  assert.equal(Object.hasOwn(summary, 'cacheHits'), false);
+});
+
+test('Load samples retain measured latency for an immediate sanitized network failure', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const ticks = [10, 17];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => {
+      throw new Error(`network failed for ${secret}`);
+    },
+    now: () => ticks.shift()
+  });
+  assert.deepEqual(sample, {
+    bytes: 0,
+    edgeDocumentCacheHit: false,
+    latencyMs: 7,
+    status: 0,
+    transportError: true,
+    responseValidationError: false,
+    errorCategory: 'transport',
+    errorCode: 'NETWORK_FAILURE'
+  });
+  assert.equal(JSON.stringify(sample).includes(secret), false);
+});
+
+test('Load samples retain an allowlisted nested ENOBUFS transport code without exposing error details', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const ticks = [10, 17];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => {
+      const cause = new Error(`connection reset for ${secret}`);
+      cause.code = 'ENOBUFS';
+      throw new TypeError(`fetch failed for ${secret}`, { cause });
+    },
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 7);
+  assert.equal(sample.errorCategory, 'transport');
+  assert.equal(sample.errorCode, 'ENOBUFS');
+  assert.equal(JSON.stringify(sample).includes(secret), false);
+});
+
+test('Load samples redact unknown, secret, overly deep, cyclic, and aggregate transport codes', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 12];
+      return () => ticks.shift();
+    })()
+  });
+
+  const unknown = new Error(`network failed for ${secret}`);
+  unknown.code = secret;
+  const cyclic = new Error('cycle');
+  cyclic.cause = cyclic;
+  cyclic.code = 'PRIVATE_CYCLE_CODE';
+  const deep = new Error('outer');
+  deep.cause = { cause: { cause: { cause: { code: 'ECONNRESET' } } } };
+  const aggregate = new AggregateError([
+    Object.assign(new Error('unknown'), { code: 'PRIVATE_AGGREGATE_CODE' }),
+    Object.assign(new Error('safe'), { code: 'EAI_AGAIN' })
+  ], `aggregate for ${secret}`);
+
+  for (const error of [unknown, cyclic, deep]) {
+    const sample = await sampleFor(error);
+    assert.equal(sample.errorCode, 'NETWORK_FAILURE');
+    assert.equal(JSON.stringify(sample).includes(secret), false);
+  }
+  const aggregateSample = await sampleFor(aggregate);
+  assert.equal(aggregateSample.errorCode, 'EAI_AGAIN');
+  assert.equal(JSON.stringify(aggregateSample).includes(secret), false);
+});
+
+test('Load sample error traversal keeps aggregate, node, and cause ordering bounds', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 12];
+      return () => ticks.shift();
+    })()
+  });
+  const safe = (code) => Object.assign(new Error(code), { code });
+  const aggregateSlice = new AggregateError([
+    new Error('first'),
+    new Error('second'),
+    new Error('third'),
+    safe('ECONNRESET')
+  ], 'aggregate slice bound');
+  assert.equal((await sampleFor(aggregateSlice)).errorCode, 'NETWORK_FAILURE');
+
+  const first = new Error('first');
+  const second = new Error('second');
+  const third = new Error('third');
+  const firstCause = new Error('first cause');
+  const secondCause = new Error('second cause');
+  const thirdCause = new Error('third cause');
+  first.cause = firstCause;
+  second.cause = secondCause;
+  third.cause = thirdCause;
+  firstCause.cause = new Error('eighth node');
+  secondCause.cause = safe('ECONNRESET');
+  const nodeLimit = new AggregateError([first, second, third], 'node bound');
+  assert.equal((await sampleFor(nodeLimit)).errorCode, 'NETWORK_FAILURE');
+
+  const causeFirst = new Error('outer');
+  causeFirst.cause = safe('ENOTFOUND');
+  causeFirst.errors = [safe('EAI_AGAIN')];
+  assert.equal((await sampleFor(causeFirst)).errorCode, 'ENOTFOUND');
+});
+
+test('Load samples fail closed when error metadata getters or proxies throw', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 12];
+      return () => ticks.shift();
+    })()
+  });
+  const throwingGetter = Object.defineProperties({}, {
+    name: { get() { throw new Error(secret); } },
+    code: { get() { throw new Error(secret); } },
+    cause: { get() { throw new Error(secret); } },
+    errors: { get() { throw new Error(secret); } }
+  });
+  const throwingProxy = new Proxy({}, {
+    get() { throw new Error(secret); },
+    getPrototypeOf() { throw new Error(secret); }
+  });
+  for (const error of [throwingGetter, throwingProxy]) {
+    const sample = await sampleFor(error);
+    assert.equal(sample.errorCode, 'NETWORK_FAILURE');
+    assert.equal(JSON.stringify(sample).includes(secret), false);
+  }
+});
+
+test('Load samples reserve the timeout latency only for timeout or abort failures', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const ticks = [10, 11];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => {
+      const error = new Error('request exceeded a private URL deadline');
+      error.name = 'TimeoutError';
+      throw error;
+    },
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 10_000);
+  assert.equal(sample.errorCategory, 'timeout');
+  assert.equal(sample.errorCode, 'REQUEST_TIMEOUT');
+  assert.equal(sample.transportError, true);
+});
+
+test('Load samples preserve outer timeout and abort semantics over nested transport codes', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const sampleFor = async (error) => collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => { throw error; },
+    now: (() => {
+      const ticks = [10, 11];
+      return () => ticks.shift();
+    })()
+  });
+  const timeout = new Error('timed out', { cause: Object.assign(new Error('socket'), { code: 'ECONNRESET' }) });
+  timeout.name = 'TimeoutError';
+  const aborted = Object.assign(new Error('aborted', { cause: Object.assign(new Error('socket'), { code: 'ECONNRESET' }) }), { code: 'ABORT_ERR' });
+  const timeoutSample = await sampleFor(timeout);
+  const abortedSample = await sampleFor(aborted);
+  assert.deepEqual(
+    { errorCategory: timeoutSample.errorCategory, errorCode: timeoutSample.errorCode },
+    { errorCategory: 'timeout', errorCode: 'REQUEST_TIMEOUT' }
+  );
+  assert.deepEqual(
+    { errorCategory: abortedSample.errorCategory, errorCode: abortedSample.errorCode },
+    { errorCategory: 'aborted', errorCode: 'REQUEST_ABORTED' }
+  );
+});
+
+test('Load samples classify malformed successful responses as response-validation failures', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const ticks = [20, 26];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => htmlResponse('<!doctype html><main>not the expected route</main>'),
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 6);
+  assert.equal(sample.transportError, false);
+  assert.equal(sample.responseValidationError, true);
+  assert.equal(sample.errorCategory, 'response-validation');
+  assert.equal(sample.errorCode, 'RESPONSE_DOCUMENT');
+});
+
+test('Load samples keep response stream failures in the sanitized transport category', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const ticks = [30, 34];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.error(new Error(`stream failed for ${secret}`));
+      }
+    }), { status: 200, headers: { 'content-type': 'text/html' } }),
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 4);
+  assert.equal(sample.transportError, true);
+  assert.equal(sample.responseValidationError, false);
+  assert.equal(sample.errorCategory, 'transport');
+  assert.equal(sample.errorCode, 'NETWORK_FAILURE');
+  assert.equal(JSON.stringify(sample).includes(secret), false);
+});
+
+test('Load samples classify the response byte cap as sanitized response validation', async () => {
+  const { collectPreviewLoadSample } = await moduleUnderTest();
+  const ticks = [40, 43];
+  const sample = await collectPreviewLoadSample({
+    url: new URL('/catalog', preview),
+    fetchImpl: async () => new Response('<!doctype html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html', 'content-length': String(3 * 1024 * 1024) }
+    }),
+    now: () => ticks.shift()
+  });
+  assert.equal(sample.latencyMs, 3);
+  assert.equal(sample.transportError, false);
+  assert.equal(sample.responseValidationError, true);
+  assert.equal(sample.errorCategory, 'response-validation');
+  assert.equal(sample.errorCode, 'RESPONSE_BODY_CAP');
+});
+
+test('Load summary aggregates only sanitized failure categories and codes', async () => {
+  const { summarizePreviewLoad } = await moduleUnderTest();
+  const secret = 'https://token:secret@example.invalid/private';
+  const summary = summarizePreviewLoad([
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 5, status: 0, transportError: true, errorCategory: 'transport', errorCode: 'NETWORK_FAILURE' },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 10_000, status: 0, transportError: true, errorCategory: 'timeout', errorCode: 'REQUEST_TIMEOUT' },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 3, status: 0, responseValidationError: true, errorCategory: 'response-validation', errorCode: 'RESPONSE_DOCUMENT' },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 2, status: 0, transportError: true, errorCategory: 'transport', errorCode: secret },
+    { bytes: 0, edgeDocumentCacheHit: false, latencyMs: 2, status: 0, transportError: true, errorCategory: 'transport', errorCode: 'ECONNREFUSED' }
+  ], 10_010);
+  assert.equal(summary.transportErrors, 4);
+  assert.equal(summary.responseValidationErrors, 1);
+  assert.deepEqual(summary.errorCategories, {
+    timeout: 1,
+    aborted: 0,
+    transport: 3,
+    'response-validation': 1
+  });
+  assert.deepEqual(summary.errorCodes, {
+    NETWORK_FAILURE: 1,
+    REQUEST_TIMEOUT: 1,
+    RESPONSE_DOCUMENT: 1,
+    ECONNREFUSED: 1
+  });
+  assert.equal(JSON.stringify(summary).includes(secret), false);
+});
+
+test('Preview load SLO rejects poor edge cache ratio and tail latency without relaxing limits', async () => {
+  const { evaluatePreviewLoad, PREVIEW_LOAD_STAGES } = await moduleUnderTest();
+  const outcome = evaluatePreviewLoad({
+    statuses: { 200: 99, 503: 1 },
+    transportErrors: 0,
+    requests: 500,
+    throughputRps: 100,
+    latencyMs: { p95: 1_001, p99: 2_501 },
+    edgeDocumentCacheHitRatio: 0.89
+  }, PREVIEW_LOAD_STAGES.expected);
+  assert.equal(outcome.passed, false);
+  assert.equal(outcome.failures.length, 4);
+});
+
+test('Preview load SLO cannot pass with a partial sample', async () => {
+  const { evaluatePreviewLoad, PREVIEW_LOAD_STAGES } = await moduleUnderTest();
+  const outcome = evaluatePreviewLoad({
+    statuses: { 200: 1 },
+    requests: 1,
+    transportErrors: 0,
+    throughputRps: 100,
+    latencyMs: { p95: 10, p99: 10 },
+    edgeDocumentCacheHitRatio: 1
+  }, PREVIEW_LOAD_STAGES.burst);
+  assert.equal(outcome.passed, false);
+  assert.match(outcome.failures[0], /expected 300/);
+});
+
+test('Burst reports all scheduled samples even when every post-warmup response fails', async () => {
+  const { runPreviewLoad } = await moduleUnderTest();
+  let warmupRequests = 0;
+  const appFetch = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/api/release-fingerprint') return Response.json(fingerprintPayload());
+    if (warmupRequests < 4) {
+      warmupRequests += 1;
+      const marker = pathname === '/' ? 'data-react-route="home" id="guide"'
+        : pathname === '/catalog' ? 'data-react-route="catalog" id="catalog-view"'
+          : 'data-react-route="catalog" id="venue-dialog"';
+      return htmlResponse(`<!doctype html><main ${marker}></main>`);
+    }
+    return new Response('unavailable', { status: 503, headers: { 'content-type': 'text/html' } });
+  };
+  const result = await runPreviewLoad({
+    baseUrl: preview,
+    allowedOrigin: preview,
+    deploymentId,
+    expectedCommitSha: commitSha,
+    projectId,
+    stageName: 'burst',
+    ...providerExpectation,
+    teamId,
+    vercelToken: 'token',
+    deploymentFetch: async () => Response.json(deploymentPayload()),
+    appFetch
+  });
+  assert.equal(result.summary.requests, 300);
+  assert.deepEqual(result.summary.statuses, { 503: 300 });
+  assert.equal(result.slo.passed, false);
+  assert.equal(result.slo.failures.some((failure) => /rolling/.test(failure)), false);
+});
+
+test('Preview load byte cap cancels a chunked body before buffering the remainder', async () => {
+  const { boundedBody } = await moduleUnderTest();
+  let cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      controller.enqueue(new Uint8Array(3));
+    },
+    cancel() {
+      cancelled = true;
+    }
+  });
+  await assert.rejects(boundedBody(new Response(body), 5), /byte cap/);
+  assert.equal(cancelled, true);
+});
+
+test('Full gate runs expected then burst then soak and emits immutable evidence', async () => {
+  const { runPreviewLoadGate } = await gateUnderTest();
+  const calls = [];
+  const evidenceManifest = {
+    deploymentId,
+    projectId,
+    commitSha,
+    expectedCommitSha: commitSha,
+    actualCommitSha: commitSha,
+    providerIdentity: { fingerprint: 'a'.repeat(43) }
+  };
+  const result = await runPreviewLoadGate({
+    baseUrl: preview,
+    allowedOrigin: preview,
+    expectedCommitSha: commitSha
+  }, {
+    runStage: async ({ stageName }) => {
+      calls.push(stageName);
+      return { stage: stageName, evidenceManifest, slo: { passed: true, failures: [] } };
+    },
+    now: () => new Date('2026-08-11T10:00:00.000Z')
+  });
+  assert.deepEqual(calls, ['expected', 'burst', 'soak']);
+  assert.equal(result.passed, true);
+  assert.equal(result.evidenceManifest.deploymentId, deploymentId);
+  assert.equal(result.evidenceManifest.projectId, projectId);
+  assert.equal(result.evidenceManifest.commitSha, commitSha);
+  assert.equal(result.evidenceManifest.expectedCommitSha, commitSha);
+  assert.equal(result.evidenceManifest.actualCommitSha, commitSha);
+  assert.equal(result.evidenceManifest.startedAt, '2026-08-11T10:00:00.000Z');
+  assert.deepEqual(result.notRun, []);
+});
+
+test('Full gate does not start soak unless expected and burst both pass', async () => {
+  const { runPreviewLoadGate } = await gateUnderTest();
+  const calls = [];
+  const evidenceManifest = {
+    deploymentId,
+    projectId,
+    commitSha,
+    expectedCommitSha: commitSha,
+    actualCommitSha: commitSha,
+    providerIdentity: { fingerprint: 'a'.repeat(43) }
+  };
+  const result = await runPreviewLoadGate({
+    baseUrl: preview,
+    allowedOrigin: preview,
+    expectedCommitSha: commitSha
+  }, {
+    runStage: async ({ stageName }) => {
+      calls.push(stageName);
+      return {
+        stage: stageName,
+        evidenceManifest,
+        slo: { passed: stageName !== 'burst', failures: stageName === 'burst' ? ['failed'] : [] }
+      };
+    }
+  });
+  assert.deepEqual(calls, ['expected', 'burst']);
+  assert.equal(result.passed, false);
+  assert.deepEqual(result.notRun, ['soak']);
+});
+
+test('Full gate rejects missing or mismatched commit evidence before advancing stages', async () => {
+  const { runPreviewLoadGate } = await gateUnderTest();
+  let calls = 0;
+  const runStage = async ({ stageName }) => {
+    calls += 1;
+    return {
+      stage: stageName,
+      evidenceManifest: {
+        deploymentId,
+        projectId,
+        commitSha,
+        expectedCommitSha: commitSha,
+        actualCommitSha: 'f'.repeat(40),
+        providerIdentity: { fingerprint: 'a'.repeat(43) }
+      },
+      slo: { passed: true, failures: [] }
+    };
+  };
+  await assert.rejects(
+    runPreviewLoadGate({ baseUrl: preview, allowedOrigin: preview }, { runStage }),
+    /exactly 40 hexadecimal/
+  );
+  assert.equal(calls, 0);
+  await assert.rejects(
+    runPreviewLoadGate({ baseUrl: preview, allowedOrigin: preview, expectedCommitSha: commitSha }, { runStage }),
+    /actual commit evidence does not match/
+  );
+  assert.equal(calls, 1);
+});

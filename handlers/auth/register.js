@@ -1,9 +1,12 @@
 const { email, json, methodNotAllowed, readJson, text } = require('../../lib/http');
 const { createManagedUser, isStrongPassword, normalizeUsername, publicUser, sessionCookie } = require('../../lib/identity');
-const { rateLimit } = require('../../lib/rate-limit');
+const { enforceRateLimit } = require('../../lib/rate-limit');
+const { requireSameOrigin } = require('../../lib/same-origin');
+const { PASSWORD_ERROR_MESSAGE } = require('../../password-policy-core.js');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
+  if (!requireSameOrigin(req, res)) return;
   try {
     const body = await readJson(req, 50_000);
     const name = text(body.name, 120);
@@ -11,10 +14,14 @@ module.exports = async function handler(req, res) {
     const address = email(body.email);
     const password = String(body.password || '');
     if (!name || !address || !/^[a-z0-9._-]{3,48}$/.test(username)) return json(res, 400, { message: 'Укажите имя, корректную почту и логин из 3–48 латинских букв или цифр.' });
-    const retryAfter = rateLimit(req, { scope: 'user-register', identifier: address, limit: 5, windowMs: 60 * 60_000 });
-    if (retryAfter) return json(res, 429, { message: 'Слишком много попыток регистрации. Повторите позже.' }, { 'Retry-After': String(retryAfter) });
+    if (!await enforceRateLimit(req, res, {
+      policy: 'auth-register',
+      scope: 'user-register',
+      identifier: address,
+      message: 'Слишком много попыток регистрации. Повторите позже.'
+    })) return;
     if (!isStrongPassword(password)) {
-      return json(res, 400, { message: 'Пароль должен содержать минимум 10 символов, букву и цифру.' });
+      return json(res, 400, { message: PASSWORD_ERROR_MESSAGE });
     }
     const profile = await createManagedUser({ email: address, password, displayName: name, username, role: 'customer' });
     res.setHeader('Set-Cookie', sessionCookie(profile));

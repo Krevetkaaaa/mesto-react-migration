@@ -1,9 +1,17 @@
 const { json, methodNotAllowed } = require('../../lib/http');
-const { adminSession } = require('../../lib/security');
+const { setAdminResponseHeaders } = require('../../lib/admin');
+const { AdminSessionRevocationError, activeAdminSession } = require('../../lib/admin-session-revocation');
 
-module.exports = function handler(req, res) {
+module.exports = async function handler(req, res) {
+  setAdminResponseHeaders(res);
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
-  const session = adminSession(req);
+  let session;
+  try {
+    session = await activeAdminSession(req);
+  } catch (error) {
+    if (!(error instanceof AdminSessionRevocationError)) throw error;
+    return json(res, 503, { authenticated: false, code: 'ADMIN_SESSION_UNAVAILABLE' });
+  }
   return json(res, session ? 200 : 401, session ? { authenticated: true, user: { login: session.sub, role: session.role } } : { authenticated: false });
 };
 

@@ -65,10 +65,27 @@
     applyTheme(document.documentElement.dataset.theme || readTheme(), false);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', connectThemeButtons, { once: true });
-  } else {
+  function observeThemeButtons() {
+    const root = document.body || document.documentElement;
+    const observer = new MutationObserver((records) => {
+      const addedThemeControl = records.some((record) => Array.from(record.addedNodes).some((node) => (
+        node instanceof Element
+        && (node.matches('[data-theme-toggle]') || node.querySelector('[data-theme-toggle]'))
+      )));
+      if (addedThemeControl) connectThemeButtons();
+    });
+    observer.observe(root, { childList: true, subtree: true });
+  }
+
+  function initializeThemeButtons() {
     connectThemeButtons();
+    observeThemeButtons();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeThemeButtons, { once: true });
+  } else {
+    initializeThemeButtons();
   }
 
   window.addEventListener('storage', (event) => {

@@ -1,28 +1,22 @@
-const { json, methodNotAllowed, queryValue, text } = require('../lib/http');
+const { json, methodNotAllowed, publicJson, queryValue, text } = require('../lib/http');
+const { publicCatalogCacheHeaders } = require('../lib/public-cache');
+const { enforceRateLimit } = require('../lib/rate-limit');
 const { createStore } = require('../lib/supabase');
 
-const requestBuckets = new Map();
-
-function clientAddress(req) {
-  return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || 'anonymous';
-}
-
-function isRateLimited(req) {
-  const now = Date.now();
-  const key = clientAddress(req);
-  const current = requestBuckets.get(key);
-  if (!current || now - current.startedAt > 60_000) {
-    requestBuckets.set(key, { startedAt: now, count: 1 });
-    return false;
-  }
-  current.count += 1;
-  return current.count > 30;
-}
+const SLUG_PART = '[a-z\\u0430-\\u044f\\u04510-9]+';
+const SLUG_PATTERN = new RegExp(`^${SLUG_PART}(?:-${SLUG_PART})*$`, 'u');
 
 function persistentItem(venue) {
+  if (typeof venue.slug !== 'string') throw new Error('Published venue has no canonical slug');
+  const rawSlug = venue.slug;
+  const slug = rawSlug.normalize('NFKC').trim().toLowerCase();
+  if (!slug || slug.length > 160 || slug !== rawSlug || !SLUG_PATTERN.test(slug)) {
+    throw new Error('Published venue has no canonical slug');
+  }
   return {
     id: `mesto-${venue.id}`,
     databaseId: venue.id,
+    slug,
     name: venue.title,
     city: venue.city || '',
     address: venue.address || '',
@@ -56,11 +50,16 @@ function dedupe(items) {
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
-  if (isRateLimited(req)) return json(res, 429, { message: 'Слишком много запросов. Попробуйте через минуту.' });
+  if (!await enforceRateLimit(req, res, {
+    policy: 'public-catalog',
+    scope: 'venues-list',
+    message: 'Слишком много запросов. Попробуйте через минуту.'
+  })) return;
 
   const city = text(queryValue(req.query.city), 80, 'all');
   const category = text(queryValue(req.query.category), 80);
   const query = text(queryValue(req.query.query), 120);
+  const summary = queryValue(req.query.summary) === '1';
   const normalizedQuery = query.toLowerCase().replace(/\s+/g, ' ').trim();
   const search = ['где поесть', 'все места', 'заведения'].includes(normalizedQuery) ? '' : query;
   const results = Math.min(Math.max(Number.parseInt(queryValue(req.query.results), 10) || 50, 1), 100);
@@ -68,6 +67,15 @@ module.exports = async function handler(req, res) {
   const store = createStore();
 
   if (!store.configured) {
+    if (summary) {
+      return json(res, 200, {
+        total: 0,
+        byCategory: {},
+        byCity: {},
+        source: 'database',
+        databaseConfigured: false
+      });
+    }
     return json(res, 200, {
       source: 'Место',
       city,
@@ -84,11 +92,18 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    if (summary) {
+      return publicJson(req, res, {
+        ...await store.publicCatalogSummary(),
+        source: 'database',
+        databaseConfigured: true
+      }, publicCatalogCacheHeaders());
+    }
     const page = await store.listPublishedPage({ city, category, search, limit: results, offset: skip });
     const items = dedupe(page.items.map(persistentItem));
     const found = Number.isFinite(page.total) ? page.total : skip + items.length;
     const nextSkip = skip + items.length < found ? skip + results : null;
-    return json(res, 200, {
+    return publicJson(req, res, {
       source: 'Место',
       city,
       query,
@@ -100,7 +115,7 @@ module.exports = async function handler(req, res) {
       persistentCount: items.length,
       databaseConfigured: true,
       items
-    });
+    }, publicCatalogCacheHeaders());
   } catch (error) {
     return json(res, error.statusCode || 502, { message: error.message || 'Не удалось загрузить каталог «Места».' });
   }

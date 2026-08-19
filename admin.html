@@ -115,7 +115,7 @@
         <label>Имя ресторатора<input name="name" autocomplete="name" placeholder="Например, Рики" required /></label>
         <label>Логин<input name="login" autocomplete="off" placeholder="riki" pattern="[A-Za-z0-9._-]{3,48}" title="От 3 до 48 латинских букв, цифр, точек, дефисов или подчёркиваний" required /></label>
         <label class="wide">E-mail <small>необязательно</small><input name="email" type="email" autocomplete="off" placeholder="owner@example.ru" /></label>
-        <label class="wide" data-password-field>Временный пароль<input name="password" type="password" autocomplete="new-password" minlength="10" placeholder="Оставьте пустым, чтобы создать автоматически" /><small>Не менее 10 символов. Если поле пустое, безопасный пароль создаст сервер.</small></label>
+        <label class="wide" data-password-field>Временный пароль<input name="password" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы создать автоматически" /><small data-password-hint></small></label>
         <label class="wide">Роль в кабинете<select name="membershipRole" required><option value="owner">Владелец — полный доступ</option><option value="manager">Управляющий — полный рабочий доступ</option><option value="content_editor">Редактор — карточка, меню и акции</option><option value="analyst">Аналитик — отзывы и статистика</option></select><small>Роль применяется ко всем выбранным заведениям.</small></label>
         <fieldset class="venue-assignment wide">
           <legend>Доступные заведения</legend>

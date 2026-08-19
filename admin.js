@@ -7,6 +7,7 @@ const editorForm = document.querySelector('#venue-editor-form');
 const merchantEditor = document.querySelector('#merchant-editor');
 const merchantForm = document.querySelector('#merchant-editor-form');
 const credentialsDialog = document.querySelector('#merchant-credentials');
+const passwordPolicyPromise = import('/password-policy.mjs');
 let visibleCredentials = null;
 let toastTimer;
 
@@ -356,6 +357,7 @@ editorForm.addEventListener('submit', async (event) => {
 });
 merchantForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  const passwordPolicy = await passwordPolicyPromise;
   const formData = new FormData(event.currentTarget);
   const id = String(formData.get('id') || '');
   const displayName = String(formData.get('name') || '').trim();
@@ -372,6 +374,10 @@ merchantForm.addEventListener('submit', async (event) => {
       const username = String(formData.get('login') || '').trim().toLowerCase();
       const email = String(formData.get('email') || '').trim().toLowerCase();
       const password = String(formData.get('password') || '');
+      if (password && !passwordPolicy.isStrongPassword(password)) {
+        toast(passwordPolicy.TEMPORARY_PASSWORD_ERROR_MESSAGE);
+        return;
+      }
       const payload = { displayName, username, venueIds, membershipRole };
       if (email) payload.email = email;
       if (password) payload.password = password;
@@ -388,6 +394,14 @@ merchantForm.addEventListener('submit', async (event) => {
   }
 });
 (async function boot() {
-  try { await api('/api/admin/session'); setAuthenticated(true); await loadDashboard(); }
+  try {
+    const passwordPolicy = await passwordPolicyPromise;
+    const passwordInput = merchantForm.elements.password;
+    passwordInput.minLength = passwordPolicy.PASSWORD_MIN_LENGTH;
+    passwordInput.pattern = passwordPolicy.PASSWORD_PATTERN;
+    passwordInput.title = passwordPolicy.TEMPORARY_PASSWORD_ERROR_MESSAGE;
+    document.querySelector('[data-password-hint]').textContent = passwordPolicy.TEMPORARY_PASSWORD_HINT;
+    await api('/api/admin/session'); setAuthenticated(true); await loadDashboard();
+  }
   catch { setAuthenticated(false); }
 })();

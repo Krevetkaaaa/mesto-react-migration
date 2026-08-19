@@ -1,3 +1,5 @@
+const passwordPolicyPromise = import('/password-policy.mjs');
+
 const venueData = {
   marea: { title: 'Баркас', type: 'Ресторан · Севастополь', rating: '4.9', reviews: 'редакционная оценка', price: 'от 1 300 ₽', image: 'assets/venue-restaurant-unsplash.jpg', text: 'Ресторан черноморской кухни с винным бутиком и спокойной атмосферой у воды. Подходит для неспешного ужина и особенного повода.', features: ['Средиземноморская кухня', 'Парковка рядом', 'Есть веранда'] },
   zerno: { title: 'Зерно', type: 'Кофейня · Симферополь', rating: '4.8', reviews: '191 отзыв', price: 'от 450 ₽', image: 'assets/venue-coffee-unsplash.jpg', text: 'Светлая спешелти-кофейня с фильтр-кофе, сезонной выпечкой и столиками для работы или долгого завтрака.', features: ['Можно с питомцами', 'Парковка рядом', 'Wi‑Fi'] },
@@ -31,6 +33,43 @@ const venueData = {
   'park-coffee': { title: 'Парк кофе', type: 'Кофейня · Симферополь', rating: '5.0', reviews: '527 оценок на Картах', price: 'По меню', image: 'assets/venue-coffee-unsplash.jpg', text: 'Публичная карточка на Яндекс Картах: кофейня на улице Фрунзе, 32.', features: ['Кофейня', 'ул. Фрунзе, 32', 'График на Картах'] },
   'coffee-85': { title: 'Кофейня 85°С', type: 'Кофейня · Симферополь', rating: '5.0', reviews: '50 оценок на Картах', price: 'Капучино от 150 ₽', image: 'assets/venue-coffee-unsplash.jpg', mapsUrl: 'https://yandex.ru/maps/org/kofeynya_85_s/183092255405/', text: 'Кофейня и кафе на бульваре Ленина, 10. В карточке Яндекс Карт отмечены кофе с собой, доставка, еда навынос и возможность прийти с собакой.', features: ['Можно с собакой', 'Кофе с собой', 'Еда навынос'] }
 };
+
+const venueCategoryByType = {
+  'Банкетный зал': 'Банкетные залы',
+  Бар: 'Бары',
+  Гастробар: 'Гастробары',
+  'Кальян-бар': 'Кальян-бары',
+  'Караоке-клуб': 'Караоке-клубы',
+  Кафе: 'Кафе',
+  Кондитерская: 'Кондитерские',
+  Кофейня: 'Кофейни',
+  Пиццерия: 'Пиццерии',
+  Ресторан: 'Рестораны',
+  'Суши-бар': 'Суши-бары',
+  'Фаст-кэжуал': 'Фаст-кэжуал'
+};
+
+const venueInventoryOverrides = {
+  'coffee-85': { pet: '0' },
+  pristan: { pet: '1' }
+};
+
+const staticVenueInventory = Object.entries(venueData).map(([id, venue]) => {
+  const [type, city = ''] = venue.type.split('·').map((part) => part.trim());
+  const search = [venue.title, venue.type, venue.text, ...venue.features].join(' ').toLowerCase();
+  const overrides = venueInventoryOverrides[id] || {};
+  return {
+    dataset: {
+      category: venueCategoryByType[type] || type,
+      city,
+      parking: /парков/i.test(search) ? '1' : '0',
+      pet: overrides.pet || (/питом|собак/i.test(search) ? '1' : '0'),
+      score: venue.rating,
+      search,
+      venue: id
+    }
+  };
+});
 
 const venueExtras = {
   marea: { hours: '12:00–00:00', wifi: true, menu: [['Тартар из тунца', 'с авокадо и цитрусом', '890 ₽'], ['Черноморская рыба', 'на гриле, сезонные овощи', '1 240 ₽'], ['Павлова с инжиром', 'воздушный крем и ягоды', '620 ₽']] },
@@ -221,6 +260,30 @@ function websiteLabel(url) {
 
 function phoneHref(phone) {
   return `tel:${String(phone || '').replace(/[^+\d]/g, '')}`;
+}
+
+function catalogHref({ query = '', city = 'all', category = 'all', cuisine = 'all', sort = 'popular', pet = false, parking = false } = {}) {
+  const params = new URLSearchParams();
+  const normalizedQuery = String(query || '').trim();
+  if (normalizedQuery) params.set('q', normalizedQuery);
+  if (city && city !== 'all') params.set('city', city);
+  if (category && category !== 'all') params.set('category', category);
+  if (cuisine && cuisine !== 'all') params.set('cuisine', cuisine);
+  if (sort && sort !== 'popular') params.set('sort', sort);
+  if (pet) params.set('pet', '1');
+  if (parking) params.set('parking', '1');
+  const search = params.toString();
+  return search ? `/catalog?${search}` : '/catalog';
+}
+
+function navigateToCatalog(state = {}) {
+  window.location.assign(catalogHref(state));
+}
+
+function venueHref(slug) {
+  const normalized = String(slug || '').normalize('NFKC').trim().toLowerCase();
+  if (!normalized || normalized.length > 160 || !/^[a-zа-яё0-9]+(?:-[a-zа-яё0-9]+)*$/iu.test(normalized)) return '';
+  return `/venue/${encodeURIComponent(normalized)}`;
 }
 
 function branchWord(count) {
@@ -451,7 +514,14 @@ function bindVenueCard(card) {
     const body = card.querySelector('.venue-body');
     if (body && !body.querySelector('.venue-curation-note')) body.insertAdjacentHTML('beforeend', '<span class="venue-curation-note"><svg aria-hidden="true"><use href="#logo-star"></use></svg>Рекомендует редакция «Места»</span>');
   }
-  card.addEventListener('click', () => openVenue(card.dataset.venue));
+  card.addEventListener('click', () => {
+    const href = venueHref(venueData[card.dataset.venue]?.slug);
+    if (href) {
+      window.location.assign(href);
+      return;
+    }
+    openVenue(card.dataset.venue);
+  });
   card.querySelectorAll('.fav').forEach((button) => button.addEventListener('click', (event) => {
     event.stopPropagation();
     toggleFavorite(card.dataset.venue, button);
@@ -522,6 +592,7 @@ function renderCatalog() {
 }
 
 function syncCatalogHeading() {
+  if (!catalogEyebrow || !catalogTitle || !catalogCopy) return;
   const category = catalogFilter;
   catalogEyebrow.textContent = category === 'all' ? 'Каталог мест' : `Категория · ${category}`;
   catalogTitle.textContent = category === 'all' ? 'Все места города' : category;
@@ -645,6 +716,7 @@ function createStoredVenueCards(items, fallbackCity) {
 
     venueData[id] = {
       title: item.name,
+      slug: item.slug || '',
       type: `${primaryCategory} · ${city}`,
       rating: item.rating ? String(item.rating) : '',
       reviews: item.reviewCount ? `${item.reviewCount} ${reviewWord(item.reviewCount)}` : '',
@@ -718,6 +790,59 @@ async function fetchCatalogPayload({ query = '', city = 'all', category = '', sk
   return payload;
 }
 
+async function fetchHomeCatalogSummary() {
+  const endpoint = new URL('/api/venues', window.location.origin);
+  endpoint.searchParams.set('summary', '1');
+  const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || 'Не удалось загрузить сводку каталога');
+  return payload;
+}
+
+function isCatalogCountMap(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Object.values(value).every((count) => Number.isInteger(count) && count >= 0);
+}
+
+function setTrailingText(element, text) {
+  const textNode = Array.from(element.childNodes).reverse().find((node) => node.nodeType === Node.TEXT_NODE);
+  if (textNode) textNode.textContent = text;
+  else element.append(document.createTextNode(text));
+}
+
+function applyHomeCatalogSummary(summary) {
+  if (summary?.source !== 'database' || summary.databaseConfigured !== true) return;
+  if (!Number.isInteger(summary.total) || summary.total < 0) return;
+  if (!isCatalogCountMap(summary.byCategory) || !isCatalogCountMap(summary.byCity)) return;
+  const format = (value) => new Intl.NumberFormat('ru-RU').format(value);
+
+  document.querySelectorAll('[data-venue-count]').forEach((counter) => {
+    counter.setAttribute('aria-label', format(summary.total));
+    counter.textContent = format(summary.total);
+  });
+  document.querySelectorAll('[data-venue-total-label]').forEach((label) => {
+    if (label.dataset.venueTotalLabel === 'venues') setTrailingText(label, ` ${venueWord(summary.total)}`);
+    else if (label.dataset.venueTotalLabel === 'places') setTrailingText(label, ` ${placeWord(summary.total)} уже в каталоге`);
+    else label.textContent = `${venueWord(summary.total)} в каталоге`;
+  });
+  document.querySelectorAll('[data-category-count]').forEach((label) => {
+    const count = summary.byCategory[label.dataset.categoryCount] || 0;
+    label.textContent = `${format(count)} ${placeWord(count)}`;
+  });
+  document.querySelectorAll('[data-city-count]').forEach((label) => {
+    const count = summary.byCity[label.dataset.cityCount] || 0;
+    label.textContent = count ? `${format(count)} ${placeWord(count)}` : 'Скоро';
+  });
+}
+
+async function loadHomeCatalogSummary() {
+  try {
+    applyHomeCatalogSummary(await fetchHomeCatalogSummary());
+  } catch (_) {
+    // Keep the server-rendered editorial fallback when the summary is unavailable.
+  }
+}
+
 async function loadCatalogVenues({ query = '', city = 'all', category = '', force = false } = {}) {
   const requestSequence = ++catalogRequestSequence;
   clearStoredVenues();
@@ -760,21 +885,9 @@ async function loadMoreCatalogVenues() {
   }
 }
 
-function inventoryCards() {
-  const result = [];
-  const titles = new Set();
-  [...cards, ...homeStoredVenueCards].forEach((card) => {
-    const title = normalizedVenueTitle(card);
-    if (!title || titles.has(title)) return;
-    titles.add(title);
-    result.push(card);
-  });
-  return result;
-}
-
 function renderHomepageStoredVenues(items, city) {
   venueGrid.querySelectorAll('.home-stored-card').forEach((card) => card.remove());
-  const staticTitles = new Set(cards.map(normalizedVenueTitle));
+  const staticTitles = new Set(staticVenueInventory.map(normalizedVenueTitle));
   homeStoredVenueCards = createStoredVenueCards(items, city)
     .filter((card) => !staticTitles.has(normalizedVenueTitle(card)));
   homeStoredVenueCards.slice(0, 3).forEach((card) => {
@@ -782,8 +895,6 @@ function renderHomepageStoredVenues(items, city) {
     venueGrid.appendChild(card);
     bindVenueCard(card);
   });
-  setupVenueCounters();
-  syncCatalogTotals();
   observeMotionScope(venueGrid);
 }
 
@@ -792,10 +903,7 @@ async function loadHomepageVenues() {
     const city = heroCityInput?.value || 'Симферополь';
     const payload = await fetchCatalogPayload({ city });
     renderHomepageStoredVenues(Array.isArray(payload.items) ? payload.items : [], payload.city || city);
-  } catch (_) {
-    setupVenueCounters();
-    syncCatalogTotals();
-  }
+  } catch (_) {}
 }
 
 function catalogRequestParameters(category = catalogFilter) {
@@ -854,28 +962,6 @@ function renderFavorites() {
   });
 }
 
-function setupVenueCounters() {
-  const counters = Array.from(document.querySelectorAll('[data-venue-count]'));
-  if (!counters.length) return;
-  const target = inventoryCards().length;
-  const format = (value) => new Intl.NumberFormat('ru-RU').format(value);
-
-  counters.forEach((counter) => {
-    counter.setAttribute('aria-label', format(target));
-    counter.textContent = format(target);
-  });
-  const collectionMatches = {
-    breakfast: (card) => /Кофейни|Кафе|Кондитерские|Пекарни/.test(card.dataset.categories || card.dataset.category || '') || /завтрак|кофе|выпеч/.test(card.dataset.search || ''),
-    sea: (card) => ['Ялта', 'Севастополь', 'Алушта', 'Феодосия', 'Судак', 'Балаклава', 'Гурзуф'].includes(card.dataset.city),
-    date: (card) => Number(card.dataset.score || 0) >= 4.8 && /Рестораны|Бары|Гастробары/.test(card.dataset.categories || card.dataset.category || ''),
-    pet: (card) => card.dataset.pet === '1'
-  };
-  Object.entries(collectionMatches).forEach(([name, predicate]) => {
-    const count = inventoryCards().filter(predicate).length;
-    document.querySelectorAll(`[data-collection-count="${name}"]`).forEach((label) => { label.textContent = `${count} ${placeWord(count)}`; });
-  });
-}
-
 function placeWord(count) {
   const remainder = Math.abs(count) % 100;
   const lastDigit = remainder % 10;
@@ -894,6 +980,15 @@ function cardWord(count) {
   return 'карточек';
 }
 
+function venueWord(count) {
+  const remainder = Math.abs(count) % 100;
+  const lastDigit = remainder % 10;
+  if (remainder > 10 && remainder < 20) return 'заведений';
+  if (lastDigit === 1) return 'заведение';
+  if (lastDigit >= 2 && lastDigit <= 4) return 'заведения';
+  return 'заведений';
+}
+
 function reviewWord(count) {
   const remainder = Math.abs(count) % 100;
   const lastDigit = remainder % 10;
@@ -901,23 +996,6 @@ function reviewWord(count) {
   if (lastDigit === 1) return 'отзыв';
   if (lastDigit >= 2 && lastDigit <= 4) return 'отзыва';
   return 'отзывов';
-}
-
-function syncCatalogTotals() {
-  const allCards = inventoryCards();
-  document.querySelectorAll('[data-category-count]').forEach((label) => {
-    const count = allCards.filter((card) => String(card.dataset.categories || card.dataset.category || '').split('|').includes(label.dataset.categoryCount)).length;
-    label.textContent = `${count} ${placeWord(count)}`;
-  });
-  document.querySelectorAll('[data-city-count]').forEach((label) => {
-    const count = allCards.filter((card) => card.dataset.city === label.dataset.cityCount).length;
-    label.textContent = count ? `${count} ${placeWord(count)}` : 'Скоро';
-    const cityButton = label.closest('[data-city-filter]');
-    if (cityButton) {
-      cityButton.disabled = count === 0;
-      cityButton.setAttribute('aria-disabled', String(count === 0));
-    }
-  });
 }
 
 const motionQueries = '.section-heading, .app-promo-copy, .app-phones, .newsletter, .place-stats, .platform, .categories-view-inner, .catalog-inner, .profile-inner, .site-footer';
@@ -1220,12 +1298,11 @@ registerAdditionalCategories();
 setupPrettySelects();
 cards.forEach(bindVenueCard);
 renderFavorites();
-setupVenueCounters();
-syncCatalogTotals();
 setupMotion();
 setupPremiumDepth();
 setupPhoneDemo();
 syncCatalogHeading();
+if (document.querySelector('main')?.dataset.homeCatalogSource !== 'database') loadHomeCatalogSummary();
 loadHomepageVenues();
 document.querySelectorAll('.saved-list [data-venue]').forEach((card) => card.addEventListener('click', () => openVenue(card.dataset.venue)));
 dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
@@ -1234,64 +1311,41 @@ dialog.addEventListener('click', (event) => {
   if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
 });
 const filterIcons = { Кофейни: 'coffee', Рестораны: 'restaurant', Кафе: 'coffee', Кондитерские: 'cake', 'Фаст-кэжуал': 'bolt', Бары: 'cocktail', 'Караоке-клубы': 'cocktail', 'Суши-бары': 'restaurant', 'Кальян-бары': 'cocktail', 'Банкетные залы': 'restaurant', Кейтеринг: 'restaurant', 'Доставка еды': 'bolt', Столовые: 'restaurant', Пекарни: 'cake', 'Быстрое питание': 'bolt' };
-document.querySelectorAll('.quick-filters button').forEach((filter) => {
+document.querySelectorAll('.quick-filters [data-filter]').forEach((filter) => {
   const icon = filterIcons[filter.dataset.filter];
   if (icon && !filter.querySelector('svg')) filter.insertAdjacentHTML('afterbegin', `<svg aria-hidden="true"><use href="#${icon}"></use></svg>`);
 });
-document.querySelectorAll('.quick-filters button').forEach((filter) => filter.addEventListener('click', () => {
-  document.querySelectorAll('.quick-filters button').forEach((button) => button.classList.remove('is-selected'));
-  filter.classList.add('is-selected');
-  openCatalog(filter.dataset.filter);
-  loadCatalogVenues(catalogRequestParameters(filter.dataset.filter));
+document.querySelectorAll('.quick-filters [data-filter]').forEach((filter) => filter.addEventListener('click', (event) => {
+  event.preventDefault();
+  navigateToCatalog({ category: filter.dataset.filter });
 }));
 document.querySelectorAll('[data-filter-category]').forEach((category) => category.addEventListener('click', (event) => {
   event.preventDefault();
-  openCatalog(category.dataset.filterCategory);
-  loadCatalogVenues(catalogRequestParameters(category.dataset.filterCategory));
+  navigateToCatalog({ category: category.dataset.filterCategory });
 }));
 document.querySelectorAll('[data-collection]').forEach((collection) => collection.addEventListener('click', (event) => {
   event.preventDefault();
   const type = collection.dataset.collection;
   if (type === 'breakfast') {
-    openCatalog('Кофейни');
-    loadCatalogVenues({ city: 'all', category: 'Кофейни' });
+    navigateToCatalog({ category: 'Кофейни' });
     return;
   }
   if (type === 'sea') {
-    openCatalog('Рестораны');
-    catalogCity = 'Ялта';
-    const citySelector = document.querySelector('#catalog-city');
-    citySelector.value = 'Ялта';
-    syncPrettySelect(citySelector);
-    renderCatalog();
-    loadCatalogVenues({ city: 'Ялта', category: 'Рестораны' });
+    navigateToCatalog({ city: 'Ялта', category: 'Рестораны' });
     return;
   }
   if (type === 'pet') {
-    openCatalog('all');
-    catalogPet = true;
-    document.querySelector('#catalog-pet').checked = true;
-    renderCatalog();
-    loadCatalogVenues(catalogRequestParameters());
+    navigateToCatalog({ pet: true });
     return;
   }
-  openCatalog('Рестораны');
-  loadCatalogVenues({ city: 'all', category: 'Рестораны' });
+  navigateToCatalog({ category: 'Рестораны' });
 }));
 document.querySelector('#venue-search').addEventListener('submit', (event) => {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
-  const query = String(formData.get('query') || '').trim() || 'где поесть';
+  const query = String(formData.get('query') || '').trim();
   const city = String(formData.get('city') || 'Симферополь');
-  openCatalog('all');
-  catalogCity = city;
-  const citySelector = document.querySelector('#catalog-city');
-  if (Array.from(citySelector.options).some((option) => option.value === city)) {
-    citySelector.value = city;
-    syncPrettySelect(citySelector);
-  }
-  renderCatalog();
-  loadCatalogVenues({ query, city });
+  navigateToCatalog({ query, city });
 });
 document.querySelector('#catalog-refresh')?.addEventListener('click', () => loadCatalogVenues({ ...catalogRequestParameters(), force: true }));
 catalogLoadMore?.addEventListener('click', loadMoreCatalogVenues);
@@ -1304,28 +1358,21 @@ document.querySelectorAll('[data-view]').forEach((button) => button.addEventList
   });
   document.querySelectorAll('[data-dashboard]').forEach((dashboard) => dashboard.classList.toggle('is-visible', dashboard.dataset.dashboard === view));
 }));
-document.querySelectorAll('[data-show-all]').forEach((button) => button.addEventListener('click', () => {
-  openCatalog('all');
-  loadCatalogVenues(catalogRequestParameters());
+document.querySelectorAll('[data-show-all]').forEach((button) => button.addEventListener('click', (event) => {
+  event.preventDefault();
+  navigateToCatalog();
 }));
 document.querySelectorAll('[data-open-categories]').forEach((button) => button.addEventListener('click', (event) => {
   event.preventDefault();
   openCategories();
 }));
-document.querySelectorAll('[data-show-cities]').forEach((button) => button.addEventListener('click', () => {
-  openCatalog('all');
-  loadCatalogVenues(catalogRequestParameters());
+document.querySelectorAll('[data-show-cities]').forEach((button) => button.addEventListener('click', (event) => {
+  event.preventDefault();
+  navigateToCatalog();
 }));
-document.querySelectorAll('[data-city-filter]').forEach((button) => button.addEventListener('click', () => {
-  openCatalog('all');
-  catalogCity = button.dataset.cityFilter;
-  const selector = document.querySelector('#catalog-city');
-  if (Array.from(selector.options).some((option) => option.value === catalogCity)) {
-    selector.value = catalogCity;
-    syncPrettySelect(selector);
-  }
-  renderCatalog();
-  loadCatalogVenues(catalogRequestParameters());
+document.querySelectorAll('[data-city-filter]').forEach((button) => button.addEventListener('click', (event) => {
+  event.preventDefault();
+  navigateToCatalog({ city: button.dataset.cityFilter });
 }));
 document.querySelectorAll('[data-home-link]').forEach((link) => link.addEventListener('click', (event) => {
   event.preventDefault();
@@ -1615,6 +1662,15 @@ document.querySelector('#auth-form')?.addEventListener('submit', async (event) =
     setFormPending(form, false, '');
   }
 });
+const registerPasswordInput = document.querySelector('#register-form [name="password"]');
+void passwordPolicyPromise.then((policy) => {
+  if (!registerPasswordInput) return;
+  registerPasswordInput.minLength = policy.PASSWORD_MIN_LENGTH;
+  registerPasswordInput.pattern = policy.PASSWORD_PATTERN;
+  registerPasswordInput.placeholder = policy.PASSWORD_HINT;
+  registerPasswordInput.title = policy.PASSWORD_ERROR_MESSAGE;
+});
+
 document.querySelector('#register-form')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1752,6 +1808,36 @@ document.querySelector('#submission-form')?.addEventListener('submit', async (ev
 const mobileNav = document.querySelector('.mobile-nav');
 const mobileMenuToggle = document.querySelector('.mobile-menu-toggle');
 let mobileMenuReturnFocus = null;
+let mobileMenuBackgroundState = [];
+function setMobileMenuBackgroundInert(inert) {
+  if (inert) {
+    if (mobileMenuBackgroundState.length) return;
+    mobileMenuBackgroundState = Array.from(mobileNav?.parentElement?.children || [])
+      .filter((element) => element !== mobileNav)
+      .map((element) => ({
+        element,
+        inert: element.getAttribute('inert'),
+        ariaHidden: element.getAttribute('aria-hidden')
+      }));
+    mobileMenuBackgroundState.forEach(({ element }) => {
+      element.setAttribute('inert', '');
+      element.setAttribute('aria-hidden', 'true');
+    });
+    return;
+  }
+  mobileMenuBackgroundState.forEach(({ element, inert: previousInert, ariaHidden }) => {
+    if (previousInert === null) element.removeAttribute('inert');
+    else element.setAttribute('inert', previousInert);
+    if (ariaHidden === null) element.removeAttribute('aria-hidden');
+    else element.setAttribute('aria-hidden', ariaHidden);
+  });
+  mobileMenuBackgroundState = [];
+}
+function mobileMenuFocusableElements() {
+  if (!mobileNav) return [];
+  return Array.from(mobileNav.querySelectorAll('button:not([disabled]),a[href]'))
+    .filter((element) => !element.hidden && element.tabIndex >= 0);
+}
 function setMobileMenu(open) {
   if (!mobileNav || !mobileMenuToggle) return;
   if (open) mobileMenuReturnFocus = document.activeElement;
@@ -1759,8 +1845,13 @@ function setMobileMenu(open) {
   mobileMenuToggle.setAttribute('aria-expanded', String(open));
   mobileMenuToggle.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
   document.body.classList.toggle('has-mobile-menu', open);
-  if (open) window.setTimeout(() => mobileNav.querySelector('.mobile-nav-close')?.focus(), 0);
-  else if (mobileMenuReturnFocus instanceof HTMLElement) mobileMenuReturnFocus.focus();
+  setMobileMenuBackgroundInert(open);
+  if (open) mobileNav.querySelector('.mobile-nav-close')?.focus({ preventScroll: true });
+  else {
+    const returnFocus = mobileMenuReturnFocus;
+    mobileMenuReturnFocus = null;
+    if (returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
+  }
 }
 mobileMenuToggle?.addEventListener('click', () => setMobileMenu(mobileNav?.hidden));
 mobileNav?.querySelector('.mobile-nav-close')?.addEventListener('click', () => setMobileMenu(false));
@@ -1769,19 +1860,19 @@ mobileNav?.addEventListener('click', (event) => {
 });
 document.addEventListener('keydown', (event) => {
   if (!mobileNav || mobileNav.hidden) return;
-  if (event.key === 'Escape') return setMobileMenu(false);
-  if (event.key !== 'Tab') return;
-  const focusable = Array.from(mobileNav.querySelectorAll('button:not([disabled]),a[href]')).filter((element) => !element.hidden);
-  if (!focusable.length) return;
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
+  if (event.key === 'Escape') {
     event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
+    return setMobileMenu(false);
   }
+  if (event.key !== 'Tab') return;
+  const focusable = mobileMenuFocusableElements();
+  if (!focusable.length) return;
+  const activeIndex = focusable.indexOf(document.activeElement);
+  const nextIndex = event.shiftKey
+    ? (activeIndex <= 0 ? focusable.length - 1 : activeIndex - 1)
+    : (activeIndex < 0 || activeIndex === focusable.length - 1 ? 0 : activeIndex + 1);
+  event.preventDefault();
+  focusable[nextIndex].focus();
 });
 
 loadAuthProviders();

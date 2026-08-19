@@ -1,10 +1,25 @@
 const { json, methodNotAllowed, queryValue, text } = require('../../lib/http');
-const { startExternalOAuth } = require('../../lib/oauth-flow');
+const { oauthError, redirectToCanonicalOAuthStart, startExternalOAuth } = require('../../lib/oauth-flow');
+const { enforceRateLimit } = require('../../lib/rate-limit');
 const { configuration } = require('../../lib/supabase');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
   const provider = text(queryValue(req.query?.provider), 30).toLowerCase();
+  if (['google', 'vk', 'yandex'].includes(provider)) {
+    try {
+      const redirected = redirectToCanonicalOAuthStart(req, res, provider);
+      if (redirected) return redirected;
+    } catch (error) {
+      return oauthError(res, error);
+    }
+  }
+  if (!await enforceRateLimit(req, res, {
+    policy: 'oauth',
+    scope: 'oauth-start',
+    identifier: provider,
+    message: 'Слишком много попыток входа через внешний сервис.'
+  })) return;
   if (provider === 'vk' || provider === 'yandex') return startExternalOAuth(req, res, provider);
   if (provider !== 'google') return json(res, 503, { message: 'Этот способ входа ещё не подключён.' });
   const config = configuration();
@@ -15,7 +30,7 @@ module.exports = async function handler(req, res) {
   } catch {
     return json(res, 503, { message: 'Публичный адрес сервиса настроен некорректно.' });
   }
-  const target = `${config.url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(`${origin}/`)}`;
+  const target = `${config.url}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(`${origin}/login`)}`;
   res.statusCode = 302;
   res.setHeader('Location', target);
   return res.end();

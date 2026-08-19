@@ -1,17 +1,134 @@
 {
-  "cleanUrls": true,
-  "rewrites": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "regions": [
+    "fra1"
+  ],
+  "builds": [
     {
-      "source": "/api/:route*",
-      "destination": "/api/router?route=:route*"
+      "src": "package.json",
+      "use": "@vercel/remix-builder@5.9.2",
+      "config": {
+        "framework": "react-router",
+        "zeroConfig": true
+      }
+    },
+    {
+      "src": "api/router.js",
+      "use": "@vercel/node@5.9.5",
+      "config": {
+        "zeroConfig": true
+      }
     }
   ],
-  "headers": [
+  "crons": [
     {
-      "source": "/diagrams/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
-      ]
+      "path": "/api/cron/media-reaper",
+      "schedule": "17 3 * * *"
+    }
+  ],
+  "routes": [
+    {
+      "src": "^/(.*)$",
+      "headers": {
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/index\\.html/?$",
+      "headers": {
+        "Location": "/"
+      },
+      "status": 308
+    },
+    {
+      "src": "^/(help|merchant|admin)\\.html/?$",
+      "headers": {
+        "Location": "/$1"
+      },
+      "status": 308
+    },
+    {
+      "src": "^/(help|merchant|admin)/$",
+      "headers": {
+        "Location": "/$1"
+      },
+      "status": 308
+    },
+    {
+      "src": "^/diagrams/(.*)$",
+      "headers": {
+        "X-Content-Type-Options": "nosniff"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/api(?:/(.*))?/?$",
+      "dest": "/api/router?route=$1"
+    },
+    {
+      "src": "^/admin$",
+      "headers": {
+        "Location": "/admin/overview",
+        "Cache-Control": "private, no-store, max-age=0",
+        "Vary": "Cookie",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex"
+      },
+      "status": 302
+    },
+    {
+      "src": "^/merchant$",
+      "headers": {
+        "Location": "/merchant/overview",
+        "Cache-Control": "private, no-store, max-age=0",
+        "Vary": "Cookie",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex"
+      },
+      "status": 302
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "^/city(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "city/:citySlug.data"
+    },
+    {
+      "src": "^/city(?:/([^/#?]+?))[/#?]?$",
+      "dest": "city/:citySlug"
+    },
+    {
+      "src": "^/venue(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "venue/:venueSlug.data"
+    },
+    {
+      "src": "^/venue(?:/([^/#?]+?))[/#?]?$",
+      "dest": "venue/:venueSlug"
+    },
+    {
+      "src": "^/merchant(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "merchant/:view.data"
+    },
+    {
+      "src": "^/merchant(?:/([^/#?]+?))[/#?]?$",
+      "dest": "merchant/:view"
+    },
+    {
+      "src": "^/admin(?:/([^/#?]+?))\\.data[/#?]?$",
+      "dest": "admin/:view.data"
+    },
+    {
+      "src": "^/admin(?:/([^/#?]+?))[/#?]?$",
+      "dest": "admin/:view"
+    },
+    {
+      "src": ".*",
+      "status": 404
     }
   ]
 }
